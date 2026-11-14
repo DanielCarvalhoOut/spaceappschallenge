@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Mantenha o connect-src igual ao apiBase do config.js. Não há scripts nem estilos inline. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src https://servicodados.ibge.gov.br http://localhost:8787 http://127.0.0.1:8787; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src https://servicodados.ibge.gov.br https://power.larc.nasa.gov http://localhost:8787 http://127.0.0.1:8787; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>Monitor Cinder · Padrões históricos de fogo em Goiás</title>
   <link rel="stylesheet" href="mapa.css">
@@ -144,6 +144,24 @@
         <section class="block">
           <h3><span data-i18n="block.compare"></span> <small data-i18n="block.compareSmall"></small></h3>
           <div id="compare" class="compare"></div>
+        </section>
+
+        <!-- A. Harmonização Espacial (DBSCAN/H3) + FRP (MW) & Escala de Recursos -->
+        <section class="block">
+          <h3><span data-i18n="block.resources"></span> <small data-i18n="block.resourcesSmall"></small></h3>
+          <div id="resources-box" class="intel-box"></div>
+        </section>
+
+        <!-- B. Calendário de Focos Raízes & Histórico (2000–Presente) -->
+        <section class="block">
+          <h3><span data-i18n="block.rootFires"></span> <small data-i18n="block.rootFiresSmall"></small></h3>
+          <div id="root-fires-box" class="intel-box"></div>
+        </section>
+
+        <!-- C. Clima (NASA POWER) & Risco de Ignição / Propagação -->
+        <section class="block">
+          <h3><span data-i18n="block.predictability"></span> <small data-i18n="block.predictabilitySmall"></small></h3>
+          <div id="predictability-box" class="intel-box"></div>
         </section>
 
         <section class="block">
