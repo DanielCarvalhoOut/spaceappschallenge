@@ -2,12 +2,7 @@
  * Monitor Cinder map engine (original code, no dependencies).
  * Canvas 2D + Path2D choropleth for Goiás in the full context of Brazil.
  *
- * Palette profile:
- *   --olive-leaf:   #606c38
- *   --black-forest: #283618
- *   --cornsilk:     #fefae0
- *   --sunlit-clay:  #dda15e
- *   --copperwood:   #bc6c25
+ * Palette profile: black/gray interface; map fills are one red ramp starting at white.
  *
  * Interactive & Performance Architecture:
  * - Full Brazil UF backdrop (dimmed/opaque) surrounding Goiás (100% vibrant).
@@ -108,28 +103,19 @@
   }
   const contrast = (l1, l2) => (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 
-  /* Choropleth Ramps tuned to Olive Leaf (#606c38), Black Forest (#283618), Cornsilk (#fefae0), Sunlit Clay (#dda15e) & Copperwood (#bc6c25) */
+  /*
+   * Choropleth ramps: one red scale starting at white, the same in both themes.
+   * - sequential (hotspot count, log scale): white = no/few hotspots, deep red = most.
+   * - "diverging" (anomaly z, -3..+3): white = well below the historical pattern,
+   *   mid red = typical, deep red = well above it.
+   */
+  const REDS = makeRamp([
+    { t: 0, hex: '#ffffff' }, { t: 0.25, hex: '#fcbba1' }, { t: 0.5, hex: '#fb6a4a' },
+    { t: 0.75, hex: '#cb181d' }, { t: 1, hex: '#67000d' },
+  ]);
   const RAMPS = {
-    diverging: {
-      dark: makeRamp([
-        { t: 0, hex: '#606c38' }, { t: 0.35, hex: '#7f8c4f' }, { t: 0.5, hex: '#344520' },
-        { t: 0.68, hex: '#dda15e' }, { t: 0.86, hex: '#bc6c25' }, { t: 1, hex: '#fefae0' },
-      ]),
-      light: makeRamp([
-        { t: 0, hex: '#606c38' }, { t: 0.35, hex: '#a3ad78' }, { t: 0.5, hex: '#f4eed0' },
-        { t: 0.68, hex: '#dda15e' }, { t: 0.86, hex: '#bc6c25' }, { t: 1, hex: '#283618' },
-      ]),
-    },
-    sequential: {
-      dark: makeRamp([
-        { t: 0, hex: '#283618' }, { t: 0.35, hex: '#606c38' },
-        { t: 0.7, hex: '#bc6c25' }, { t: 1, hex: '#fefae0' },
-      ]),
-      light: makeRamp([
-        { t: 0, hex: '#fefae0' }, { t: 0.35, hex: '#dda15e' },
-        { t: 0.7, hex: '#bc6c25' }, { t: 1, hex: '#283618' },
-      ]),
-    },
+    diverging: { dark: REDS, light: REDS },
+    sequential: { dark: REDS, light: REDS },
   };
 
   /* ---------- Geometry ---------- */
@@ -213,8 +199,8 @@
         anchor,
         samplePts,
         areaKm2: totalArea,
-        fill: '#606c38',
-        ink: '#fefae0',
+        fill: '#3a3a3a',
+        ink: '#f5f5f5',
         labelW: -1,
       });
     }
@@ -285,7 +271,7 @@
       focusMix: 0, focusFrom: 0, focusTo: 0, focusT0: 0, focusDur: 340,
       switchMix: 1, switchT0: 0, switchDur: 300,
       pulse: null, intro: null,
-      listeners: { hover: [], select: [], sphere: [], view: [] }, colors: null,
+      listeners: { hover: [], select: [], sphere: [], view: [] }, colors: null, noFire: new Set(),
       frame: 0, dirtyBase: false, dirtyOver: false,
       flight: null, wheel: null, inertia: null, drag: null, pinch: null, pointers: new Map(), hoverReq: null,
     };
@@ -296,22 +282,22 @@
       const v = (n, d) => cs.getPropertyValue(n).trim() || d;
       const isLight = st.theme === 'light';
       st.colors = {
-        border: v('--map-border', isLight ? 'rgba(40,54,24,.24)' : 'rgba(254,250,224,.20)'),
-        outerStroke: isLight ? 'rgba(188, 108, 37, 0.72)' : 'rgba(221, 161, 94, 0.65)',
-        brazilFill: isLight ? '#e5dec0' : '#212d14',
-        brazilBorder: isLight ? 'rgba(40, 54, 24, 0.18)' : 'rgba(254, 250, 224, 0.14)',
-        brazilOuter: isLight ? 'rgba(96, 108, 56, 0.34)' : 'rgba(221, 161, 94, 0.24)',
-        brazilText: isLight ? 'rgba(40, 54, 24, 0.45)' : 'rgba(254, 250, 224, 0.36)',
-        gridLine: isLight ? 'rgba(40, 54, 24, 0.06)' : 'rgba(254, 250, 224, 0.05)',
-        gridText: isLight ? 'rgba(40, 54, 24, 0.38)' : 'rgba(254, 250, 224, 0.32)',
-        nodata: v('--map-nodata', '#2f3e1c'),
-        hover: v('--map-hover', '#fefae0'),
-        hoverFill: v('--map-hover-fill', 'rgba(254,250,224,.15)'),
-        select: v('--map-select', '#dda15e'),
-        accent: v('--accent', '#bc6c25'),
-        halo: v('--map-halo', 'rgba(22,31,13,.84)'),
-        inkDark: v('--ink-on-light', '#283618'),
-        inkLight: v('--ink-on-dark', '#fefae0'),
+        border: v('--map-border', isLight ? 'rgba(0,0,0,.28)' : 'rgba(0,0,0,.35)'),
+        outerStroke: isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.6)',
+        brazilFill: isLight ? '#d6d6d6' : '#4a4a4a',
+        brazilBorder: isLight ? 'rgba(0, 0, 0, 0.16)' : 'rgba(255, 255, 255, 0.12)',
+        brazilOuter: isLight ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.22)',
+        brazilText: isLight ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.36)',
+        gridLine: isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.05)',
+        gridText: isLight ? 'rgba(0, 0, 0, 0.38)' : 'rgba(255, 255, 255, 0.32)',
+        nodata: v('--map-nodata', '#2a2a2a'),
+        hover: v('--map-hover', '#ffffff'),
+        hoverFill: v('--map-hover-fill', 'rgba(255,255,255,.14)'),
+        select: v('--map-select', '#ffffff'),
+        accent: v('--accent', '#c62828'),
+        halo: v('--map-halo', 'rgba(0,0,0,.84)'),
+        inkDark: v('--ink-on-light', '#111111'),
+        inkLight: v('--ink-on-dark', '#ffffff'),
         font: v('--map-font', '600 11.5px system-ui, sans-serif'),
         fontStrong: v('--map-font-strong', '700 13px system-ui, sans-serif'),
         monoFont: '600 10px ui-monospace, "Cascadia Mono", Consolas, monospace',
@@ -319,7 +305,7 @@
     }
 
     function colorFor(value, scaleOverride) {
-      if (value === null || value === undefined || !Number.isFinite(value)) return st.colors ? st.colors.nodata : '#2f3e1c';
+      if (value === null || value === undefined || !Number.isFinite(value)) return st.colors ? st.colors.nodata : '#2a2a2a';
       const s = scaleOverride || st.scale;
       const ramp = RAMPS[s.type === 'sequential' ? 'sequential' : 'diverging'][st.theme === 'light' ? 'light' : 'dark'];
       const t = s.type === 'sequential'
@@ -330,8 +316,11 @@
 
     function recolor() {
       const dl = relLuminance(st.colors.inkDark), ll = relLuminance(st.colors.inkLight);
+      const floor = colorFor(st.scale.type === 'sequential' ? 0 : st.scale.min);
       for (const f of st.features) {
-        f.fill = colorFor(st.values.get(f.id));
+        const v = st.values.get(f.id);
+        // No hotspots and no history to compare with: paint the start of the scale (white), not "no data".
+        f.fill = (v === null || v === undefined) && st.noFire.has(f.id) ? floor : colorFor(v);
         const L = relLuminance(f.fill);
         f.ink = contrast(L, dl) >= contrast(L, ll) ? st.colors.inkDark : st.colors.inkLight;
       }
@@ -756,7 +745,8 @@
 
         const alpha = f.id === st.hover || inSphere ? 0.98 : neighborAlpha;
         ctx.globalAlpha = alpha;
-        const haloColor = f.ink === st.colors.inkLight ? st.colors.halo : 'rgba(254,250,224,.82)';
+        // Halo always opposes the ink: light text gets a dark halo (also on dark-red fills in the light theme).
+        const haloColor = f.ink === st.colors.inkLight ? 'rgba(0,0,0,.78)' : 'rgba(255,255,255,.82)';
 
         if (showFullName) {
           ctx.font = st.colors.font;
@@ -806,9 +796,9 @@
       // 1. Flat 2D Circle Fill & Border
       ctx.beginPath();
       ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
-      ctx.fillStyle = isPreview ? 'rgba(221, 161, 94, 0.10)' : 'rgba(221, 161, 94, 0.16)';
+      ctx.fillStyle = isPreview ? 'rgba(198, 40, 40, 0.10)' : 'rgba(198, 40, 40, 0.16)';
       ctx.fill();
-      ctx.strokeStyle = isPreview ? 'rgba(221, 161, 94, 0.72)' : st.colors.select;
+      ctx.strokeStyle = isPreview ? 'rgba(198, 40, 40, 0.72)' : st.colors.select;
       ctx.lineWidth = isPreview ? 1.5 : 2;
       if (isPreview) ctx.setLineDash([6, 4]);
       ctx.stroke();
@@ -838,7 +828,7 @@
         const py = Math.max(8, cy - rPx - ph - 6);
 
         roundRectPath(ctx, px, py, pw, ph, 6);
-        ctx.fillStyle = st.theme === 'light' ? 'rgba(254, 250, 224, 0.94)' : 'rgba(40, 54, 24, 0.94)';
+        ctx.fillStyle = st.theme === 'light' ? 'rgba(255, 255, 255, 0.94)' : 'rgba(20, 20, 20, 0.94)';
         ctx.fill();
         ctx.strokeStyle = st.colors.select;
         ctx.lineWidth = 1.2;
@@ -919,7 +909,7 @@
           const py = Math.min(Math.max(8, sy - pillH / 2), st.h - pillH - 8);
 
           roundRectPath(ctx, px, py, pillW, pillH, 13);
-          ctx.fillStyle = st.theme === 'light' ? 'rgba(254, 250, 224, 0.95)' : 'rgba(40, 54, 24, 0.95)';
+          ctx.fillStyle = st.theme === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(20, 20, 20, 0.95)';
           ctx.fill();
 
           ctx.lineWidth = 1.4;
@@ -1371,6 +1361,7 @@
         if (/^\d{7}$/.test(id)) st.values.set(id, typeof v === 'number' && Number.isFinite(v) ? v : null);
       }
       if (scale) st.scale = Object.assign({}, scale);
+      st.noFire = new Set(scale && Array.isArray(scale.noFireIds) ? scale.noFireIds : []);
       recolor();
     }
 

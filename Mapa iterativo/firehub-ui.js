@@ -171,7 +171,7 @@
   /* ---------- map & legend ---------- */
   const Z_SCALE = { type: 'diverging', min: -3, max: 3 };
   function scaleFor(values) {
-    if (state.metric === 'anomaly') return Z_SCALE;
+    if (state.metric === 'anomaly') return Object.assign({}, Z_SCALE);
     let max = 10;
     for (const k of Object.keys(values)) { const v = values[k]; if (typeof v === 'number' && v > max) max = v; }
     return { type: 'sequential', min: 0, max };
@@ -181,10 +181,18 @@
     writeHash();
     const seq = ++state.reqSeq;
     try {
-      const values = await state.source.mapValues(state.year, state.month, state.metric);
+      const isAnomaly = state.metric === 'anomaly';
+      const [values, counts] = await Promise.all([
+        state.source.mapValues(state.year, state.month, state.metric),
+        // Anomaly is undefined where a month never had fire; those municipalities are painted white (no fire), not "no data".
+        isAnomaly ? state.source.mapValues(state.year, state.month, 'count') : null,
+      ]);
       if (seq !== state.reqSeq) return;
       state.values = values;
       const scale = scaleFor(values);
+      if (isAnomaly && counts) {
+        scale.noFireIds = Object.keys(values).filter((id) => values[id] === null && counts[id] === 0);
+      }
       map.setValues(values, scale);
       drawLegend(scale);
       if (state.selected) renderNeighborsList(state.selected);
@@ -596,6 +604,7 @@
         b.type = 'button';
         b.dataset.y = String(y); b.dataset.m = String(m);
         if (r && r.anomalyZ !== null) b.style.background = map.colorFor(r.anomalyZ, Z_SCALE);
+        else if (r && r.harmonized === 0) b.style.background = map.colorFor(Z_SCALE.min, Z_SCALE); // no fire: start of the scale
         if (r && r.daysMissing) b.classList.add('is-missing');
         const label = r ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) }) : t('cal.empty', { m: monthName(m), y });
         b.title = label; b.setAttribute('aria-label', label);
@@ -624,9 +633,9 @@
     };
     const css = getComputedStyle(document.documentElement);
     const series = [
-      { k: 'modis', color: '#8fb359', label: t('cmp.modis') },
-      { k: 'viirs', color: css.getPropertyValue('--accent-2').trim() || '#dda15e', label: t('cmp.viirs') },
-      { k: 'harmonized', color: css.getPropertyValue('--accent').trim() || '#bc6c25', label: t('cmp.harm') },
+      { k: 'modis', color: css.getPropertyValue('--muted').trim() || '#9e9e9e', label: t('cmp.modis') },
+      { k: 'viirs', color: css.getPropertyValue('--accent-2').trim() || '#f26d6d', label: t('cmp.viirs') },
+      { k: 'harmonized', color: css.getPropertyValue('--accent').trim() || '#c62828', label: t('cmp.harm') },
     ].map((s) => ({ ...s, pts: years.map((y) => [y, sum(y, s.k)]) }));
     const max = Math.max(1, ...series.flatMap((s) => s.pts.map((p) => p[1] || 0)));
     const W = 360, H = 150, L = 38, R = 8, T = 8, B = 20;
@@ -840,11 +849,11 @@
         y1: 32,
         x2: x2.toFixed(1),
         y2: y2.toFixed(1),
-        stroke: '#dda15e',
+        stroke: '#f26d6d',
         'stroke-width': 2.6,
         'stroke-linecap': 'round',
       }),
-      svg('circle', { cx: x2.toFixed(1), cy: y2.toFixed(1), r: 3.4, fill: '#bc6c25' }),
+      svg('circle', { cx: x2.toFixed(1), cy: y2.toFixed(1), r: 3.4, fill: '#c62828' }),
       svg('circle', { cx: 32, cy: 32, r: 2.2, fill: 'currentColor' })
     );
 

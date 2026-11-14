@@ -367,7 +367,7 @@ class FireHubDataStore {
         );
         for (const x of rows) {
           if (x.month === m) {
-            x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : 0;
+            x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : null; // no variation (e.g. never any fire that month): anomaly undefined
           }
         }
       }
