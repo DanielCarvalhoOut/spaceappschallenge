@@ -15,6 +15,7 @@ services:
       - ../Tema_08_MODIS_VIIRS/db/schema_firehub.sql:/docker-entrypoint-initdb.d/02_schema_firehub.sql:ro
       - ../Tema_08_MODIS_VIIRS/db/schema_contexto.sql:/docker-entrypoint-initdb.d/03_schema_contexto.sql:ro
       - ../Tema_08_MODIS_VIIRS/db/schema_operacional.sql:/docker-entrypoint-initdb.d/04_schema_operacional.sql:ro
+      - ../Tema_08_MODIS_VIIRS/db/schema_projecao.sql:/docker-entrypoint-initdb.d/05_schema_projecao.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U firehub -d firehub"]
       interval: 5s

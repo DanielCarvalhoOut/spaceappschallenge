@@ -44,6 +44,8 @@ export interface FirmsHotspotRecord {
   frpMw: number;
   daynight: 'D' | 'N';
   processing: 'NRT' | 'SP';
+  /** FIRMS "type" column (yearly archives): 0 vegetation fire, 2 static land source. Absent in NRT. */
+  fireType?: number | null;
 }
 
 export interface ClusteredFireEvent {

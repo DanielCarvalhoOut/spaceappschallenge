@@ -35,6 +35,7 @@ const CsvRowSchema = z.object({
   bright_ti5: z.coerce.number().optional(),
   scan: z.coerce.number().optional(),
   track: z.coerce.number().optional(),
+  type: z.coerce.number().int().min(0).max(9).optional(),
 });
 
 function sensorMetadata(sensor: FirmsSensorCode): {
@@ -164,6 +165,7 @@ export function parseFirmsCsv(
       frpMw: Number.isFinite(row.frp) && row.frp >= 0 ? row.frp : 0,
       daynight: row.daynight,
       processing: meta.processing,
+      fireType: row.type ?? null,
     });
   }
 

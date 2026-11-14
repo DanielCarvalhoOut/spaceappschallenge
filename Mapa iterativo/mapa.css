@@ -527,3 +527,24 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
   .controls { width: 100%; }
   .sphere-hint { display: none; }
 }
+
+/* ---------- Faixa esperada pelo histórico ---------- */
+.range-box { display: flex; flex-direction: column; gap: 6px; }
+.range-bar { position: relative; height: 14px; border-radius: 7px; background: var(--surface-2); border: 1px solid var(--line); margin: 4px 0 2px; }
+.range-bar__band { position: absolute; top: 2px; bottom: 2px; border-radius: 5px; background: var(--accent-2); opacity: .55; }
+.range-bar__median { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--text); }
+.range-bar__obs { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--text); }
+.range-line { margin: 0; font-size: 12.5px; }
+.range-meta { display: block; font-size: 11px; line-height: 1.35; }
+
+/* ---------- Camada de focos-raiz ---------- */
+.roots-legend { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; max-width: 240px; }
+.roots-legend__keys { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; }
+.roots-key { display: inline-flex; align-items: center; gap: 4px; }
+.roots-key__sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.roots-legend small { font-size: 10.5px; line-height: 1.3; }
+
+/* ---------- Dentro da área (células) ---------- */
+.detail-box { display: flex; flex-direction: column; gap: 6px; }
+.detail-demo { margin: 0; font-size: 11.5px; color: var(--accent-2); font-weight: 600; }

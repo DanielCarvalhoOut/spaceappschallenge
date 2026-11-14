@@ -21,6 +21,7 @@
         <select id="metric">
           <option value="anomaly" data-i18n="metric.anomaly"></option>
           <option value="count" data-i18n="metric.count"></option>
+          <option value="density" data-i18n="metric.density"></option>
           <option value="propensity" data-i18n="metric.propensity"></option>
         </select>
       </label>
@@ -49,7 +50,7 @@
         <div id="sphere-controls" class="sphere-controls" hidden>
           <label class="sphere-slider-label">
             <span data-i18n="mode.radius"></span>
-            <input id="sphere-radius" type="range" min="15" max="260" step="5" value="85">
+            <input id="sphere-radius" type="range" min="5" max="260" step="5" value="85">
             <strong id="sphere-radius-val">85 km</strong>
           </label>
           <small class="sphere-hint" data-i18n="mode.hint"></small>
@@ -63,6 +64,7 @@
         <button id="zoom-reset" class="icon-btn icon-btn--tag" type="button" data-i18n-attr="aria-label:zoom.reset;title:zoom.reset">GO</button>
         <button id="zoom-brazil" class="icon-btn icon-btn--tag" type="button" data-i18n-attr="aria-label:zoom.brazil;title:zoom.brazil">BR</button>
         <button id="toggle-numbers" class="icon-btn icon-btn--tag is-active" type="button" data-i18n-attr="aria-label:zoom.numbers;title:zoom.numbers">Nº</button>
+        <button id="toggle-roots" class="icon-btn icon-btn--tag" type="button" aria-pressed="false" data-i18n-attr="aria-label:roots.btn;title:roots.btn">FR</button>
       </div>
 
       <!-- Proporção e Escala Cartográfica Lateral -->
@@ -90,6 +92,11 @@
         <canvas id="legend-canvas" width="240" height="10" aria-hidden="true"></canvas>
         <div id="legend-ticks" class="legend__ticks"></div>
         <div class="legend__nodata"><span class="swatch"></span><span data-i18n="legend.nodata"></span></div>
+        <div id="roots-legend" class="roots-legend" hidden>
+          <span id="roots-title"></span>
+          <div id="roots-keys" class="roots-legend__keys"></div>
+          <small id="roots-hit" class="muted"></small>
+        </div>
       </figure>
       <div id="status" class="status" role="alert" hidden>
         <span id="status-text"></span>
@@ -131,6 +138,10 @@
           <div id="subareas-list" class="subareas-list"></div>
         </section>
 
+        <section id="detail-block" class="block" hidden>
+          <h3><span data-i18n="block.detail"></span> <small id="detail-small"></small></h3>
+          <div id="detail-box" class="detail-box"></div>
+        </section>
         <section class="block">
           <h3><span data-i18n="block.pattern"></span> <small data-i18n="block.patternSmall"></small></h3>
           <p id="season-text" class="lead"></p>
@@ -147,24 +158,10 @@
           <div id="compare" class="compare"></div>
         </section>
 
-        <!-- A. Harmonização Espacial (DBSCAN/H3) + FRP (MW) & Escala de Recursos -->
         <section class="block">
-          <h3><span data-i18n="block.resources"></span> <small data-i18n="block.resourcesSmall"></small></h3>
-          <div id="resources-box" class="intel-box"></div>
+          <h3><span data-i18n="block.range"></span> <small id="range-small"></small></h3>
+          <div id="range-box" class="range-box"></div>
         </section>
-
-        <!-- B. Calendário de Focos Raízes & Histórico (2000–Presente) -->
-        <section class="block">
-          <h3><span data-i18n="block.rootFires"></span> <small data-i18n="block.rootFiresSmall"></small></h3>
-          <div id="root-fires-box" class="intel-box"></div>
-        </section>
-
-        <!-- C. Clima (NASA POWER) & Risco de Ignição / Propagação -->
-        <section class="block">
-          <h3><span data-i18n="block.predictability"></span> <small data-i18n="block.predictabilitySmall"></small></h3>
-          <div id="predictability-box" class="intel-box"></div>
-        </section>
-
         <section class="block">
           <h3><span data-i18n="block.context"></span> <small id="ctx-year"></small></h3>
           <ul id="context" class="context"></ul>

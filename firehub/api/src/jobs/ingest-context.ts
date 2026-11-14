@@ -1,5 +1,6 @@
 import { logger } from '../core/logger.js';
 import { store } from '../db/store.js';
+import { isMain } from '../core/entry.js';
 
 export async function runIngestContext(): Promise<void> {
   await store.init();
@@ -24,7 +25,7 @@ export async function runIngestContext(): Promise<void> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   runIngestContext().catch((err) => {
     logger.error({ err: String(err) }, 'job:ingest-context failed');
     process.exit(1);
