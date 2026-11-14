@@ -1,5 +1,5 @@
 /*
- * FireHub map engine (original code, no dependencies).
+ * Monitor Cinder map engine (original code, no dependencies).
  * Canvas 2D + Path2D choropleth for Goiás in the full context of Brazil.
  *
  * Palette profile:

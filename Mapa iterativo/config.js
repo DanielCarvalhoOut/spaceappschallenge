@@ -1,5 +1,5 @@
 /*
- * FireHub front-end configuration.
+ * Monitor Cinder front-end configuration.
  * If you change apiBase, also add the same origin to connect-src in index.html (Content-Security-Policy).
  * Never put keys here: FIRMS MAP_KEY and Embrapa tokens live only in the backend .env.
  */

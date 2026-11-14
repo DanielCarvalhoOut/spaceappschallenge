@@ -1,6 +1,6 @@
 /*
- * FireHub UI controller (original code).
- * Connects the controls, the map engine, the side panel, the sphere area selector,
+ * Monitor Cinder UI controller (original code).
+ * Connects the controls, the map engine, the side panel, the 2D circle area selector,
  * the lateral scale indicator, and the data layer.
  * DOM updates use createElement + textContent only — never innerHTML with external strings.
  */
@@ -686,7 +686,7 @@
     const url = URL.createObjectURL(blob);
     const a = el('a');
     a.href = url;
-    a.download = `firehub-goias-${code}-${state.year}.csv`;
+    a.download = `monitor-cinder-goias-${code}-${state.year}.csv`;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }

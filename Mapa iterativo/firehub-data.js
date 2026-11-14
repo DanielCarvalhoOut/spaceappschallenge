@@ -1,7 +1,7 @@
 /*
- * FireHub data layer (original code).
+ * Monitor Cinder data layer (original code).
  * - Geometry and names: IBGE (public, CORS-enabled). The backend may proxy/cache the mesh.
- * - Fire statistics: FireHub API (TypeScript backend). If the API is unreachable, a clearly
+ * - Fire statistics: Monitor Cinder API (TypeScript backend). If the API is unreachable, a clearly
  *   labelled DEMO source generates synthetic values so the interface can still be explored.
  * Every response is validated before use; nothing from the network is ever inserted as HTML.
  */
@@ -241,10 +241,10 @@
   async function createSource(getIds) {
     try {
       const meta = await fetchJson(`${CFG.apiBase}/api/meta`, CFG.apiProbeTimeoutMs);
-      if (meta && meta.service === 'firehub') return apiSource(meta);
+      if (meta && (meta.service === 'firehub' || meta.service === 'monitor-cinder')) return apiSource(meta);
       throw new Error('Unexpected /api/meta payload');
     } catch (e) {
-      console.info('FireHub API not reachable, switching to DEMO data:', e.message);
+      console.info('Monitor Cinder API not reachable, switching to DEMO data:', e.message);
       return demoSource(getIds);
     }
   }

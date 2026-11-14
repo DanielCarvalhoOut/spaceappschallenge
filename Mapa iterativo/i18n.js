@@ -1,5 +1,5 @@
 /*
- * FireHub i18n (original code). Português é o padrão (apresentação local);
+ * Monitor Cinder i18n (original code). Português é o padrão (apresentação local);
  * inglês fica a um clique para o júri global e para o vídeo da submissão.
  * Textos são sempre aplicados com textContent / setAttribute, nunca como HTML.
  */
@@ -8,7 +8,7 @@
 
   const DICT = {
     pt: {
-      'doc.title': 'FireHub · Padrões históricos de fogo em Goiás',
+      'doc.title': 'Monitor Cinder · Padrões históricos de fogo em Goiás',
       'brand.sub': 'Padrões históricos de fogo · Goiás',
       'badge.loading': 'Carregando…',
       'badge.demo': 'DEMO · valores sintéticos, não são focos reais',
@@ -48,7 +48,7 @@
       'status.retry': 'Tentar de novo',
       'empty.title': 'Escolha um município ou área',
       'empty.p1': 'Clique num município no mapa, busque pelo nome ou ative o modo Esfera (Área) para analisar um raio regional. Você verá o padrão histórico de fogo, a época típica de queimadas e o calendário desde 2001.',
-      'empty.p2': 'O FireHub mostra histórico e anomalias. Ele não faz previsão de incêndios.',
+      'empty.p2': 'O Monitor Cinder mostra histórico e anomalias. Ele não faz previsão de incêndios.',
       'panel.close': 'Fechar painel',
       'panel.sub': 'IBGE {id}',
       'panel.micro': 'Microrregião {name}',
@@ -101,7 +101,7 @@
       'foot.power': 'Clima: NASA POWER',
     },
     en: {
-      'doc.title': 'FireHub · Historical fire patterns in Goiás',
+      'doc.title': 'Monitor Cinder · Historical fire patterns in Goiás',
       'brand.sub': 'Historical fire patterns · Goiás, Brazil',
       'badge.loading': 'Loading…',
       'badge.demo': 'DEMO data · synthetic values, not real fire counts',
@@ -141,7 +141,7 @@
       'status.retry': 'Retry',
       'empty.title': 'Pick a municipality or area',
       'empty.p1': 'Click a municipality on the map, search by name, or switch to Sphere (Area) mode to analyze a regional radius. You will see the historical fire pattern, typical fire season, and fire calendar since 2001.',
-      'empty.p2': 'FireHub shows history and anomalies. It does not forecast fires.',
+      'empty.p2': 'Monitor Cinder shows history and anomalies. It does not forecast fires.',
       'panel.close': 'Close panel',
       'panel.sub': 'IBGE {id}',
       'panel.micro': 'Microregion {name}',

@@ -1,4 +1,4 @@
-# Mapa iterativo · FireHub (front-end autoral)
+# Mapa iterativo · Monitor Cinder (front-end autoral)
 
 Mapa interativo de Goiás por município, escrito do zero pela equipe. Não reaproveita nada do mapa de referência que estava nesta pasta (aquele código era de terceiros e foi removido).
 
