@@ -26,7 +26,10 @@ const ConfigSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   CORS_ORIGIN: z.string().default('*'),
   DATABASE_URL: z.string().default('postgresql://firehub:firehub@localhost:5432/firehub'),
-  FIRMS_MAP_KEY: z.string().regex(/^[0-9a-f]{32}$/i, 'FIRMS_MAP_KEY must be a 32-char hex string').optional(),
+  FIRMS_MAP_KEY: z
+    .string()
+    .regex(/^[0-9a-f]{32}$/i, 'FIRMS_MAP_KEY must be a 32-char hex string')
+    .default('10fb88d34a88ad0634d04b72b7f30eb0'),
   EMBRAPA_CONSUMER_KEY: z.string().optional(),
   EMBRAPA_CONSUMER_SECRET: z.string().optional(),
   GOIAS_BBOX: z.string().default('-53.25,-19.50,-45.90,-12.39'),

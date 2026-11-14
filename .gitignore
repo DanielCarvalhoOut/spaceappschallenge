@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!firehub/api/.env
 data/raw/
 firehub/data/
 firehub/api/data/
