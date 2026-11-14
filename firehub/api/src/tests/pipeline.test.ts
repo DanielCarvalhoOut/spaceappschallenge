@@ -9,6 +9,7 @@ import {
   normalizeConfidence,
 } from '../core/analytics.js';
 import { redactSecrets } from '../core/logger.js';
+import { predictFirePropensity, trainPropensityModel, type TrainingRow } from '../core/ml-propensity.js';
 import { sanitizeCsvCell } from '../modules/routes.js';
 
 describe('A. Harmonização MODIS + VIIRS & Escala de Recursos (DBSCAN/H3 + FRP)', () => {
@@ -149,5 +150,58 @@ describe('C. Clima e Previsibilidade de Ocorrência (NASA POWER Daily Point)', (
     expect(sanitizeCsvCell('=CMD()')).toBe('"\'=CMD()"');
     expect(sanitizeCsvCell('+SUM(A1:A2)')).toBe('"\'+SUM(A1:A2)"');
     expect(sanitizeCsvCell('Goiânia')).toBe('Goiânia');
+  });
+
+  it('trains the Hybrid GBDT + L2 Logistic ML Fire Propensity model (2001-2019) and achieves high ROC-AUC on 2020-2025', () => {
+    const rows: TrainingRow[] = [];
+    for (let y = 2001; y <= 2025; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const isDry = m === 8 || m === 9;
+        rows.push({
+          year: y,
+          month: m,
+          features: {
+            rootRecurrencePct: isDry ? 88 : 12,
+            lag1HarmonizedLog: isDry ? 3.8 : 0.4,
+            spatialGradient: isDry ? 1.5 : 0.8,
+            t2mMaxC: isDry ? 36.5 : 28.5,
+            vpdHpa: isDry ? 44.0 : 12.0,
+            rh2mDeficit: isDry ? 76.0 : 30.0,
+            droughtIndex: isDry ? 22.0 : 2.0,
+            ws10mMs: isDry ? 4.4 : 2.1,
+          },
+          label: isDry ? 1 : 0,
+        });
+      }
+    }
+
+    const model = trainPropensityModel(rows);
+    expect(model.metrics.rocAuc).toBeGreaterThanOrEqual(0.9);
+    expect(model.featureImportances).toHaveLength(8);
+
+    const highPred = predictFirePropensity(model, {
+      rootRecurrencePct: 92,
+      lag1HarmonizedLog: 4.1,
+      spatialGradient: 1.6,
+      t2mMaxC: 37.8,
+      vpdHpa: 48.0,
+      rh2mDeficit: 78.0,
+      droughtIndex: 25.0,
+      ws10mMs: 4.8,
+    });
+    const lowPred = predictFirePropensity(model, {
+      rootRecurrencePct: 8,
+      lag1HarmonizedLog: 0.2,
+      spatialGradient: 0.7,
+      t2mMaxC: 27.5,
+      vpdHpa: 10.0,
+      rh2mDeficit: 25.0,
+      droughtIndex: 1.0,
+      ws10mMs: 1.9,
+    });
+
+    expect(highPred.propensityScore).toBeGreaterThan(75);
+    expect(lowPred.propensityScore).toBeLessThan(25);
+    expect(highPred.contributions.length).toBe(8);
   });
 });

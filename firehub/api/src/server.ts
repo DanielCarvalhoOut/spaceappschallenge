@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { logger, redactSecrets } from './core/logger.js';
 import { store } from './db/store.js';
 import { registerRoutes } from './modules/routes.js';
+import { isMain } from './core/entry.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -52,7 +53,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   buildApp()
     .then(async (app) => {
       await app.listen({ port: config.PORT, host: config.HOST });

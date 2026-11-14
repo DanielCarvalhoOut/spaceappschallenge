@@ -268,10 +268,12 @@
       spherePreview: null, // { x, y }
       sphereDrag: null, // { sx, sy, x0, y0, rKm, count, dragged }
       showNumbers: true,
+      layers: { roots: null, detail: null }, // cell layers: { paths, colors, cellKm, clip, index }
+      cellHover: null,
       focusMix: 0, focusFrom: 0, focusTo: 0, focusT0: 0, focusDur: 340,
       switchMix: 1, switchT0: 0, switchDur: 300,
       pulse: null, intro: null,
-      listeners: { hover: [], select: [], sphere: [], view: [] }, colors: null, noFire: new Set(),
+      listeners: { hover: [], select: [], sphere: [], view: [], cell: [] }, colors: null, noFire: new Set(),
       frame: 0, dirtyBase: false, dirtyOver: false,
       flight: null, wheel: null, inertia: null, drag: null, pinch: null, pointers: new Map(), hoverReq: null,
     };
@@ -616,11 +618,8 @@
 
         let alpha = baseDimAlpha;
         if (hasSphere) {
-          if (st.sphere.ids.has(f.id)) {
-            alpha = 1;
-          } else if (f === hov) {
-            alpha = Math.max(alpha, 0.68);
-          }
+          if (st.sphere.ids.has(f.id)) alpha = Math.max(alpha, 0.5);
+          else if (f === hov) alpha = Math.max(alpha, 0.68);
         } else if (f === prevSel && st.switchMix < 1) {
           alpha = baseDimAlpha + (1 - baseDimAlpha) * (1 - st.switchMix);
         } else if (f === hov && fMix > 0.01) {
@@ -645,15 +644,26 @@
         }
       }
 
-      // Highlight borders of municipalities inside the active 2D Circle
+      // Inside the circle only: full colour and borders of the municipalities it covers (the analysed area)
       if (hasSphere) {
-        ctx.globalAlpha = 0.95;
-        ctx.strokeStyle = st.colors.select;
-        ctx.lineWidth = 1.4 / k;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(st.sphere.x, st.sphere.y, st.sphere.rKm, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.globalAlpha = 1;
+        for (const id of st.sphere.ids) {
+          const mf = st.byId.get(id);
+          if (!mf || !visible(mf.bbox, v)) continue;
+          ctx.fillStyle = mf.fill;
+          ctx.fill(mf.path, 'evenodd');
+        }
+        ctx.strokeStyle = st.colors.border;
+        ctx.lineWidth = 0.85 / k;
         for (const id of st.sphere.ids) {
           const mf = st.byId.get(id);
           if (mf && visible(mf.bbox, v)) ctx.stroke(mf.path);
         }
+        ctx.restore();
       }
 
       // 6. Selected Municipality fill (fast, no shadowBlur)
@@ -664,6 +674,37 @@
         ctx.fill(sel.path, 'evenodd');
       }
 
+      ctx.globalAlpha = 1;
+
+      // 6b. Cell layers: state-wide focos-raiz, then the detail of the selected area (clipped to it)
+      for (const name of ['roots', 'detail']) {
+        const L = st.layers[name];
+        if (!L) continue;
+        ctx.save();
+        if (L.clip && L.clip.kind === 'feature') {
+          const cf = st.byId.get(L.clip.id);
+          if (cf) ctx.clip(cf.path, 'evenodd');
+        } else if (L.clip && L.clip.kind === 'sphere' && st.sphere) {
+          ctx.beginPath();
+          ctx.arc(st.sphere.x, st.sphere.y, st.sphere.rKm, 0, Math.PI * 2);
+          ctx.clip();
+        }
+        const grow = Math.max(0, 1.6 / k - L.cellKm);
+        ctx.globalAlpha = L.alpha;
+        ctx.lineJoin = 'miter';
+        for (let i = 0; i < L.paths.length; i++) {
+          ctx.fillStyle = L.colors[i];
+          ctx.fill(L.paths[i]);
+          if (grow > 0) { ctx.strokeStyle = L.colors[i]; ctx.lineWidth = grow; ctx.stroke(L.paths[i]); }
+        }
+        if (L.grid && k * L.cellKm >= 7) {   // cell outlines once cells are big enough to read
+          ctx.globalAlpha = 0.35;
+          ctx.strokeStyle = st.colors.border;
+          ctx.lineWidth = 0.6 / k;
+          for (const pth of L.paths) ctx.stroke(pth);
+        }
+        ctx.restore();
+      }
       ctx.globalAlpha = 1;
 
       // 7. Labels & Real Regional Numbers
@@ -1063,7 +1104,7 @@
     }
 
     function applySphereAt(wx, wy, rKm, shouldFly, shouldEmit) {
-      const radius = Math.max(15, Math.min(260, Math.round(rKm)));
+      const radius = Math.max(5, Math.min(260, Math.round(rKm)));
       st.sphereRadiusKm = radius;
       const ids = computeSphereIds(wx, wy, radius);
       let centerId = null, bestD = Infinity;
@@ -1085,11 +1126,15 @@
       }
       invalidate(true, true);
       if (shouldEmit !== false) {
+        const [lon, lat] = unproject(wx, wy);
         emit('sphere', {
           x: wx,
           y: wy,
+          lon: Math.round(lon * 1e5) / 1e5,
+          lat: Math.round(lat * 1e5) / 1e5,
           radiusKm: radius,
           areaKm2: Math.round(Math.PI * radius * radius),
+          shares: sphereShares(),
           ids: [...ids],
           centerId,
         });
@@ -1119,6 +1164,12 @@
         st.dirtyOver = true;
       }
       emit('hover', id ? { id, x: sx, y: sy } : null);
+      if (st.layers.detail && st.layers.detail.index) {
+        const [wx, wy] = screenToWorld(sx, sy);
+        const c = cellAtWorld(wx, wy);
+        st.cellHover = c;
+        emit('cell', c ? { cell: c.cell, x: sx, y: sy } : null);
+      }
     }
 
     function clearHover() {
@@ -1129,6 +1180,7 @@
         invalidate(false, true);
       }
       emit('hover', null);
+      if (st.cellHover) { st.cellHover = null; emit('cell', null); }
     }
 
     /* ---------- Input ---------- */
@@ -1176,7 +1228,7 @@
           st.sphereDrag.dragged = true;
           const [wx, wy] = screenToWorld(sx, sy);
           const distKm = Math.hypot(wx - st.sphereDrag.x0, wy - st.sphereDrag.y0);
-          const nextR = Math.max(15, Math.min(260, Math.round(distKm)));
+          const nextR = Math.max(5, Math.min(260, Math.round(distKm)));
           if (nextR !== st.sphereDrag.rKm) {
             st.sphereDrag.rKm = nextR;
             st.sphereDrag.count = computeSphereIds(st.sphereDrag.x0, st.sphereDrag.y0, nextR).size;
@@ -1416,13 +1468,120 @@
     }
 
     function setSphereRadius(rKm) {
-      const radius = Math.max(15, Math.min(260, Number(rKm) || 85));
+      const radius = Math.max(5, Math.min(260, Number(rKm) || 85));
       st.sphereRadiusKm = radius;
       if (st.sphere) {
         applySphereAt(st.sphere.x, st.sphere.y, radius, false, true);
       } else {
         invalidate(false, true);
       }
+    }
+
+    /**
+     * Cell layer ('roots' = state-wide focos-raiz, 'detail' = cells of the selected area).
+     * layer = { cellKm, classes: [{ color, cells: [[lon, lat, ...data], …] }], clip?: { kind: 'feature', id } | { kind: 'sphere' },
+     *           hover?: boolean, grid?: boolean, alpha?: number } or null.
+     * Cells are projected once into one Path2D per class; panning/zooming costs one fill per class.
+     */
+    function setPointLayer(layer, name) {
+      const key = name === 'detail' ? 'detail' : 'roots';
+      if (!layer || !Array.isArray(layer.classes)) {
+        st.layers[key] = null;
+        if (key === 'detail' && st.cellHover) { st.cellHover = null; emit('cell', null); }
+        invalidate(true, false);
+        return 0;
+      }
+      const cellKm = Math.max(0.2, Math.min(20, Number(layer.cellKm) || 1));
+      const half = cellKm / 2;
+      const paths = [], colors = [], index = layer.hover ? new Map() : null;
+      let n = 0;
+      for (const c of layer.classes) {
+        if (!c || typeof c.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(c.color) || !Array.isArray(c.cells)) continue;
+        const p = new Path2D();
+        for (const cell of c.cells) {
+          const lon = cell[0], lat = cell[1];
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+          const [x, y] = project(lon, lat);
+          p.rect(x - half, y - half, cellKm, cellKm);
+          if (index) {
+            const bk = Math.floor(x / cellKm) + ':' + Math.floor(y / cellKm);
+            const list = index.get(bk);
+            const item = { x, y, cell };
+            if (list) list.push(item); else index.set(bk, [item]);
+          }
+          n++;
+        }
+        paths.push(p); colors.push(c.color);
+      }
+      const clip = layer.clip && (layer.clip.kind === 'sphere' || (layer.clip.kind === 'feature' && st.byId.has(layer.clip.id))) ? layer.clip : null;
+      st.layers[key] = paths.length ? { paths, colors, cellKm, clip, index, grid: !!layer.grid,
+        alpha: Number.isFinite(layer.alpha) ? Math.max(0.1, Math.min(1, layer.alpha)) : 0.9 } : null;
+      invalidate(true, false);
+      return n;
+    }
+
+    /** Detail cell under a world point (nearest centre within the cell), or null. */
+    function cellAtWorld(wx, wy) {
+      const L = st.layers.detail;
+      if (!L || !L.index) return null;
+      if (L.clip && L.clip.kind === 'sphere' && st.sphere && Math.hypot(wx - st.sphere.x, wy - st.sphere.y) > st.sphere.rKm) return null;
+      if (L.clip && L.clip.kind === 'feature') {
+        const cf = st.byId.get(L.clip.id);
+        if (!cf || !hit.isPointInPath(cf.path, wx, wy, 'evenodd')) return null;
+      }
+      const bx = Math.floor(wx / L.cellKm), by = Math.floor(wy / L.cellKm);
+      let best = null, bestD = L.cellKm * 0.75;
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        const list = L.index.get((bx + i) + ':' + (by + j));
+        if (!list) continue;
+        for (const it of list) {
+          const d = Math.max(Math.abs(it.x - wx), Math.abs(it.y - wy));
+          if (d < bestD) { bestD = d; best = it; }
+        }
+      }
+      return best;
+    }
+
+    /** Share of each municipality's area that lies inside the current circle (grid sampling, ~2 000 points). */
+    function sphereShares() {
+      if (!st.sphere || !st.sphere.ids.size) return {};
+      const { x, y, rKm } = st.sphere;
+      const step = Math.max(0.25, rKm / 25);
+      const cand = [...st.sphere.ids].map((id) => st.byId.get(id)).filter(Boolean);
+      const hits = new Map();
+      for (let wx = x - rKm + step / 2; wx < x + rKm; wx += step) {
+        for (let wy = y - rKm + step / 2; wy < y + rKm; wy += step) {
+          if ((wx - x) * (wx - x) + (wy - y) * (wy - y) > rKm * rKm) continue;
+          for (const f of cand) {
+            const b = f.bbox;
+            if (wx < b[0] || wx > b[2] || wy < b[1] || wy > b[3]) continue;
+            if (hit.isPointInPath(f.path, wx, wy, 'evenodd')) { hits.set(f.id, (hits.get(f.id) || 0) + 1); break; }
+          }
+        }
+      }
+      const out = {};
+      for (const f of cand) {
+        const inside = (hits.get(f.id) || 0) * step * step;
+        out[f.id] = f.areaKm2 > 0 ? Math.min(1, inside / f.areaKm2) : 0;
+      }
+      return out;
+    }
+
+    /** Municipality bounding box in degrees [west, south, east, north] (padded for the polyconic). */
+    function bboxLonLat(id) {
+      const f = st.byId.get(id);
+      if (!f) return null;
+      const c = [unproject(f.bbox[0], f.bbox[1]), unproject(f.bbox[2], f.bbox[1]), unproject(f.bbox[0], f.bbox[3]), unproject(f.bbox[2], f.bbox[3])];
+      const lons = c.map((q) => q[0]), lats = c.map((q) => q[1]);
+      return [Math.min(...lons) - 0.02, Math.min(...lats) - 0.02, Math.max(...lons) + 0.02, Math.max(...lats) + 0.02];
+    }
+
+    /** True when the point (lon, lat) falls inside municipality `id`. */
+    function contains(id, lon, lat) {
+      const f = st.byId.get(id);
+      if (!f) return false;
+      const [x, y] = project(lon, lat);
+      return hit.isPointInPath(f.path, x, y, 'evenodd');
     }
 
     function setShowNumbers(flag) {
@@ -1482,7 +1641,7 @@
       over.removeEventListener('wheel', onWheel);
       over.removeEventListener('keydown', onKey);
       base.remove(); over.remove();
-      st.listeners = { hover: [], select: [], sphere: [], view: [] };
+      st.listeners = { hover: [], select: [], sphere: [], view: [], cell: [] };
     }
 
     readColors();
@@ -1498,6 +1657,10 @@
       sphereRadius: () => st.sphereRadiusKm,
       setShowNumbers,
       showNumbers: () => st.showNumbers,
+      setPointLayer,
+      contains,
+      bboxLonLat,
+      areaKm2: (id) => { const f = st.byId.get(id); return f ? f.areaKm2 : null; },
       neighborsOf,
       reset,
       resetBrazil,

@@ -41,15 +41,21 @@ Todas as rotas são `GET`, JSON e públicas (sem chave no front). Código de mun
 
 | Rota | Resposta |
 | --- | --- |
-| `/api/meta` | `{ service: "firehub", period: { firstYear, lastYear }, sources: [{ id, name, url, role }], validation: { mapePct, pearsonR, biasPct } }` |
+| `/api/meta` | `{ service: "firehub", dataKind: "firms_db"\|"synthetic", period: { firstYear, lastYear }, sources: [{ id, name, url, role }], validation: { mapePct, wapePct, pearsonR, biasPct } \| null }` |
 | `/api/geo/municipalities?uf=52` | GeoJSON do IBGE em cache (opcional; se falhar, o front busca direto no IBGE) |
-| `/api/map?year=2024&month=9&metric=anomaly\|count` | `{ values: { "5208707": 2.1, ... } }` (`null` = sem dado) |
+| `/api/map?year=2024&month=9&metric=anomaly\|count\|density` | `{ values: { "5208707": 2.1, ... } }` (`null` = sem dado) |
 | `/api/municipalities/{ibge}/calendar` | `{ rows: [{ year, month, modis, viirs, harmonized, anomalyZ, daysMissing }] }` |
 | `/api/municipalities/{ibge}/pattern` | `{ months: [{ month, mean, sharePct }], season: { months: [8,9,10], coveredPct, peakMonth } }` |
 | `/api/municipalities/{ibge}/context?year=2024` | `{ items: [{ key, label, value, unit, source }] }` com `key` = `fonte.métrica` (ex.: `inpe_prodes.deforestation_km2`); o front traduz pela `key` e usa `label` como reserva |
 | `/api/municipalities/{ibge}/calendar.csv` | CSV com proteção contra injeção de fórmula |
+| `/api/projection?ibge=52\|52xxxxx&year&month` | `{ method, range: { p10, p50, p90, nYears }, analog: { p10, p50, p90, years } \| null, observed, hindcast }`; 503 sem histórico → o front calcula a mesma faixa com a série que já tem e avisa "sem retroteste" |
+| `/api/area/history?lon&lat&radiusKm&source` | só as células dentro do círculo: `{ areaKm2, pctInState, rows, municipalities: [{ ibge, pctOfMunicipality }] }`; 503 → soma aproximada dos municípios tocados, com aviso |
+| `/api/layers/cells?ibge=52xxxxx\|lon&lat&radiusKm&year&month&res=1000\|2000\|5000` | células da grade dentro do município ou do círculo: `{ res, total, yearsObserved, cells: [[lon, lat, célulasDiaNoMês, anosComFogo, últimoAno]] }`; a soma é o valor harmonizado da área no mês |
+| `/api/layers/recurrence?west&south&east&north&from&to&res=1000` | `{ yearsObserved, columns, cells: [[lon, lat, anosComVizinhas, anos, últimoAno, mêsPico]], hitRate }` → camada FR (focos-raiz) |
 
 Se mudar o endereço da API, atualize `config.js` **e** o `connect-src` do CSP em `index.html`.
+
+Motor: `setPointLayer({ cellKm, classes: [{ color, cells: [[lon, lat]] }] })` projeta as células uma vez (um `Path2D` por classe) e `areaKm2(id)` dá a área do município para a densidade. Com nome `'detail'` (`setPointLayer(layer, 'detail')`), a camada é recortada pelo município (`clip: { kind: 'feature', id }`) ou pelo círculo (`clip: { kind: 'sphere' }`) e emite `cell` no hover. O evento `sphere` traz `lon`/`lat` do centro e `shares` (fração da área de cada município dentro do círculo). Fora do círculo o mapa fica esmaecido; dentro dele, as cores ficam cheias.
 
 ## Decisões de segurança e performance
 

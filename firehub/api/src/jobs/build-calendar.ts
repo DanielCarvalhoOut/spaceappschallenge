@@ -1,5 +1,6 @@
 import { logger } from '../core/logger.js';
 import { store } from '../db/store.js';
+import { isMain } from '../core/entry.js';
 
 export async function runBuildCalendar(): Promise<void> {
   await store.init();
@@ -15,7 +16,7 @@ export async function runBuildCalendar(): Promise<void> {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   runBuildCalendar().catch((err) => {
     logger.error({ err: String(err) }, 'job:build-calendar failed');
     process.exit(1);

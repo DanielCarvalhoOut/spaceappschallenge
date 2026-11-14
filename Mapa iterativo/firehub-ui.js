@@ -23,6 +23,8 @@
     selected: null,
     sphereSelection: null, // { radiusKm, areaKm2, ids, centerId }
     sphereRows: null,
+    roots: { on: false, data: null, loading: false },
+    detail: null, // { res, yearsObserved } of the cell layer on screen
     values: {},
     rows: new Map(),
     patterns: new Map(),
@@ -50,6 +52,9 @@
   const fmtInt = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(Math.round(v)));
   const fmtZ = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : (v >= 0 ? '+' : '') + I.num(v, 2) + 'σ');
   const monthName = (m) => I.months()[m - 1] || '';
+  const fmt1 = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(Math.round(v * 10) / 10));
+  /** Value text for the active map metric (pills, tooltip). */
+  const valueText = (v) => (state.metric === 'anomaly' ? fmtZ(v) : state.metric === 'density' ? fmt1(v) : fmtInt(v));
   const period = () => `${monthName(state.month)}/${state.year}`;
   function zText(z) {
     if (z === null || z === undefined || !Number.isFinite(z)) return t('z.none');
@@ -65,7 +70,7 @@
     const y = Number(p.get('y')), m = Number(p.get('m')), k = p.get('k'), mun = p.get('mun');
     if (Number.isInteger(y) && y >= state.source.firstYear && y <= state.source.lastYear) state.year = y;
     if (Number.isInteger(m) && m >= 1 && m <= 12) state.month = m;
-    if (k === 'anomaly' || k === 'count') state.metric = k;
+    if (k === 'anomaly' || k === 'count' || k === 'density' || k === 'propensity') state.metric = k;
     if (mun && /^\d{7}$/.test(mun) && state.ids.includes(mun)) state.selected = mun;
   }
   function writeHash() {
@@ -91,8 +96,9 @@
     const b = $('source-badge');
     if (!state.source) { b.textContent = t('badge.loading'); b.className = 'badge'; return; }
     const demo = state.source.kind === 'demo';
-    b.className = 'badge ' + (demo ? 'badge--demo' : 'badge--live');
-    b.textContent = t(demo ? 'badge.demo' : 'badge.live');
+    const synthetic = !demo && state.source.dataKind !== 'firms_db';
+    b.className = 'badge ' + (demo || synthetic ? 'badge--demo' : 'badge--live');
+    b.textContent = t(demo ? 'badge.demo' : synthetic ? 'badge.synthetic' : 'badge.firms');
   }
 
   /* ---------- Lateral Scale & Proportion HUD ---------- */
@@ -163,15 +169,19 @@
       markCalendar();
       renderNeighborsList(state.selected);
       const seq = ++state.panelSeq;
-      loadIntelligence(state.selected, seq);
+      loadRange(state.selected, seq);
       loadContext(state.selected, seq);
+      const cur = currentRow();
+      loadDetail({ kind: 'muni', id: state.selected }, cur ? cur.harmonized : 0, seq);
     }
   }
 
   /* ---------- map & legend ---------- */
   const Z_SCALE = { type: 'diverging', min: -3, max: 3 };
+  const PROPENSITY_SCALE = { type: 'sequential', min: 0, max: 100 };
   function scaleFor(values) {
     if (state.metric === 'anomaly') return Object.assign({}, Z_SCALE);
+    if (state.metric === 'propensity') return PROPENSITY_SCALE;
     let max = 10;
     for (const k of Object.keys(values)) { const v = values[k]; if (typeof v === 'number' && v > max) max = v; }
     return { type: 'sequential', min: 0, max };
@@ -205,7 +215,7 @@
   }
 
   function drawLegend(scale) {
-    $('legend-title').textContent = t(state.metric === 'anomaly' ? 'legend.anomaly' : 'legend.count', { period: period() });
+    $('legend-title').textContent = t(`legend.${state.metric}`, { period: period() });
     const c = $('legend-canvas');
     const ctx = c.getContext('2d');
     for (let x = 0; x < c.width; x++) {
@@ -216,9 +226,12 @@
     }
     const ticks = $('legend-ticks');
     clear(ticks);
-    const labels = scale.type === 'diverging'
-      ? ['−3σ', '−1σ', t('legend.normal'), '+1σ', '+3σ']
-      : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
+    const labels =
+      scale.type === 'diverging'
+        ? ['−3σ', '−1σ', t('legend.normal'), '+1σ', '+3σ']
+        : state.metric === 'propensity'
+          ? ['0%', '50%', '100%']
+          : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
     for (const s of labels) ticks.append(el('span', '', s));
   }
 
@@ -230,7 +243,11 @@
     $('tt-name').textContent = muniName;
     $('tt-value').textContent = state.metric === 'anomaly'
       ? `${fmtZ(v)} · ${zText(v)}`
-      : t('tt.count', { n: fmtInt(v), period: period() });
+      : state.metric === 'density'
+        ? t('tt.density', { v: fmt1(v), period: period() })
+        : state.metric === 'propensity'
+          ? t('tt.propensity', { n: v === null || v === undefined ? '–' : I.num(v, 1), period: period() })
+          : t('tt.count', { n: fmtInt(v), period: period() });
     tip.hidden = false;
     const x = Math.min(h.x + 14, $('map').clientWidth - 250);
     const y = Math.max(8, h.y - 38);
@@ -298,6 +315,7 @@
     $('mode-sphere').classList.toggle('is-active', isSphere);
     $('sphere-controls').hidden = !isSphere;
     map.setSelectionMode(isSphere ? 'sphere' : 'municipality');
+    clearDetail();
     if (!isSphere && state.sphereSelection) {
       state.sphereSelection = null;
       state.sphereRows = null;
@@ -317,6 +335,7 @@
       map.select(state.selected, { fly: !!fly, emit: false });
     }
     writeHash();
+    clearDetail();
     if (!state.selected) { $('panel-body').hidden = true; $('panel-empty').hidden = false; return; }
     openPanel(state.selected);
   }
@@ -344,7 +363,7 @@
       const distBadge = el('strong', 'subarea-pill__num', `${n.distKm} km`);
       const nameSpan = el('span', 'subarea-pill__name', state.names.get(n.id) || n.id);
       const v = state.values[n.id];
-      const valText = state.metric === 'anomaly' ? fmtZ(v) : fmtInt(v);
+      const valText = valueText(v);
       const valSpan = el('em', 'subarea-pill__val', valText);
       btn.append(distBadge, nameSpan, valSpan);
       btn.onclick = () => selectMunicipality(n.id, true);
@@ -368,8 +387,10 @@
       state.rows.set(id, rows);
       state.patterns.set(id, pattern);
       renderPanelBody(id);
-      loadIntelligence(id, seq);
+      loadRange(id, seq);
       loadContext(id, seq);
+      const cur = currentRow();
+      loadDetail({ kind: 'muni', id }, cur ? cur.harmonized : 0, seq);
     } catch (e) {
       if (seq !== state.panelSeq) return;
       console.error(e);
@@ -389,6 +410,7 @@
     if (!sphere || !sphere.ids || !sphere.ids.length) {
       state.sphereSelection = null;
       state.sphereRows = null;
+      clearDetail();
       $('panel-body').hidden = true;
       $('panel-empty').hidden = false;
       return;
@@ -400,107 +422,113 @@
     await renderSpherePanel(sphere);
   }
 
+  /** Typical-season pattern from a monthly series (baseline years 2002–2024). */
+  function patternFromRows(rows) {
+    const sums = new Array(12).fill(0), counts = new Array(12).fill(0);
+    for (const r of rows) {
+      if (r.year >= 2002 && r.year <= 2024 && Number.isFinite(r.harmonized)) { sums[r.month - 1] += r.harmonized; counts[r.month - 1]++; }
+    }
+    const total = sums.reduce((a, b) => a + b, 0) || 1;
+    const months = sums.map((sum, i) => ({
+      month: i + 1,
+      mean: counts[i] ? Math.round((sum / counts[i]) * 10) / 10 : 0,
+      sharePct: Math.round((sum / total) * 1000) / 10,
+    }));
+    const sorted = months.slice().sort((a, b) => b.sharePct - a.sharePct);
+    const picked = []; let acc = 0;
+    for (const m of sorted) { if (acc >= 80) break; picked.push(m.month); acc += m.sharePct; }
+    return { months, season: { months: picked.sort((a, b) => a - b), coveredPct: Math.round(acc * 10) / 10, peakMonth: sorted[0].month } };
+  }
+
+  /** Fallback: sum whole municipalities touched by the circle; z against the summed 2002–2024 baseline. */
+  async function sumMunicipalities(ids, shares) {
+    const calendars = await Promise.all(ids.map(async (id) => {
+      if (state.rows.has(id)) return state.rows.get(id);
+      const r = await state.source.calendar(id);
+      state.rows.set(id, r);
+      return r;
+    }));
+    const byYm = new Map();
+    for (let ci = 0; ci < calendars.length; ci++) {
+      const cal = calendars[ci];
+      const w = shares && Number.isFinite(shares[ids[ci]]) ? shares[ids[ci]] : 1;
+      for (const r of cal) {
+        const key = r.year * 100 + r.month;
+        let a = byYm.get(key);
+        if (!a) { a = { year: r.year, month: r.month, modis: 0, viirs: 0, viirsN: 0, harmonized: 0, daysMissing: 0 }; byYm.set(key, a); }
+        if (r.modis !== null) a.modis += r.modis * w;
+        if (r.viirs !== null) { a.viirs += r.viirs * w; a.viirsN++; }
+        if (r.harmonized !== null) a.harmonized += r.harmonized * w;
+        if (r.daysMissing) a.daysMissing = Math.max(a.daysMissing, r.daysMissing);
+      }
+    }
+    const r1 = (v) => Math.round(v * 10) / 10;
+    for (const a of byYm.values()) { a.modis = r1(a.modis); a.viirs = r1(a.viirs); a.harmonized = r1(a.harmonized); }
+    const rows = [...byYm.values()].sort((a, b) => (a.year - b.year) || (a.month - b.month));
+    for (let m = 1; m <= 12; m++) {
+      const vals = rows.filter((r) => r.month === m && r.year >= 2002 && r.year <= 2024).map((r) => r.harmonized);
+      const n = vals.length, mean = n ? vals.reduce((x, y) => x + y, 0) / n : 0;
+      const sd = n >= 2 ? Math.sqrt(vals.reduce((x, y) => x + (y - mean) ** 2, 0) / (n - 1)) : 0;
+      for (const r of rows) if (r.month === m) r.anomalyZ = sd > 0 ? Math.round(((r.harmonized - mean) / sd) * 100) / 100 : null;
+    }
+    return rows.map((r) => ({ year: r.year, month: r.month, modis: r.modis, viirs: r.viirsN ? r.viirs : null,
+      harmonized: r.harmonized, anomalyZ: r.anomalyZ, daysMissing: r.daysMissing }));
+  }
+
+  function spherePill(id, extraText) {
+    const btn = el('button', 'subarea-pill');
+    btn.type = 'button';
+    btn.append(el('span', 'subarea-pill__name', state.names.get(id) || id));
+    if (extraText) btn.append(el('strong', 'subarea-pill__num', extraText));
+    btn.append(el('em', 'subarea-pill__val', valueText(state.values[id])));
+    btn.onclick = () => { setModeUI('municipality'); selectMunicipality(id, true); };
+    return btn;
+  }
+
   async function renderSpherePanel(sphere) {
     const seq = ++state.panelSeq;
     $('panel-empty').hidden = true;
     $('panel-body').hidden = false;
-
     const centerName = (sphere.centerId && state.names.get(sphere.centerId)) || CFG.ufName;
+    const subBase = t('sphere.sub', { r: sphere.radiusKm, area: I.num(sphere.areaKm2), name: centerName });
     $('p-name').textContent = t('sphere.title', { n: sphere.ids.length });
-    $('p-sub').textContent = t('sphere.sub', {
-      r: sphere.radiusKm,
-      area: I.num(sphere.areaKm2),
-      name: centerName,
-    });
+    $('p-sub').textContent = subBase;
+    ['k-count', 'k-z'].forEach((k) => { $(k).textContent = '…'; });
 
-    // Render clickable pills for all municipalities inside the sphere
-    const block = $('subareas-block');
-    const list = $('subareas-list');
-    clear(list);
+    const block = $('subareas-block'), list = $('subareas-list');
     block.hidden = false;
     $('subareas-title').textContent = t('block.sphereMunis');
     $('subareas-small').textContent = t('block.sphereMunisSmall');
 
-    for (const id of sphere.ids) {
-      const btn = el('button', 'subarea-pill');
-      btn.type = 'button';
-      const nameSpan = el('span', 'subarea-pill__name', state.names.get(id) || id);
-      const v = state.values[id];
-      const valSpan = el('em', 'subarea-pill__val', state.metric === 'anomaly' ? fmtZ(v) : fmtInt(v));
-      btn.append(nameSpan, valSpan);
-      btn.onclick = () => {
-        setModeUI('municipality');
-        selectMunicipality(id, true);
-      };
-      list.append(btn);
-    }
-
     try {
-      // Load calendars for ALL municipalities in the sphere (no truncation)
-      const calendars = await Promise.all(sphere.ids.map(async (id) => {
-        if (state.rows.has(id)) return state.rows.get(id);
-        const r = await state.source.calendar(id);
-        state.rows.set(id, r);
-        return r;
-      }));
-      if (seq !== state.panelSeq) return;
-
-      // 1. Sum the hotspot series across all selected municipalities by (year, month)
-      const byYm = new Map();
-      for (const cal of calendars) {
-        for (const r of cal) {
-          const key = `${r.year}-${r.month}`;
-          let agg = byYm.get(key);
-          if (!agg) {
-            agg = { year: r.year, month: r.month, modis: 0, viirs: 0, viirsCount: 0, harmonized: 0, daysMissing: 0 };
-            byYm.set(key, agg);
-          }
-          if (r.modis !== null) agg.modis += r.modis;
-          if (r.viirs !== null) { agg.viirs += r.viirs; agg.viirsCount++; }
-          if (r.harmonized !== null) agg.harmonized += r.harmonized;
-          if (r.daysMissing) agg.daysMissing = Math.max(agg.daysMissing, r.daysMissing);
-        }
+      // 1. Exact circle from the API: only 1 km cells whose centre lies inside the radius.
+      let exact = null;
+      if (state.source.areaHistory && Number.isFinite(sphere.lon) && Number.isFinite(sphere.lat)) {
+        try { exact = await state.source.areaHistory(sphere.lon, sphere.lat, sphere.radiusKm); } catch (e) { console.warn('area history:', e.message); }
+        if (seq !== state.panelSeq) return;
       }
-
-      // 2. Compute the 2002–2024 baseline mean & sample standard deviation (stddev_samp, N-1)
-      //    directly on the summed regional harmonized series per calendar month
-      const baselineByMonth = new Map();
-      for (let m = 1; m <= 12; m++) {
-        const vals = [];
-        for (const a of byYm.values()) {
-          if (a.month === m && a.year >= 2002 && a.year <= 2024 && Number.isFinite(a.harmonized)) {
-            vals.push(a.harmonized);
-          }
-        }
-        const n = vals.length;
-        const sum = vals.reduce((s, v) => s + v, 0);
-        const mean = n > 0 ? sum / n : 0;
-        const sd = n >= 2
-          ? Math.sqrt(vals.reduce((s, v) => s + (v - mean) * (v - mean), 0) / (n - 1))
-          : 0;
-        baselineByMonth.set(m, { mean, sd, sum, n });
+      let rows;
+      clear(list);
+      if (exact && exact.rows.length) {
+        rows = exact.rows;
+        const munis = exact.municipalities.filter((m) => state.names.has(m.ibge));
+        $('p-name').textContent = t('sphere.title', { n: munis.length });
+        $('p-sub').textContent = `${subBase} · ${t('sphere.exact', { pct: fmt1(exact.pctInState) })}`;
+        for (const m of munis) list.append(spherePill(m.ibge, t('sphere.pctMuni', { pct: fmt1(m.pctOfMunicipality) })));
+      } else {
+        // 2. DEMO or history not built: each municipality weighted by the share of its area inside the circle.
+        const shares = sphere.shares || {};
+        const ids = sphere.ids.filter((id) => (shares[id] ?? 1) > 0.001)
+          .sort((a, b) => (shares[b] ?? 0) - (shares[a] ?? 0));
+        rows = await sumMunicipalities(ids, shares);
+        if (seq !== state.panelSeq) return;
+        $('p-name').textContent = t('sphere.title', { n: ids.length });
+        $('p-sub').textContent = `${subBase} · ${t('sphere.est')}`;
+        for (const id of ids) list.append(spherePill(id, Number.isFinite(shares[id]) ? t('sphere.pctMuni', { pct: fmt1(shares[id] * 100) }) : null));
       }
+      state.sphereRows = rows;
 
-      const aggRows = [...byYm.values()]
-        .sort((a, b) => (a.year - b.year) || (a.month - b.month))
-        .map((a) => {
-          const base = baselineByMonth.get(a.month);
-          const anomalyZ = base && base.sd > 0
-            ? Math.round(((a.harmonized - base.mean) / base.sd) * 100) / 100
-            : null;
-          return {
-            year: a.year,
-            month: a.month,
-            modis: a.modis,
-            viirs: a.viirsCount ? a.viirs : null,
-            harmonized: a.harmonized,
-            anomalyZ,
-            daysMissing: a.daysMissing,
-          };
-        });
-      state.sphereRows = aggRows;
-
-      const cur = aggRows.find((r) => r.year === state.year && r.month === state.month) || null;
+      const cur = rows.find((r) => r.year === state.year && r.month === state.month) || null;
       $('k-period').textContent = period();
       $('k-count').textContent = fmtInt(cur ? cur.harmonized : null);
       const z = cur ? cur.anomalyZ : null;
@@ -509,44 +537,24 @@
       kz.className = z === null ? '' : z >= 1 ? 'z-up' : z <= -1 ? 'z-down' : '';
       $('k-z-text').textContent = zText(z);
 
-      // 3. Compute aggregated seasonal pattern from the summed 2002–2024 baseline
-      let totalBase = 0;
-      for (let m = 1; m <= 12; m++) totalBase += baselineByMonth.get(m).sum;
-      const denom = totalBase || 1;
-      const months = [];
-      for (let m = 1; m <= 12; m++) {
-        const b = baselineByMonth.get(m);
-        months.push({
-          month: m,
-          mean: Math.round(b.mean * 10) / 10,
-          sharePct: Math.round((b.sum / denom) * 1000) / 10,
-        });
-      }
-      const sorted = months.slice().sort((a, b) => b.sharePct - a.sharePct);
-      const picked = [];
-      let acc = 0;
-      for (const m of sorted) { if (acc >= 80) break; picked.push(m.month); acc += m.sharePct; }
-      const aggPattern = {
-        months,
-        season: { months: picked.sort((a, b) => a - b), coveredPct: Math.round(acc * 10) / 10, peakMonth: sorted[0].month },
-      };
-
-      renderPattern(aggPattern);
-      renderCalendar(aggRows);
-      renderCompare(aggRows);
-      const sphereIntel = global.FireData.computeClientIntelligence(
-        aggRows,
-        state.year,
-        state.month,
-        sphere.centerId || 'sphere'
-      );
-      renderResourcesBox(sphereIntel.resources);
-      renderRootFiresBox(sphereIntel.rootFires);
-      renderPredictabilityBox(sphereIntel.predictability);
+      renderPattern(patternFromRows(rows));
+      renderCalendar(rows);
+      renderCompare(rows);
+      // A free-drawn circle has no hindcast of its own: the range comes from its own history and says so.
+      renderRangeBox({
+        method: 'all', range: global.FireData.rangeFromRows(rows, state.year, state.month), analog: null,
+        observed: cur ? cur.harmonized : null, hindcast: null,
+      }, true);
       if (sphere.centerId) loadContext(sphere.centerId, seq);
+      if (Number.isFinite(sphere.lon) && sphere.radiusKm >= 5) {
+        loadDetail({ kind: 'circle', lon: sphere.lon, lat: sphere.lat, radiusKm: sphere.radiusKm }, cur ? cur.harmonized : 0, seq);
+      } else {
+        clearDetail();
+      }
     } catch (e) {
       if (seq !== state.panelSeq) return;
       console.error(e);
+      $('season-text').textContent = t('panel.loadErr');
     }
   }
 
@@ -665,221 +673,222 @@
     box.append(root, legend);
   }
 
-  /* ---------- A, B & C Operational Intelligence Renderers ---------- */
-  async function loadIntelligence(id, seq) {
-    try {
-      const intel = state.source.intelligence
-        ? await state.source.intelligence(id, state.year, state.month)
-        : global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id);
-      if (seq !== state.panelSeq || !intel) return;
-      if (intel.resources) renderResourcesBox(intel.resources);
-      if (intel.rootFires) renderRootFiresBox(intel.rootFires);
-      if (intel.predictability) renderPredictabilityBox(intel.predictability);
-    } catch (err) {
-      if (seq !== state.panelSeq) return;
-      const fallback = global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id);
-      renderResourcesBox(fallback.resources);
-      renderRootFiresBox(fallback.rootFires);
-      renderPredictabilityBox(fallback.predictability);
-    }
+  /* ---------- Detail inside the selected area: grid cells (municipality or circle) ---------- */
+  const DETAIL_CLASSES = [
+    { key: 'detail.k0', color: '#f5f5f5', test: (v) => v <= 0 },
+    { key: 'detail.k1', color: '#f26d6d', test: (v) => v > 0 && v <= 1.5 },
+    { key: 'detail.k2', color: '#c62828', test: (v) => v > 1.5 && v <= 4 },
+    { key: 'detail.k3', color: '#6d0a0a', test: (v) => v > 4 },
+  ];
+  function clearDetail() {
+    state.detail = null;
+    if (map) map.setPointLayer(null, 'detail');
+    const b = $('detail-block');
+    if (b) b.hidden = true;
   }
-
-  function renderResourcesBox(resData) {
-    const box = $('resources-box');
-    if (!box) return;
+  /**
+   * area: { kind: 'muni', id } | { kind: 'circle', lon, lat, radiusKm }
+   * total: the area's harmonized value for the month (only used by DEMO to spread synthetic cells).
+   */
+  async function loadDetail(area, total, seq) {
+    const block = $('detail-block'), box = $('detail-box');
+    block.hidden = false;
+    $('detail-small').textContent = period();
     clear(box);
-    const sc = (resData && resData.scaling) || resData;
-    if (!sc) return;
-
-    const head = el('div', 'intel-head');
-    const badge = el(
-      'span',
-      `intel-badge intel-badge--${sc.intensityClass || 'low'}`,
-      t(`res.intensity.${sc.intensityClass || 'low'}`)
-    );
-    const frpTag = el('strong', 'intel-mono', `${I.num(sc.totalFrpMw || 0, 1)} MW FRP`);
-    head.append(badge, frpTag);
-    box.append(head);
-
-    box.append(
-      el(
-        'p',
-        'intel-note',
-        t('res.dedup', {
-          clusters: fmtInt(sc.activeClusters),
-          raw: fmtInt(sc.rawDetections),
-          pct: I.num(sc.deduplicatedRatioPct || 0, 1),
-        })
-      ),
-      el(
-        'p',
-        'intel-note',
-        t('res.frp', {
-          mean: I.num(sc.meanFrpMw || 0, 1),
-          max: I.num(sc.maxFrpMw || 0, 1),
-          total: I.num(sc.totalFrpMw || 0, 1),
-        })
-      )
-    );
-
-    const grid = el('div', 'res-grid');
-    const cards = [
-      {
-        label: t('res.brigadistas'),
-        val: fmtInt(sc.brigadistas),
-        sub: t('res.squads', { n: fmtInt(sc.squads) }),
-      },
-      {
-        label: t('res.water'),
-        val: `${fmtInt(sc.waterLiters)} L`,
-        sub: t('res.trucks', { n: fmtInt(sc.waterTrucks) }),
-      },
-      {
-        label: t('res.kits'),
-        val: fmtInt(sc.manualKits),
-        sub: t('res.kitsSub'),
-      },
-      {
-        label: t('res.air'),
-        val: fmtInt(sc.aircraftSupport),
-        sub: t('res.airSub'),
-      },
-    ];
-    for (const c of cards) {
-      const card = el('div', 'res-card');
-      card.append(
-        el('span', 'res-card__label', c.label),
-        el('strong', 'res-card__val', c.val),
-        el('small', 'res-card__sub', c.sub)
-      );
-      grid.append(card);
-    }
-    box.append(grid, el('small', 'intel-foot', t('res.sensors')));
-  }
-
-  function renderRootFiresBox(rf) {
-    const box = $('root-fires-box');
-    if (!box) return;
-    clear(box);
-    if (!rf) return;
-
-    const head = el('div', 'intel-head');
-    const regimeKey = `root.regime.${rf.dominantRegime || 'low_activity'}`;
-    const badgeClass =
-      rf.dominantRegime === 'anthropogenic_root'
-        ? 'high'
-        : rf.dominantRegime === 'root_with_climate_spikes'
-          ? 'extreme'
-          : rf.dominantRegime === 'climatic_anomaly_driven'
-            ? 'moderate'
-            : 'low';
-    head.append(
-      el('span', `intel-badge intel-badge--${badgeClass}`, t(regimeKey)),
-      el('strong', 'intel-mono', `${I.num(rf.persistenceScorePct || 0, 1)}%`)
-    );
-    box.append(head);
-
-    const metaList = el('ul', 'context');
-    const rows = [
-      [t('root.persistence'), `${I.num(rf.persistenceScorePct || 0, 1)}%`],
-      [t('root.anthroShare'), `${I.num(rf.anthropogenicSharePct || 0, 1)}%`],
-      [
-        t('root.anomalyYears'),
-        Array.isArray(rf.climaticAnomalyYears) && rf.climaticAnomalyYears.length
-          ? rf.climaticAnomalyYears.slice(-6).join(', ')
-          : '–',
-      ],
-    ];
-    for (const [lbl, val] of rows) {
-      const li = el('li');
-      li.append(el('span', '', lbl), el('strong', '', val));
-      metaList.append(li);
-    }
-    box.append(metaList);
-
-    if (Array.isArray(rf.months) && rf.months.length) {
-      box.append(el('p', 'intel-subhead', t('root.matrixTitle')));
-      const matrix = el('div', 'root-matrix');
-      for (const m of rf.months) {
-        const cell = el('div', 'root-cell');
-        if (m.isRootMonth) cell.classList.add('is-root');
-        const pct = Math.round(m.recurrencePct || 0);
-        cell.title = `${monthName(m.month)}: ${pct}% (${m.yearsWithFire}/${m.yearsObserved})`;
-        cell.append(
-          el('span', 'root-cell__m', monthName(m.month)[0]),
-          el('strong', 'root-cell__p', `${pct}%`)
-        );
-        matrix.append(cell);
+    box.append(el('p', 'muted', t('detail.loading')));
+    const res = area.kind === 'muni' ? 1000 : area.radiusKm <= 40 ? 1000 : area.radiusKm <= 120 ? 2000 : 5000;
+    let spec = null;
+    if (state.source.kind === 'demo') {
+      if (area.kind === 'muni') {
+        spec = { seed: area.id, bbox: map.bboxLonLat(area.id), inside: (lon, lat) => map.contains(area.id, lon, lat), total };
+      } else {
+        const dLat = area.radiusKm / 111, dLon = dLat / Math.cos((area.lat * Math.PI) / 180);
+        spec = {
+          seed: `c${area.lon.toFixed(2)}:${area.lat.toFixed(2)}:${area.radiusKm}`,
+          bbox: [area.lon - dLon, area.lat - dLat, area.lon + dLon, area.lat + dLat],
+          inside: (lon, lat) => Math.hypot((lon - area.lon) / dLon, (lat - area.lat) / dLat) <= 1,
+          total,
+        };
       }
-      box.append(matrix);
     }
+    let d = null;
+    try { d = await state.source.cells(area, state.year, state.month, res, spec); } catch (e) { console.warn('cells:', e.message); }
+    if (seq !== state.panelSeq) return;
+    clear(box);
+    if (!d) { map.setPointLayer(null, 'detail'); box.append(el('p', 'muted', t('detail.unavailable'))); return; }
+    state.detail = { res: d.res, yearsObserved: d.yearsObserved };
+    const classes = DETAIL_CLASSES.map((c) => ({ color: c.color, cells: [] }));
+    let withFire = 0;
+    for (const c of d.cells) {
+      const i = DETAIL_CLASSES.findIndex((k) => k.test(c[2]));
+      if (i >= 0) classes[i].cells.push(c);
+      if (c[2] > 0) withFire++;
+    }
+    map.setPointLayer({
+      cellKm: d.res / 1000, classes, hover: true, grid: true, alpha: 0.92,
+      clip: area.kind === 'muni' ? { kind: 'feature', id: area.id } : { kind: 'sphere' },
+    }, 'detail');
+
+    if (d.demo) box.append(el('p', 'detail-demo', t('detail.demo')));
+    if (!d.cells.length) { box.append(el('p', 'muted', t('detail.none'))); return; }
+    box.append(el('p', 'range-line', t('detail.summary', {
+      n: I.num(withFire), res: I.num(d.res / 1000), period: period(), m: I.num(d.cells.length),
+      from: state.source.firstYear, to: state.source.lastYear,
+    })));
+    if (Number.isFinite(d.total)) box.append(el('p', 'range-line', t('detail.sum', { v: fmt1(d.total) })));
+    const keys = el('div', 'roots-legend__keys');
+    keys.append(el('span', 'muted', t('detail.legend')));
+    for (const c of DETAIL_CLASSES) {
+      const k = el('span', 'roots-key');
+      const sw = el('i', 'roots-key__sw');
+      sw.style.background = c.color;
+      k.append(sw, el('span', '', t(c.key)));
+      keys.append(k);
+    }
+    box.append(keys);
+    box.append(el('small', 'range-meta muted', t('detail.hint')));
+  }
+  function onCellHover(h) {
+    if (!h || !state.detail) return;
+    const tip = $('tooltip');
+    const c = h.cell;
+    $('tt-name').textContent = t('tt.cell', { res: I.num(state.detail.res / 1000), v: fmt1(c[2]), period: period() });
+    $('tt-value').textContent = t('tt.cellYears', { y: c[3], n: state.detail.yearsObserved ?? '–', ly: c[4] ?? '–' });
+    tip.hidden = false;
+    const x = Math.min(h.x + 14, $('map').clientWidth - 280);
+    tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, h.y - 38)}px)`;
   }
 
-  function renderPredictabilityBox(pred) {
-    const box = $('predictability-box');
-    if (!box) return;
-    clear(box);
-    if (!pred) return;
-
-    const head = el('div', 'intel-head');
-    const rClass = pred.ignitionRiskClass || 'moderate';
-    head.append(
-      el('span', `intel-badge intel-badge--${rClass}`, t(`pred.risk.${rClass}`)),
-      el('strong', 'intel-mono', `${I.num(pred.ignitionRiskScore || 0, 1)} / 100`)
-    );
-    box.append(head);
-
-    // Compass + Propagation Vector row
-    const prop = pred.propagation || { azimuthDeg: 270, cardinal: 'W', spreadRateKmh: 0.8, reachRadius6hKm: 4.8 };
-    const w = pred.weatherSummary || { t2mMaxC: 34, rh2mPct: 28, prectotcorrMm: 0, ws10mMs: 3.5, wd10mDeg: 90, windFromCardinal: 'E' };
-
-    const compassRow = el('div', 'pred-compass-row');
-    const compassSvg = svg('svg', { viewBox: '0 0 64 64', class: 'pred-compass', 'aria-hidden': 'true' });
-    compassSvg.append(svg('circle', { cx: 32, cy: 32, r: 27, fill: 'none', stroke: 'currentColor', opacity: 0.28, 'stroke-width': 1.5 }));
-    const nLabel = svg('text', { x: 32, y: 11, 'text-anchor': 'middle', class: 'compass-n' });
-    nLabel.textContent = 'N';
-    compassSvg.append(nLabel);
-
-    const angleRad = ((prop.azimuthDeg - 90) * Math.PI) / 180;
-    const x2 = 32 + Math.cos(angleRad) * 20;
-    const y2 = 32 + Math.sin(angleRad) * 20;
-    compassSvg.append(
-      svg('line', {
-        x1: 32,
-        y1: 32,
-        x2: x2.toFixed(1),
-        y2: y2.toFixed(1),
-        stroke: '#f26d6d',
-        'stroke-width': 2.6,
-        'stroke-linecap': 'round',
-      }),
-      svg('circle', { cx: x2.toFixed(1), cy: y2.toFixed(1), r: 3.4, fill: '#c62828' }),
-      svg('circle', { cx: 32, cy: 32, r: 2.2, fill: 'currentColor' })
-    );
-
-    const vecInfo = el('div', 'pred-vec-info');
-    vecInfo.append(
-      el('strong', '', `${t('pred.vectorLabel')}: ${prop.azimuthDeg}° (${prop.cardinal})`),
-      el('span', '', t('pred.vectorSub', { az: prop.azimuthDeg, card: prop.cardinal, rate: I.num(prop.spreadRateKmh, 2), reach: I.num(prop.reachRadius6hKm, 1) })),
-      el('small', 'muted', t('pred.windFrom', { deg: w.wd10mDeg, card: w.windFromCardinal, ws: I.num(w.ws10mMs, 1) }))
-    );
-    compassRow.append(compassSvg, vecInfo);
-    box.append(compassRow);
-
-    const varsList = el('ul', 'context');
-    const items = [
-      [t('pred.t2mMax'), `${I.num(w.t2mMaxC, 1)} °C`],
-      [t('pred.rh2m'), `${I.num(w.rh2mPct, 1)} %`],
-      [t('pred.precip'), `${I.num(w.prectotcorrMm, 1)} mm`],
-      [t('pred.ws10m'), `${I.num(w.ws10mMs, 1)} m/s · ${w.wd10mDeg}° (${w.windFromCardinal})`],
-      [t('pred.dryDays'), `${pred.consecutiveDryDays || 0} d · ${I.num(pred.vaporPressureDeficitHpa || 0, 1)} hPa`],
-    ];
-    for (const [lbl, val] of items) {
-      const li = el('li');
-      li.append(el('span', '', lbl), el('strong', '', val));
-      varsList.append(li);
+  /* ---------- Expected range from history (P10–P90 of the same month in earlier years) ---------- */
+  async function loadRange(id, seq) {
+    clear($('range-box'));
+    $('range-small').textContent = period();
+    try {
+      const p = state.source.projection ? await state.source.projection(id, state.year, state.month) : null;
+      if (seq !== state.panelSeq) return;
+      if (p && p.range) { renderRangeBox(p, state.source.kind === 'demo'); return; }
+    } catch (e) {
+      if (seq !== state.panelSeq) return;
+      console.warn('projection:', e.message);
     }
-    box.append(varsList);
+    // API without history (503) or failure: same rule, computed from the series already on screen.
+    const rows = state.rows.get(id) || [];
+    const cur = rows.find((r) => r.year === state.year && r.month === state.month);
+    renderRangeBox({ method: 'all', range: global.FireData.rangeFromRows(rows, state.year, state.month), analog: null,
+      observed: cur ? cur.harmonized : null, hindcast: null }, true);
+  }
+
+  function renderRangeBox(p, local) {
+    const box = $('range-box');
+    clear(box);
+    $('range-small').textContent = period();
+    if (!p || !p.range) { box.append(el('p', 'muted', t('range.none'))); return; }
+    const { p10, p50, p90 } = p.range;
+    const obs = Number.isFinite(p.observed) ? p.observed : null;
+
+    // Bar from 0 to max(P90, observed): P10–P90 band, median tick, observed marker.
+    const top = Math.max(p90, obs || 0, 1) * 1.12;
+    const pct = (v) => `${Math.max(0, Math.min(100, (v / top) * 100)).toFixed(2)}%`;
+    const bar = el('div', 'range-bar');
+    bar.setAttribute('aria-hidden', 'true');
+    const band = el('span', 'range-bar__band');
+    band.style.left = pct(p10);
+    band.style.width = `calc(${pct(p90)} - ${pct(p10)})`;
+    const med = el('span', 'range-bar__median');
+    med.style.left = pct(p50);
+    bar.append(band, med);
+    if (obs !== null) {
+      const o = el('span', 'range-bar__obs');
+      o.style.left = pct(obs);
+      bar.append(o);
+    }
+    box.append(bar);
+
+    box.append(el('p', 'range-line', t('range.p', { p10: fmt1(p10), p50: fmt1(p50), p90: fmt1(p90) })));
+    if (obs !== null) {
+      const where = obs > p90 ? 'range.above' : obs < p10 ? 'range.below' : 'range.within';
+      box.append(el('p', 'range-line ' + (obs > p90 ? 'z-up' : obs < p10 ? 'z-down' : ''),
+        `${t('range.obs', { period: period(), v: fmtInt(obs) })} · ${t(where)}`));
+    } else {
+      box.append(el('p', 'range-line muted', t('range.obsNone', { period: period() })));
+    }
+    if (p.analog) {
+      box.append(el('p', 'range-line', t('range.analog', { years: p.analog.years.join(', '), p10: fmt1(p.analog.p10), p90: fmt1(p.analog.p90) })));
+    }
+    const meta = [];
+    if (Number.isFinite(p.range.nYears)) meta.push(t('range.years', { n: p.range.nYears, method: t(`range.method.${p.method}`) }));
+    if (p.hindcast && Number.isFinite(p.hindcast.coveragePct)) {
+      meta.push(t('range.hindcast', { period: p.hindcast.period, cov: fmt1(p.hindcast.coveragePct), skill: fmt1(p.hindcast.skillPct) }));
+    } else if (local) {
+      meta.push(t('range.noHindcast'));
+    }
+    meta.push(t('range.note'));
+    for (const m of meta) box.append(el('small', 'range-meta muted', m));
+  }
+
+  /* ---------- Focos-raiz layer (cells that burned in many years; computed in PostGIS) ---------- */
+  const ROOT_CLASSES = [
+    { min: 0.6, color: '#6d0a0a' },
+    { min: 0.4, color: '#c62828' },
+    { min: 0.25, color: '#f26d6d' },
+  ];
+  async function toggleRoots() {
+    const btn = $('toggle-roots');
+    const r = state.roots;
+    if (r.loading) return;
+    r.on = !r.on;
+    btn.classList.toggle('is-active', r.on);
+    btn.setAttribute('aria-pressed', String(r.on));
+    if (!r.on) { map.setPointLayer(null); $('roots-legend').hidden = true; return; }
+    if (state.source.kind === 'demo') { showRootsMessage('roots.demo'); return; }
+    if (!r.data) {
+      r.loading = true;
+      showRootsMessage('roots.loading');
+      try {
+        r.data = await state.source.recurrence(state.source.firstYear, state.source.lastYear);
+      } catch (e) {
+        console.warn('recurrence:', e.message);
+        r.data = null;
+      } finally {
+        r.loading = false;
+      }
+      if (!r.data) { showRootsMessage(state.source.dataKind === 'firms_db' ? 'roots.err' : 'roots.demo'); return; }
+    }
+    if (r.on) drawRoots();
+  }
+  function showRootsMessage(key) {
+    $('roots-legend').hidden = false;
+    $('roots-title').textContent = t(key);
+    clear($('roots-keys'));
+    $('roots-hit').textContent = '';
+  }
+  function drawRoots() {
+    const d = state.roots.data;
+    const n = d.yearsObserved || 1;
+    const classes = ROOT_CLASSES.map((c) => ({ color: c.color, cells: [] }));
+    for (const c of d.cells) {
+      const i = ROOT_CLASSES.findIndex((k) => c[2] / n >= k.min);
+      if (i >= 0) classes[i].cells.push([c[0], c[1]]);
+    }
+    map.setPointLayer({ cellKm: 1, classes });
+    $('roots-legend').hidden = false;
+    $('roots-title').textContent = t('roots.legend', { n, from: state.source.firstYear, to: state.source.lastYear });
+    const keys = $('roots-keys');
+    clear(keys);
+    let upper = n;
+    for (const c of ROOT_CLASSES) {
+      const lo = Math.ceil(c.min * n);
+      const k = el('span', 'roots-key');
+      const sw = el('i', 'roots-key__sw');
+      sw.style.background = c.color;
+      k.append(sw, el('span', '', lo >= upper ? `${lo}` : `${lo}–${upper}`));
+      keys.append(k);
+      upper = lo - 1;
+    }
+    const h = d.hitRate;
+    $('roots-hit').textContent = h && h.testYear
+      ? t('roots.hit', { y: h.testYear, hit: fmt1(h.hitPct), area: fmt1(h.areaSharePct) })
+      : '';
   }
 
   async function loadContext(id, seq) {
@@ -944,9 +953,12 @@
       renderHeader(state.selected);
       renderPanelBody(state.selected);
       const seq = ++state.panelSeq;
-      loadIntelligence(state.selected, seq);
+      loadRange(state.selected, seq);
       loadContext(state.selected, seq);
+      const cur = currentRow();
+      loadDetail({ kind: 'muni', id: state.selected }, cur ? cur.harmonized : 0, seq);
     }
+    if (state.roots.on && state.roots.data) drawRoots();
   }
   function setupLanguage() {
     $('lang').addEventListener('click', () => { I.setLang(I.lang() === 'pt' ? 'en' : 'pt'); applyLanguage(); });
@@ -994,6 +1006,7 @@
     map.on('select', (id) => selectMunicipality(id, false));
     map.on('sphere', onSphereSelect);
     map.on('view', updateLateralScale);
+    map.on('cell', onCellHover);
 
     // Mode switcher (Município vs Esfera/Área 2D)
     let radiusTimer = 0;
@@ -1014,6 +1027,7 @@
       else map.reset(850);
     });
     $('zoom-brazil').addEventListener('click', () => map.resetBrazil(960));
+    $('toggle-roots').addEventListener('click', toggleRoots);
     $('toggle-numbers').addEventListener('click', () => {
       const on = map.setShowNumbers();
       $('toggle-numbers').classList.toggle('is-active', on);
@@ -1033,7 +1047,7 @@
 
     setStatus('status.loading');
     try {
-      state.source = await global.FireData.createSource(() => state.ids);
+      state.source = await global.FireData.createSource(() => state.ids, (id) => map.areaKm2(id));
       setBadge();
       const [mesh, brazilMesh, names] = await Promise.all([
         global.FireData.loadGeometry(state.source.kind === 'api'),

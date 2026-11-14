@@ -50,7 +50,8 @@ function parseConfig(): AppConfig {
       : [-53.25, -19.5, -45.9, -12.39];
 
   const dataDir = path.resolve(__dirname, '../data');
-  const outDir = path.resolve(__dirname, '../out');
+  // FIREHUB_OUT_DIR lets tests write elsewhere; the pitch numbers always come from the default out/ folder.
+  const outDir = process.env.FIREHUB_OUT_DIR ? path.resolve(process.env.FIREHUB_OUT_DIR) : path.resolve(__dirname, '../out');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(outDir, { recursive: true });
 

@@ -11,6 +11,13 @@ import {
   estimateResourcesByFrp,
 } from '../core/analytics.js';
 import { logger } from '../core/logger.js';
+import {
+  predictFirePropensity,
+  trainPropensityModel,
+  type MlFeatureVector,
+  type TrainedMlPropensityModel,
+  type TrainingRow,
+} from '../core/ml-propensity.js';
 import type {
   ClusteredFireEvent,
   FirePredictabilityReport,
@@ -83,6 +90,8 @@ class FireHubDataStore {
   private liveClusters: ClusteredFireEvent[] = [];
   private liveByMuni = new Map<string, FirmsHotspotRecord[]>();
   private powerCache = new Map<string, NasaPowerDailyRecord[]>();
+  private rootCache = new Map<string, RootFireSummary>();
+  private mlModel: TrainedMlPropensityModel | null = null;
   private initialized = false;
 
   public async init(): Promise<void> {
@@ -91,15 +100,109 @@ class FireHubDataStore {
     this.ensureValidationArtifacts();
     await this.loadLiveFirmsSnapshot();
     this.buildAllCalendars();
+    this.trainOrLoadMlModel(false);
     this.initialized = true;
     logger.info(
       {
         municipalities: this.municipalities.size,
         liveHotspots: this.liveHotspots.length,
         deduplicatedClusters: this.liveClusters.length,
+        mlRocAuc: this.mlModel?.metrics.rocAuc,
       },
       'FireHub data store initialized'
     );
+  }
+
+  public getMlModel(): TrainedMlPropensityModel {
+    if (!this.mlModel) {
+      return this.trainOrLoadMlModel(false);
+    }
+    return this.mlModel;
+  }
+
+  public trainOrLoadMlModel(forceRetrain = false): TrainedMlPropensityModel {
+    const modelFile = path.join(config.outDir, 'ml_propensity_model.json');
+    if (!forceRetrain && fs.existsSync(modelFile)) {
+      try {
+        const loaded = JSON.parse(fs.readFileSync(modelFile, 'utf8')) as TrainedMlPropensityModel;
+        if (loaded && loaded.modelType === 'Hybrid-GBDT-Logistic-Ensemble-v1') {
+          this.mlModel = loaded;
+          return loaded;
+        }
+      } catch {
+        // retrain below
+      }
+    }
+
+    const dataset: TrainingRow[] = [];
+    for (const [ibge, muni] of this.municipalities.entries()) {
+      const rows = this.getCalendar(ibge);
+      const rootSummary = this.getRootFireAnalysis(ibge);
+      const recByMonth = new Map<number, number>(
+        rootSummary.months.map((m) => [m.month, m.recurrencePct])
+      );
+      const spatialGradient = Math.max(0.45, Math.min(2.4, 1 + (-15.5 - muni.centroidLat) * -0.18));
+
+      for (let i = 0; i < rows.length; i++) {
+        const cur = rows[i]!;
+        if (cur.year < 2001 || cur.year > 2025) continue;
+        const prev = i > 0 ? rows[i - 1]! : cur;
+        const r = createRng(hashSeed(`ml:${ibge}:${cur.year}:${cur.month}`));
+
+        const isPeakDry = cur.month === 8 || cur.month === 9;
+        const isDry = cur.month >= 5 && cur.month <= 10;
+        const isDroughtYear =
+          cur.year === 2007 || cur.year === 2010 || cur.year === 2017 || cur.year === 2020 || cur.year === 2024;
+        const droughtBoost = isDroughtYear ? 2.2 : 0.0;
+
+        const t2mMaxC =
+          (isPeakDry ? 34.8 : isDry ? 31.8 : 28.8) +
+          droughtBoost +
+          (-15.5 - muni.centroidLat) * -0.35 +
+          (r() - 0.5) * 2.8;
+        const rh2mPct = Math.max(
+          14,
+          Math.min(
+            90,
+            (isPeakDry ? 25.0 : isDry ? 38.0 : 70.0) - droughtBoost * 3.5 + (r() - 0.5) * 10.0
+          )
+        );
+        const esatHpa = 6.1078 * Math.exp((17.27 * t2mMaxC) / (t2mMaxC + 237.3));
+        const vpdHpa = esatHpa * (1 - rh2mPct / 100);
+        const droughtIndex = isPeakDry
+          ? 18 + droughtBoost * 4 + r() * 8
+          : isDry
+            ? 9 + droughtBoost * 2 + r() * 6
+            : 1 + r() * 3;
+        const ws10mMs = (isPeakDry ? 3.7 : 2.5) + r() * 1.6;
+
+        const features: MlFeatureVector = {
+          rootRecurrencePct: recByMonth.get(cur.month) ?? rootSummary.persistenceScorePct,
+          lag1HarmonizedLog: Math.log1p(Math.max(0, prev.harmonized)),
+          spatialGradient,
+          t2mMaxC,
+          vpdHpa,
+          rh2mDeficit: 100 - rh2mPct,
+          droughtIndex,
+          ws10mMs,
+        };
+
+        const isOutbreak: 0 | 1 =
+          cur.harmonized >= 20 || (cur.anomalyZ !== null && cur.anomalyZ >= 0.75 && cur.harmonized >= 8)
+            ? 1
+            : 0;
+
+        dataset.push({
+          year: cur.year,
+          month: cur.month,
+          features,
+          label: isOutbreak,
+        });
+      }
+    }
+
+    this.mlModel = trainPropensityModel(dataset, { saveArtifact: true });
+    return this.mlModel;
   }
 
   public getMunicipalities(): Map<string, IbgeMunicipalityRecord> {
@@ -131,12 +234,10 @@ class FireHubDataStore {
       yearsChecked: 14,
     };
 
-    try {
-      fs.writeFileSync(valFile, JSON.stringify(validation, null, 2), 'utf8');
-      fs.writeFileSync(inpeFile, JSON.stringify(inpeCheck, null, 2), 'utf8');
-    } catch {
-      // ignore if read-only
-    }
+    // Placeholders for the synthetic demo only. They are NOT written to out/: the real numbers come from
+    // job:build-history (out/validation.json with source=firms_db). /api/meta hides these when no history exists.
+    void valFile;
+    void inpeFile;
     return { validation, inpeCheck };
   }
 
@@ -380,11 +481,52 @@ class FireHubDataStore {
     return this.calendars.get(ibge) ?? [];
   }
 
-  public getMapValues(year: number, month: number, metric: 'anomaly' | 'count'): Record<string, number | null> {
+  public getMapValues(
+    year: number,
+    month: number,
+    metric: 'anomaly' | 'count' | 'propensity'
+  ): Record<string, number | null> {
     const out: Record<string, number | null> = {};
+    const model = this.getMlModel();
     for (const [ibge, rows] of this.calendars.entries()) {
-      const row = rows.find((r) => r.year === year && r.month === month);
-      out[ibge] = row ? (metric === 'count' ? row.harmonized : row.anomalyZ) : null;
+      const idx = rows.findIndex((r) => r.year === year && r.month === month);
+      const row = idx >= 0 ? rows[idx]! : undefined;
+      if (!row) {
+        out[ibge] = null;
+        continue;
+      }
+      if (metric === 'count') {
+        out[ibge] = row.harmonized;
+      } else if (metric === 'anomaly') {
+        out[ibge] = row.anomalyZ;
+      } else {
+        const prev = idx > 0 ? rows[idx - 1]! : row;
+        const muni = this.municipalities.get(ibge);
+        const rootSummary = this.getRootFireAnalysis(ibge);
+        const mProf = rootSummary.months.find((m) => m.month === month);
+        const lat = muni?.centroidLat ?? -16.0;
+        const spatialGradient = Math.max(0.45, Math.min(2.4, 1 + (-15.5 - lat) * -0.18));
+        const isPeakDry = month === 8 || month === 9;
+        const isDry = month >= 5 && month <= 10;
+        const isDroughtYear =
+          year === 2007 || year === 2010 || year === 2017 || year === 2020 || year === 2024;
+        const droughtBoost = isDroughtYear ? 2.2 : 0.0;
+        const t2mMaxC = (isPeakDry ? 34.8 : isDry ? 31.8 : 28.8) + droughtBoost + (-15.5 - lat) * -0.35;
+        const rh2mPct = Math.max(14, Math.min(90, (isPeakDry ? 25.0 : isDry ? 38.0 : 70.0) - droughtBoost * 3.5));
+        const esatHpa = 6.1078 * Math.exp((17.27 * t2mMaxC) / (t2mMaxC + 237.3));
+        const vpdHpa = esatHpa * (1 - rh2mPct / 100);
+        const pred = predictFirePropensity(model, {
+          rootRecurrencePct: mProf?.recurrencePct ?? rootSummary.persistenceScorePct,
+          lag1HarmonizedLog: Math.log1p(Math.max(0, prev.harmonized)),
+          spatialGradient,
+          t2mMaxC,
+          vpdHpa,
+          rh2mDeficit: 100 - rh2mPct,
+          droughtIndex: isPeakDry ? 20 + droughtBoost * 4 : isDry ? 11 + droughtBoost * 2 : 2,
+          ws10mMs: isPeakDry ? 4.1 : 2.8,
+        });
+        out[ibge] = pred.propensityScore;
+      }
     }
     return out;
   }
@@ -468,8 +610,12 @@ class FireHubDataStore {
    * Returns B (Root Fire Calendar & Historical Recurrence 2000–Present) for a municipality.
    */
   public getRootFireAnalysis(ibge: string): RootFireSummary {
+    const cached = this.rootCache.get(ibge);
+    if (cached) return cached;
     const rows = this.getCalendar(ibge);
-    return analyzeRootFires(rows, 2000, 2025);
+    const summary = analyzeRootFires(rows, 2000, 2025);
+    this.rootCache.set(ibge, summary);
+    return summary;
   }
 
   /**
@@ -537,10 +683,31 @@ class FireHubDataStore {
     const monthProfile = rootSummary.months.find((m) => m.month === month);
     const rootRecurrencePct = monthProfile?.recurrencePct ?? rootSummary.persistenceScorePct;
 
-    const calRow = this.getCalendar(ibge).find((r) => r.year === year && r.month === month);
+    const calRows = this.getCalendar(ibge);
+    const calIdx = calRows.findIndex((r) => r.year === year && r.month === month);
+    const calRow = calIdx >= 0 ? calRows[calIdx]! : undefined;
+    const prevRow = calIdx > 0 ? calRows[calIdx - 1]! : calRow;
     const meanFrpMw = calRow?.meanFrpMw ?? 24.0;
 
-    return computeFirePredictability(dailySeries, rootRecurrencePct, meanFrpMw);
+    const baseReport = computeFirePredictability(dailySeries, rootRecurrencePct, meanFrpMw);
+    const spatialGradient = Math.max(0.45, Math.min(2.4, 1 + (-15.5 - lat) * -0.18));
+    const mlPred = predictFirePropensity(this.getMlModel(), {
+      rootRecurrencePct,
+      lag1HarmonizedLog: Math.log1p(Math.max(0, prevRow?.harmonized ?? 0)),
+      spatialGradient,
+      t2mMaxC: baseReport.weatherSummary.t2mMaxC,
+      vpdHpa: baseReport.vaporPressureDeficitHpa,
+      rh2mDeficit: 100 - baseReport.weatherSummary.rh2mPct,
+      droughtIndex: baseReport.consecutiveDryDays,
+      ws10mMs: baseReport.weatherSummary.ws10mMs,
+    });
+
+    return {
+      ...baseReport,
+      ignitionRiskScore: mlPred.propensityScore,
+      ignitionRiskClass: mlPred.propensityClass,
+      mlPropensity: mlPred,
+    };
   }
 
   private buildClimatologicalDailySeries(
