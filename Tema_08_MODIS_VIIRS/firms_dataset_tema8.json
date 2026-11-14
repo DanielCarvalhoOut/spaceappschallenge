@@ -1,0 +1,152 @@
+{
+ "fonte": "NASA FIRMS",
+ "conferido_em": "2026-11-14",
+ "desafio": "Harmonization of MODIS and VIIRS Hot Spots (Space Apps 2026)",
+ "url_anual": "https://firms.modaps.eosdis.nasa.gov/data/country/{pasta}/{ano}/{pasta}_{ano}_Brazil.csv",
+ "url_api": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{MAP_KEY}/{SOURCE}/{oeste,sul,leste,norte}/{dias 1-5}/{AAAA-MM-DD opcional}",
+ "api_limite": "5000 transações a cada 10 minutos por MAP_KEY",
+ "api_sources": [
+  "MODIS_NRT",
+  "MODIS_SP",
+  "VIIRS_SNPP_NRT",
+  "VIIRS_SNPP_SP",
+  "VIIRS_NOAA20_NRT",
+  "VIIRS_NOAA20_SP",
+  "VIIRS_NOAA21_NRT",
+  "VIIRS_NOAA21_SP"
+ ],
+ "sensores": [
+  {
+   "nome": "MODIS (Terra e Aqua)",
+   "pasta": "modis",
+   "de": 2000,
+   "ate": 2025,
+   "pixel": "~1 km",
+   "nota": "2000 parcial",
+   "bytes": {
+    "2000": 1230110,
+    "2001": 11573915,
+    "2011": 21378854,
+    "2012": 31692432,
+    "2013": 17345997,
+    "2017": 30642832,
+    "2018": 18455696,
+    "2019": 29901181,
+    "2023": 28810183,
+    "2024": 42592737,
+    "2025": 19063013
+   }
+  },
+  {
+   "nome": "VIIRS S-NPP",
+   "pasta": "viirs-snpp",
+   "de": 2012,
+   "ate": 2025,
+   "pixel": "~375 m",
+   "nota": "",
+   "bytes": {
+    "2012": 129965118,
+    "2013": 69169523,
+    "2017": 122998462,
+    "2018": 72954097,
+    "2019": 116363499,
+    "2023": 107163080,
+    "2024": 154270311,
+    "2025": 68706593
+   }
+  },
+  {
+   "nome": "VIIRS NOAA-20",
+   "pasta": "viirs-jpss1",
+   "de": 2018,
+   "ate": 2025,
+   "pixel": "~375 m",
+   "nota": "",
+   "bytes": {
+    "2018": 69462288,
+    "2019": 117273613,
+    "2023": 107204252,
+    "2024": 162517975,
+    "2025": 69822157
+   }
+  }
+ ],
+ "goias_caixa_aproximada": [
+  -53.25,
+  -19.5,
+  -45.9,
+  -12.39
+ ],
+ "colunas": [
+  [
+   "latitude, longitude",
+   "latitude, longitude",
+   "Centro do pixel do foco",
+   0
+  ],
+  [
+   "brightness",
+   "bright_ti4",
+   "Temperatura de brilho (K): canais 21/22 no MODIS, banda I4 no VIIRS",
+   1
+  ],
+  [
+   "bright_t31",
+   "bright_ti5",
+   "Temperatura de brilho de um segundo canal (K)",
+   1
+  ],
+  [
+   "scan, track",
+   "scan, track",
+   "Tamanho do pixel leste-oeste e norte-sul; cresce na borda da faixa",
+   1
+  ],
+  [
+   "acq_date, acq_time",
+   "acq_date, acq_time",
+   "Data e hora UTC (HHMM) da passagem",
+   0
+  ],
+  [
+   "satellite",
+   "satellite",
+   "Terra ou Aqua no MODIS; N (S-NPP) ou N20 no VIIRS",
+   1
+  ],
+  [
+   "confidence (0 a 100)",
+   "confidence (l, n, h)",
+   "Confiança da detecção em escalas diferentes",
+   1
+  ],
+  [
+   "frp",
+   "frp",
+   "Potência radiativa do fogo, indicador de intensidade",
+   0
+  ],
+  [
+   "daynight",
+   "daynight",
+   "D ou N",
+   0
+  ],
+  [
+   "type",
+   "type",
+   "Tipo do foco (fonte estática etc.); ausente nos dados NRT",
+   0
+  ],
+  [
+   "instrument, version",
+   "instrument, version",
+   "Sensor e versão do produto",
+   0
+  ]
+ ],
+ "amostra_2024": {
+  "modis": "latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight,type\n-12.9469,-56.8037,303.7,2.7,1.6,2024-01-01,0121,Terra,MODIS,57,61.03,284.7,19.9,N,0",
+  "viirs_snpp": "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight,type\n-2.26608,-53.78103,314.07,0.33,0.55,2024-01-01,0425,N,VIIRS,n,2,271.41,0.63,N,0"
+ }
+}

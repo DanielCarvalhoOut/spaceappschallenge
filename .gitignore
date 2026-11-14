@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+data/raw/
+__pycache__/
+.ipynb_checkpoints/
+node_modules/
+
+# código de terceiros do mapa antigo (não pode ir para o repositório)
+Mapa iterativo/assets/
+Mapa iterativo/painel-original.html
