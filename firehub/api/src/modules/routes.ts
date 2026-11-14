@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -12,6 +15,20 @@ import {
   type FirmsSensorCode,
 } from '../core/types.js';
 import { store } from '../db/store.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FRONTEND_DIR = path.resolve(__dirname, '../../../../Mapa iterativo');
+
+const STATIC_ASSETS: Record<string, { file: string; type: string }> = {
+  '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
+  '/index.html': { file: 'index.html', type: 'text/html; charset=utf-8' },
+  '/mapa.css': { file: 'mapa.css', type: 'text/css; charset=utf-8' },
+  '/config.js': { file: 'config.js', type: 'application/javascript; charset=utf-8' },
+  '/i18n.js': { file: 'i18n.js', type: 'application/javascript; charset=utf-8' },
+  '/mapa-engine.js': { file: 'mapa-engine.js', type: 'application/javascript; charset=utf-8' },
+  '/firehub-data.js': { file: 'firehub-data.js', type: 'application/javascript; charset=utf-8' },
+  '/firehub-ui.js': { file: 'firehub-ui.js', type: 'application/javascript; charset=utf-8' },
+};
 
 function sendProblem(
   reply: FastifyReply,
@@ -46,6 +63,18 @@ export function sanitizeCsvCell(val: unknown): string {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  // 0. Static front-end routes (serves "Mapa iterativo/" directly on http://localhost:8787/)
+  for (const [routePath, asset] of Object.entries(STATIC_ASSETS)) {
+    app.get(routePath, async (_req: FastifyRequest, reply: FastifyReply) => {
+      const fullPath = path.join(FRONTEND_DIR, asset.file);
+      if (!fs.existsSync(fullPath)) {
+        return sendProblem(reply, 404, 'Not Found', `Asset ${asset.file} not found`);
+      }
+      const content = fs.readFileSync(fullPath, 'utf8');
+      return reply.header('Content-Type', asset.type).send(content);
+    });
+  }
+
   // 1. GET /api/meta
   app.get('/api/meta', async () => {
     const { validation, inpeCheck } = store.ensureValidationArtifacts();
