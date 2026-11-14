@@ -199,9 +199,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (await history.hasHistory()) {
       return { year, month, metric, dataKind: 'firms_db', values: await history.mapValues(year, month, metric) };
     }
-    if (metric === 'density') {
-      return sendProblem(reply, 503, 'History not built', 'Density needs the PostGIS history (job:build-history).');
-    }
     return {
       year,
       month,

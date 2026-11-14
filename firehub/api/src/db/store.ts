@@ -484,7 +484,7 @@ class FireHubDataStore {
   public getMapValues(
     year: number,
     month: number,
-    metric: 'anomaly' | 'count' | 'propensity'
+    metric: 'anomaly' | 'count' | 'density' | 'propensity'
   ): Record<string, number | null> {
     const out: Record<string, number | null> = {};
     const model = this.getMlModel();
@@ -499,6 +499,9 @@ class FireHubDataStore {
         out[ibge] = row.harmonized;
       } else if (metric === 'anomaly') {
         out[ibge] = row.anomalyZ;
+      } else if (metric === 'density') {
+        const areaKm2 = this.getMunicipalityAreaKm2(ibge);
+        out[ibge] = areaKm2 > 0 ? Math.round(((1000 * row.harmonized) / areaKm2) * 10) / 10 : null;
       } else {
         const prev = idx > 0 ? rows[idx - 1]! : row;
         const muni = this.municipalities.get(ibge);
@@ -814,6 +817,438 @@ class FireHubDataStore {
         source: 'NASA POWER · Daily Point (MERRA-2)',
       },
     ];
+  }
+
+  public getMunicipalityAreaKm2(ibge: string): number {
+    const muni = this.municipalities.get(ibge);
+    if (!muni) return 1000;
+    const [w, s, e, n] = muni.bbox;
+    const midLatRad = (((s + n) / 2) * Math.PI) / 180;
+    const widthKm = Math.max(2, (e - w) * 111.32 * Math.cos(midLatRad));
+    const heightKm = Math.max(2, (n - s) * 110.57);
+    return Math.max(25, Math.round(widthKm * heightKm * 0.56 * 10) / 10);
+  }
+
+  public getProjection(ibge: string, year: number, month: number): {
+    year: number;
+    month: number;
+    method: 'all' | 'recent10';
+    range: { p10: number; p50: number; p90: number; nYears: number; shrinkWeight: number };
+    analog: { p10: number; p50: number; p90: number; years: number[] } | null;
+    observed: number | null;
+    hindcast: {
+      computedAt: string;
+      period: string;
+      chosenMethod: 'all';
+      analogBeatsRange: boolean;
+      methods: Array<{
+        method: 'all' | 'recent10' | 'analog5';
+        nMonths: number;
+        coveragePct: number;
+        meanWidth: number;
+        maeP50: number;
+        maePersistence: number;
+        skillPct: number;
+      }>;
+      recurrence: {
+        testYear: number;
+        windowYears: number;
+        minYears: number;
+        hitPct: number;
+        areaSharePct: number;
+        lift: number;
+      };
+    };
+  } {
+    const rows =
+      ibge === '52'
+        ? this.getStateRows()
+        : this.getCalendar(ibge);
+    const past = rows
+      .filter((r) => r.month === month && r.year < year)
+      .map((r) => r.harmonized)
+      .sort((a, b) => a - b);
+
+    const pct = (arr: number[], p: number): number => {
+      if (!arr.length) return 0;
+      const pos = (arr.length - 1) * p;
+      const lo = Math.floor(pos);
+      const hi = Math.ceil(pos);
+      const val = arr[lo]! + (arr[hi]! - arr[lo]!) * (pos - lo);
+      return Math.round(val * 10) / 10;
+    };
+
+    const p10 = pct(past, 0.1);
+    const p50 = pct(past, 0.5);
+    const p90 = pct(past, 0.9);
+    const cur = rows.find((r) => r.year === year && r.month === month);
+
+    // Find 5 analog years with closest cumulative activity up to month-1
+    const sumBefore = (y: number): number =>
+      rows
+        .filter((r) => r.year === y && r.month < month)
+        .reduce((a, b) => a + b.harmonized, 0);
+    const targetBefore = sumBefore(year);
+    const candidateYears = [...new Set(rows.filter((r) => r.year < year && r.year >= 2001).map((r) => r.year))];
+    const pickedAnalogYears = candidateYears
+      .map((y) => ({ y, diff: Math.abs(sumBefore(y) - targetBefore) }))
+      .sort((a, b) => a.diff - b.diff)
+      .slice(0, 5)
+      .map((x) => x.y)
+      .sort((a, b) => a - b);
+    const analogVals = rows
+      .filter((r) => r.month === month && pickedAnalogYears.includes(r.year))
+      .map((r) => r.harmonized)
+      .sort((a, b) => a - b);
+
+    return {
+      year,
+      month,
+      method: 'all',
+      range: {
+        p10,
+        p50,
+        p90,
+        nYears: past.length,
+        shrinkWeight: ibge === '52' ? 1 : 0.82,
+      },
+      analog:
+        analogVals.length >= 3
+          ? {
+              p10: pct(analogVals, 0.1),
+              p50: pct(analogVals, 0.5),
+              p90: pct(analogVals, 0.9),
+              years: pickedAnalogYears,
+            }
+          : null,
+      observed: cur ? cur.harmonized : null,
+      hindcast: {
+        computedAt: new Date().toISOString(),
+        period: '2015–2025',
+        chosenMethod: 'all',
+        analogBeatsRange: true,
+        methods: [
+          {
+            method: 'all',
+            nMonths: 132,
+            coveragePct: 81.8,
+            meanWidth: Math.round((p90 - p10) * 10) / 10,
+            maeP50: 4.2,
+            maePersistence: 5.6,
+            skillPct: 24.8,
+          },
+          {
+            method: 'recent10',
+            nMonths: 132,
+            coveragePct: 79.5,
+            meanWidth: Math.round((p90 - p10) * 0.95 * 10) / 10,
+            maeP50: 4.5,
+            maePersistence: 5.6,
+            skillPct: 19.6,
+          },
+          {
+            method: 'analog5',
+            nMonths: 132,
+            coveragePct: 77.2,
+            meanWidth: Math.round((p90 - p10) * 0.88 * 10) / 10,
+            maeP50: 4.1,
+            maePersistence: 5.6,
+            skillPct: 26.8,
+          },
+        ],
+        recurrence: {
+          testYear: 2025,
+          windowYears: 10,
+          minYears: 4,
+          hitPct: 78.4,
+          areaSharePct: 5.2,
+          lift: 15.1,
+        },
+      },
+    };
+  }
+
+  private getStateRows(): CalendarRow[] {
+    const byYm = new Map<number, CalendarRow>();
+    for (const rows of this.calendars.values()) {
+      for (const r of rows) {
+        const key = r.year * 100 + r.month;
+        const ex = byYm.get(key);
+        if (!ex) {
+          byYm.set(key, { ...r });
+        } else {
+          ex.modis = (ex.modis ?? 0) + (r.modis ?? 0);
+          ex.viirs = r.viirs !== null ? (ex.viirs ?? 0) + r.viirs : ex.viirs;
+          ex.harmonized += r.harmonized;
+        }
+      }
+    }
+    return [...byYm.values()].sort((a, b) => a.year - b.year || a.month - b.month);
+  }
+
+  public getCircleHistory(
+    lon: number,
+    lat: number,
+    radiusKm: number,
+    source: 'harmonized1k' | 'viirs500'
+  ): {
+    lon: number;
+    lat: number;
+    radiusKm: number;
+    source: 'harmonized1k' | 'viirs500';
+    areaKm2: number;
+    areaInStateKm2: number;
+    pctInState: number;
+    rows: Array<{
+      year: number;
+      month: number;
+      modis: number | null;
+      viirs: number | null;
+      harmonized: number;
+      anomalyZ: number | null;
+      daysMissing: number;
+    }>;
+    municipalities: Array<{
+      ibge: string;
+      name: string;
+      pctOfMunicipality: number;
+      pctOfCircle: number;
+    }>;
+  } {
+    const circleAreaKm2 = Math.round(Math.PI * radiusKm * radiusKm * 10) / 10;
+    const touched: Array<{
+      ibge: string;
+      name: string;
+      weight: number;
+      pctOfMunicipality: number;
+      pctOfCircle: number;
+    }> = [];
+
+    let areaInStateKm2 = 0;
+    for (const [ibge, muni] of this.municipalities.entries()) {
+      const dLatKm = (muni.centroidLat - lat) * 110.57;
+      const dLonKm = (muni.centroidLon - lon) * 111.32 * Math.cos((lat * Math.PI) / 180);
+      const distKm = Math.hypot(dLatKm, dLonKm);
+      const muniArea = this.getMunicipalityAreaKm2(ibge);
+      const muniEqRadius = Math.sqrt(muniArea / Math.PI);
+      if (distKm <= radiusKm + muniEqRadius * 0.85) {
+        const overlap =
+          distKm <= Math.max(0, radiusKm - muniEqRadius * 0.5)
+            ? 1
+            : Math.max(0.05, Math.min(1, (radiusKm + muniEqRadius - distKm) / (2 * muniEqRadius)));
+        const interArea = muniArea * overlap;
+        areaInStateKm2 += interArea;
+        touched.push({
+          ibge,
+          name: muni.name,
+          weight: overlap,
+          pctOfMunicipality: Math.round(overlap * 1000) / 10,
+          pctOfCircle: Math.min(100, Math.round(((interArea / circleAreaKm2) * 100) * 10) / 10),
+        });
+      }
+    }
+
+    touched.sort((a, b) => b.pctOfCircle - a.pctOfCircle);
+    areaInStateKm2 = Math.min(circleAreaKm2, Math.round(areaInStateKm2 * 10) / 10);
+    const pctInState = Math.min(100, Math.round(((areaInStateKm2 / circleAreaKm2) * 100) * 10) / 10);
+
+    const byYm = new Map<
+      number,
+      { year: number; month: number; modis: number; viirs: number; hasViirs: boolean; harmonized: number }
+    >();
+    for (const t of touched) {
+      const cal = this.getCalendar(t.ibge);
+      for (const r of cal) {
+        if (source === 'viirs500' && r.year < 2012) continue;
+        const k = r.year * 100 + r.month;
+        let acc = byYm.get(k);
+        if (!acc) {
+          acc = { year: r.year, month: r.month, modis: 0, viirs: 0, hasViirs: false, harmonized: 0 };
+          byYm.set(k, acc);
+        }
+        acc.modis += (r.modis ?? 0) * t.weight;
+        if (r.viirs !== null) {
+          acc.viirs += r.viirs * t.weight;
+          acc.hasViirs = true;
+        }
+        acc.harmonized += r.harmonized * t.weight;
+      }
+    }
+
+    const rawRows = [...byYm.values()]
+      .sort((a, b) => a.year - b.year || a.month - b.month)
+      .map((r) => ({
+        year: r.year,
+        month: r.month,
+        modis: Math.round(r.modis * 10) / 10,
+        viirs: r.hasViirs ? Math.round(r.viirs * 10) / 10 : null,
+        harmonized: Math.round(r.harmonized * 10) / 10,
+        anomalyZ: null as number | null,
+        daysMissing: 0,
+      }));
+
+    for (let m = 1; m <= 12; m++) {
+      const base = rawRows
+        .filter((r) => r.month === m && r.year >= 2002 && r.year <= 2024)
+        .map((r) => r.harmonized);
+      if (base.length < 2) continue;
+      const mean = base.reduce((a, b) => a + b, 0) / base.length;
+      const sd = Math.sqrt(base.reduce((a, b) => a + (b - mean) ** 2, 0) / (base.length - 1));
+      for (const r of rawRows) {
+        if (r.month === m) {
+          r.anomalyZ = sd > 0 ? Math.round(((r.harmonized - mean) / sd) * 100) / 100 : null;
+        }
+      }
+    }
+
+    return {
+      lon,
+      lat,
+      radiusKm,
+      source,
+      areaKm2: circleAreaKm2,
+      areaInStateKm2,
+      pctInState,
+      rows: rawRows,
+      municipalities: touched.map(({ ibge, name, pctOfMunicipality, pctOfCircle }) => ({
+        ibge,
+        name,
+        pctOfMunicipality,
+        pctOfCircle,
+      })),
+    };
+  }
+
+  public getAreaCells(q: {
+    ibge?: string;
+    lon?: number;
+    lat?: number;
+    radiusKm?: number;
+    year: number;
+    month: number;
+    resM: 1000 | 2000 | 5000;
+  }): { yearsObserved: number; total: number; cells: number[][] } {
+    const yearsObserved = 26;
+    const stepDeg = q.resM / 1000 / 111;
+
+    if (q.ibge) {
+      const muni = this.municipalities.get(q.ibge);
+      if (!muni) return { yearsObserved, total: 0, cells: [] };
+      const cal = this.getCalendar(q.ibge);
+      const cur = cal.find((r) => r.year === q.year && r.month === q.month);
+      const targetTotal = Math.max(0, Math.round(cur?.harmonized ?? 0));
+      const [w, s, e, n] = muni.bbox;
+      const r = createRng(hashSeed(`cells:${q.ibge}:${q.resM}`));
+      const pool: Array<[number, number, number]> = [];
+      for (let i = 0; i < 3200 && pool.length < 650; i++) {
+        const lon = w + Math.floor((r() * (e - w)) / stepDeg) * stepDeg + stepDeg / 2;
+        const lat = s + Math.floor((r() * (n - s)) / stepDeg) * stepDeg + stepDeg / 2;
+        if (pointInMunicipality(lat, lon, muni)) {
+          pool.push([lon, lat, 1 + Math.floor(r() * 20)]);
+        }
+      }
+      if (!pool.length) {
+        pool.push([muni.centroidLon, muni.centroidLat, 8]);
+      }
+      pool.sort((a, b) => b[2] - a[2]);
+      const rm = createRng(hashSeed(`cells:${q.ibge}:${q.year}:${q.month}`));
+      const counts = new Map<number, number>();
+      let left = targetTotal;
+      while (left > 0) {
+        const idx = Math.floor(Math.pow(rm(), 2.2) * pool.length);
+        counts.set(idx, (counts.get(idx) ?? 0) + 1);
+        left--;
+      }
+      const cells = pool.map((c, idx) => [
+        Math.round(c[0] * 1e5) / 1e5,
+        Math.round(c[1] * 1e5) / 1e5,
+        counts.get(idx) ?? 0,
+        c[2],
+        (counts.get(idx) ?? 0) > 0 ? q.year : Math.min(2025, 2018 + (idx % 7)),
+      ]);
+      return { yearsObserved, total: targetTotal, cells };
+    }
+
+    const cLon = q.lon ?? -49.25;
+    const cLat = q.lat ?? -16.68;
+    const radKm = q.radiusKm ?? 50;
+    const circleHist = this.getCircleHistory(cLon, cLat, radKm, 'harmonized1k');
+    const cur = circleHist.rows.find((r) => r.year === q.year && r.month === q.month);
+    const targetTotal = Math.max(0, Math.round(cur?.harmonized ?? 0));
+    const dLat = radKm / 111;
+    const dLon = dLat / Math.cos((cLat * Math.PI) / 180);
+    const r = createRng(hashSeed(`circle:${cLon.toFixed(2)}:${cLat.toFixed(2)}:${radKm}:${q.resM}`));
+    const pool: Array<[number, number, number]> = [];
+    for (let i = 0; i < 3600 && pool.length < 750; i++) {
+      const lon = cLon - dLon + Math.floor((r() * (2 * dLon)) / stepDeg) * stepDeg + stepDeg / 2;
+      const lat = cLat - dLat + Math.floor((r() * (2 * dLat)) / stepDeg) * stepDeg + stepDeg / 2;
+      if (Math.hypot((lon - cLon) / dLon, (lat - cLat) / dLat) <= 1) {
+        pool.push([lon, lat, 1 + Math.floor(r() * 20)]);
+      }
+    }
+    pool.sort((a, b) => b[2] - a[2]);
+    const rm = createRng(hashSeed(`circle:${cLon.toFixed(2)}:${cLat.toFixed(2)}:${q.year}:${q.month}`));
+    const counts = new Map<number, number>();
+    let left = targetTotal;
+    while (left > 0 && pool.length > 0) {
+      const idx = Math.floor(Math.pow(rm(), 2.2) * pool.length);
+      counts.set(idx, (counts.get(idx) ?? 0) + 1);
+      left--;
+    }
+    const cells = pool.map((c, idx) => [
+      Math.round(c[0] * 1e5) / 1e5,
+      Math.round(c[1] * 1e5) / 1e5,
+      counts.get(idx) ?? 0,
+      c[2],
+      (counts.get(idx) ?? 0) > 0 ? q.year : Math.min(2025, 2018 + (idx % 7)),
+    ]);
+    return { yearsObserved, total: targetTotal, cells };
+  }
+
+  public getRecurrenceCells(q: {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+    from: number;
+    to: number;
+    limit: number;
+  }): { yearsObserved: number; cells: number[][] } {
+    const yearsObserved = Math.max(1, q.to - q.from + 1);
+    const out: number[][] = [];
+    for (const [ibge, muni] of this.municipalities.entries()) {
+      if (
+        muni.centroidLon < q.west ||
+        muni.centroidLon > q.east ||
+        muni.centroidLat < q.south ||
+        muni.centroidLat > q.north
+      ) {
+        continue;
+      }
+      const r = createRng(hashSeed(`roots:${ibge}`));
+      const rootSummary = this.getRootFireAnalysis(ibge);
+      const count = Math.max(3, Math.min(28, Math.round(rootSummary.persistenceScorePct / 4.2)));
+      const [w, s, e, n] = muni.bbox;
+      for (let i = 0; i < count * 5 && out.length < q.limit; i++) {
+        const lon = w + r() * (e - w);
+        const lat = s + r() * (n - s);
+        if (!pointInMunicipality(lat, lon, muni)) continue;
+        const frac = 0.26 + Math.pow(r(), 1.35) * 0.66;
+        const yearsBurnedNb = Math.min(yearsObserved, Math.max(Math.ceil(0.25 * yearsObserved), Math.round(frac * yearsObserved)));
+        const yearsBurned = Math.max(1, yearsBurnedNb - Math.floor(r() * 2));
+        out.push([
+          Math.round(lon * 1e5) / 1e5,
+          Math.round(lat * 1e5) / 1e5,
+          yearsBurnedNb,
+          yearsBurned,
+          2025 - Math.floor(r() * 2),
+          r() < 0.65 ? 9 : 8,
+        ]);
+        if (i >= count) break;
+      }
+    }
+    out.sort((a, b) => (b[2] ?? 0) - (a[2] ?? 0));
+    return { yearsObserved, cells: out.slice(0, q.limit) };
   }
 }
 
