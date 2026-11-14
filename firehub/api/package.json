@@ -15,6 +15,7 @@
     "job:harmonize": "tsx src/jobs/harmonize.ts",
     "job:build-calendar": "tsx src/jobs/build-calendar.ts",
     "job:ingest-context": "tsx src/jobs/ingest-context.ts",
+    "job:train-ml": "tsx src/jobs/train-ml.ts",
     "job:pipeline": "tsx src/jobs/run-pipeline.ts"
   },
   "dependencies": {

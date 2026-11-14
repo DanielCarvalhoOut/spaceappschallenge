@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { MlPropensityPrediction } from './ml-propensity.js';
 
 export const IbgeCodeSchema = z.string().regex(/^\d{7}$/, 'IBGE municipality code must be 7 digits');
 export const YearSchema = z.coerce.number().int().min(2000).max(2100);
@@ -132,5 +133,6 @@ export interface FirePredictabilityReport {
     spreadRateMMin: number;
     reachRadius6hKm: number;
   };
+  mlPropensity?: MlPropensityPrediction;
   dailySeries: NasaPowerDailyRecord[];
 }

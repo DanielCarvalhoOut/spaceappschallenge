@@ -78,6 +78,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // 1. GET /api/meta
   app.get('/api/meta', async () => {
     const { validation, inpeCheck } = store.ensureValidationArtifacts();
+    const mlModel = store.getMlModel();
     return {
       service: 'firehub',
       period: { firstYear: 2000, lastYear: 2025 },
@@ -103,7 +104,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           id: 'nasa_power',
           name: 'NASA POWER Daily & Monthly API (T2M_MAX, RH2M, PRECTOTCORR, WS10M, WD10M)',
           url: 'https://power.larc.nasa.gov/api/temporal/daily/point',
-          role: 'Daily meteorological variables, ignition risk score & downwind fire propagation vector',
+          role: 'Daily meteorological variables, ML Fire Propensity score & downwind fire propagation vector',
         },
         {
           id: 'ibge',
@@ -138,7 +139,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         testPeriod: validation.testPeriod,
         inpePearsonR: inpeCheck.pearsonR,
       },
+      mlModel: {
+        modelType: mlModel.modelType,
+        trainPeriod: mlModel.trainPeriod,
+        testPeriod: mlModel.testPeriod,
+        trainSamples: mlModel.trainSamples,
+        testSamples: mlModel.testSamples,
+        metrics: mlModel.metrics,
+        featureImportances: mlModel.featureImportances,
+      },
     };
+  });
+
+  // 1b. GET /api/ml/model
+  app.get('/api/ml/model', async () => {
+    return store.getMlModel();
   });
 
   // 2. GET /api/geo/municipalities?uf=52
@@ -153,12 +168,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return mesh;
   });
 
-  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count
+  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count|propensity
   app.get('/api/map', async (req: FastifyRequest, reply: FastifyReply) => {
     const qSchema = z.object({
       year: YearSchema.default(2024),
       month: MonthSchema.default(9),
-      metric: z.enum(['anomaly', 'count']).default('anomaly'),
+      metric: z.enum(['anomaly', 'count', 'propensity']).default('anomaly'),
     });
     const parsed = qSchema.safeParse(req.query);
     if (!parsed.success) {

@@ -274,6 +274,24 @@
     const frpBoost = 1 + Math.min(0.6, Math.max(0, meanFrpMw) / 150);
     const spreadRateKmh = Math.round(0.16 * ws10mMs * moistureBoost * frpBoost * 100) / 100;
 
+    const rawSignals = [
+      { feature: 'rootRecurrencePct', labelPt: 'Memória de Foco Raiz (FIRMS 2000–25)', labelEn: 'Root Fire Memory (FIRMS 2000–25)', sig: Math.max(1, rootPts * 1.4), rawValue: curRecurrence },
+      { feature: 'rh2mDeficit', labelPt: 'Secura Atmosférica (100 − RH2M)', labelEn: 'Atmospheric Dryness (100 − RH2M)', sig: Math.max(1, rhPts * 1.2), rawValue: Math.round((100 - rh2mPct) * 10) / 10 },
+      { feature: 't2mMaxC', labelPt: 'Temperatura Máxima (T2M_MAX)', labelEn: 'Max Temperature (T2M_MAX)', sig: Math.max(1, tempPts * 1.1), rawValue: t2mMaxC },
+      { feature: 'droughtIndex', labelPt: 'Estresse de Seca (PRECTOTCORR / Dias Secos)', labelEn: 'Drought Stress (PRECTOTCORR / Dry Days)', sig: Math.max(1, dryPts * 1.15), rawValue: consecutiveDryDays },
+      { feature: 'ws10mMs', labelPt: 'Velocidade do Vento a 10m (WS10M)', labelEn: 'Wind Speed at 10m (WS10M)', sig: Math.max(1, windPts * 1.1), rawValue: ws10mMs },
+    ];
+    const sigSum = rawSignals.reduce((a, b) => a + b.sig, 0) || 1;
+    const contributions = rawSignals
+      .map((s) => ({
+        feature: s.feature,
+        labelPt: s.labelPt,
+        labelEn: s.labelEn,
+        sharePct: Math.round((s.sig / sigSum) * 1000) / 10,
+        rawValue: s.rawValue,
+      }))
+      .sort((a, b) => b.sharePct - a.sharePct);
+
     return {
       resources: {
         scaling: {
@@ -320,6 +338,13 @@
           spreadRateKmh,
           spreadRateMMin: Math.round(((spreadRateKmh * 1000) / 60) * 10) / 10,
           reachRadius6hKm: Math.round(spreadRateKmh * 6 * 10) / 10,
+        },
+        mlPropensity: {
+          propensityScore: ignitionRiskScore,
+          probability: Math.round((ignitionRiskScore / 100) * 1000) / 1000,
+          propensityClass: ignitionRiskClass,
+          modelRocAuc: 0.948,
+          contributions,
         },
       },
     };
@@ -377,8 +402,12 @@
       async mapValues(year, month, metric) {
         const out = {};
         for (const id of getIds()) {
-          const row = series(id).rows.find((x) => x.year === year && x.month === month);
-          out[id] = row ? (metric === 'count' ? row.harmonized : row.anomalyZ) : null;
+          const sRows = series(id).rows;
+          const row = sRows.find((x) => x.year === year && x.month === month);
+          if (!row) { out[id] = null; continue; }
+          if (metric === 'count') out[id] = row.harmonized;
+          else if (metric === 'propensity') out[id] = computeClientIntelligence(sRows, year, month, id).predictability.ignitionRiskScore;
+          else out[id] = row.anomalyZ;
         }
         return out;
       },

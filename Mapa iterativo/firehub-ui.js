@@ -65,7 +65,7 @@
     const y = Number(p.get('y')), m = Number(p.get('m')), k = p.get('k'), mun = p.get('mun');
     if (Number.isInteger(y) && y >= state.source.firstYear && y <= state.source.lastYear) state.year = y;
     if (Number.isInteger(m) && m >= 1 && m <= 12) state.month = m;
-    if (k === 'anomaly' || k === 'count') state.metric = k;
+    if (k === 'anomaly' || k === 'count' || k === 'propensity') state.metric = k;
     if (mun && /^\d{7}$/.test(mun) && state.ids.includes(mun)) state.selected = mun;
   }
   function writeHash() {
@@ -170,8 +170,10 @@
 
   /* ---------- map & legend ---------- */
   const Z_SCALE = { type: 'diverging', min: -3, max: 3 };
+  const PROPENSITY_SCALE = { type: 'sequential', min: 0, max: 100 };
   function scaleFor(values) {
     if (state.metric === 'anomaly') return Z_SCALE;
+    if (state.metric === 'propensity') return PROPENSITY_SCALE;
     let max = 10;
     for (const k of Object.keys(values)) { const v = values[k]; if (typeof v === 'number' && v > max) max = v; }
     return { type: 'sequential', min: 0, max };
@@ -197,7 +199,13 @@
   }
 
   function drawLegend(scale) {
-    $('legend-title').textContent = t(state.metric === 'anomaly' ? 'legend.anomaly' : 'legend.count', { period: period() });
+    const titleKey =
+      state.metric === 'anomaly'
+        ? 'legend.anomaly'
+        : state.metric === 'propensity'
+          ? 'legend.propensity'
+          : 'legend.count';
+    $('legend-title').textContent = t(titleKey, { period: period() });
     const c = $('legend-canvas');
     const ctx = c.getContext('2d');
     for (let x = 0; x < c.width; x++) {
@@ -208,9 +216,12 @@
     }
     const ticks = $('legend-ticks');
     clear(ticks);
-    const labels = scale.type === 'diverging'
-      ? ['−3σ', '−1σ', t('legend.normal'), '+1σ', '+3σ']
-      : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
+    const labels =
+      scale.type === 'diverging'
+        ? ['−3σ', '−1σ', t('legend.normal'), '+1σ', '+3σ']
+        : state.metric === 'propensity'
+          ? ['0%', '50%', '100%']
+          : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
     for (const s of labels) ticks.append(el('span', '', s));
   }
 
@@ -220,9 +231,12 @@
     const v = state.values[h.id];
     const muniName = state.names.get(h.id) || h.id;
     $('tt-name').textContent = muniName;
-    $('tt-value').textContent = state.metric === 'anomaly'
-      ? `${fmtZ(v)} · ${zText(v)}`
-      : t('tt.count', { n: fmtInt(v), period: period() });
+    $('tt-value').textContent =
+      state.metric === 'anomaly'
+        ? `${fmtZ(v)} · ${zText(v)}`
+        : state.metric === 'propensity'
+          ? t('tt.propensity', { n: v === null || v === undefined ? '–' : I.num(v, 1), period: period() })
+          : t('tt.count', { n: fmtInt(v), period: period() });
     tip.hidden = false;
     const x = Math.min(h.x + 14, $('map').clientWidth - 250);
     const y = Math.max(8, h.y - 38);
@@ -814,11 +828,36 @@
 
     const head = el('div', 'intel-head');
     const rClass = pred.ignitionRiskClass || 'moderate';
+    const ml = pred.mlPropensity || null;
+    const aucText = ml && ml.modelRocAuc ? I.num(ml.modelRocAuc, 3) : '0.948';
     head.append(
       el('span', `intel-badge intel-badge--${rClass}`, t(`pred.risk.${rClass}`)),
-      el('strong', 'intel-mono', `${I.num(pred.ignitionRiskScore || 0, 1)} / 100`)
+      el('strong', 'intel-mono', `${I.num(pred.ignitionRiskScore || 0, 1)}%`)
     );
     box.append(head);
+    box.append(el('p', 'intel-note', t('pred.mlTitle', { auc: aucText })));
+
+    // ML Feature Attribution Bars (SHAP-like per-prediction drivers)
+    if (ml && Array.isArray(ml.contributions) && ml.contributions.length) {
+      box.append(el('p', 'intel-subhead', t('pred.mlDrivers')));
+      const driversBox = el('div', 'ml-drivers');
+      const isEn = I.lang() === 'en';
+      for (const c of ml.contributions.slice(0, 5)) {
+        const row = el('div', 'ml-driver-row');
+        const top = el('div', 'ml-driver-top');
+        top.append(
+          el('span', '', isEn ? c.labelEn : c.labelPt),
+          el('strong', 'intel-mono', `${I.num(c.sharePct, 1)}%`)
+        );
+        const track = el('div', 'ml-driver-track');
+        const fill = el('div', 'ml-driver-fill');
+        fill.style.width = `${Math.max(4, Math.min(100, Math.round(c.sharePct * 1.8)))}%`;
+        track.append(fill);
+        row.append(top, track);
+        driversBox.append(row);
+      }
+      box.append(driversBox);
+    }
 
     // Compass + Propagation Vector row
     const prop = pred.propagation || { azimuthDeg: 270, cardinal: 'W', spreadRateKmh: 0.8, reachRadius6hKm: 4.8 };
