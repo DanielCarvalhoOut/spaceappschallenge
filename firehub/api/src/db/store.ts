@@ -234,12 +234,10 @@ class FireHubDataStore {
       yearsChecked: 14,
     };
 
-    try {
-      fs.writeFileSync(valFile, JSON.stringify(validation, null, 2), 'utf8');
-      fs.writeFileSync(inpeFile, JSON.stringify(inpeCheck, null, 2), 'utf8');
-    } catch {
-      // ignore if read-only
-    }
+    // Placeholders for the synthetic demo only. They are NOT written to out/: the real numbers come from
+    // job:build-history (out/validation.json with source=firms_db). /api/meta hides these when no history exists.
+    void valFile;
+    void inpeFile;
     return { validation, inpeCheck };
   }
 
@@ -470,7 +468,7 @@ class FireHubDataStore {
         );
         for (const x of rows) {
           if (x.month === m) {
-            x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : 0;
+            x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : null; // no variation (e.g. never any fire that month): anomaly undefined
           }
         }
       }

@@ -2,12 +2,7 @@
  * Monitor Cinder map engine (original code, no dependencies).
  * Canvas 2D + Path2D choropleth for Goiás in the full context of Brazil.
  *
- * Palette profile:
- *   --olive-leaf:   #606c38
- *   --black-forest: #283618
- *   --cornsilk:     #fefae0
- *   --sunlit-clay:  #dda15e
- *   --copperwood:   #bc6c25
+ * Palette profile: black/gray interface; map fills are one red ramp starting at white.
  *
  * Interactive & Performance Architecture:
  * - Full Brazil UF backdrop (dimmed/opaque) surrounding Goiás (100% vibrant).
@@ -108,28 +103,19 @@
   }
   const contrast = (l1, l2) => (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 
-  /* Choropleth Ramps tuned to Olive Leaf (#606c38), Black Forest (#283618), Cornsilk (#fefae0), Sunlit Clay (#dda15e) & Copperwood (#bc6c25) */
+  /*
+   * Choropleth ramps: one red scale starting at white, the same in both themes.
+   * - sequential (hotspot count, log scale): white = no/few hotspots, deep red = most.
+   * - "diverging" (anomaly z, -3..+3): white = well below the historical pattern,
+   *   mid red = typical, deep red = well above it.
+   */
+  const REDS = makeRamp([
+    { t: 0, hex: '#ffffff' }, { t: 0.25, hex: '#fcbba1' }, { t: 0.5, hex: '#fb6a4a' },
+    { t: 0.75, hex: '#cb181d' }, { t: 1, hex: '#67000d' },
+  ]);
   const RAMPS = {
-    diverging: {
-      dark: makeRamp([
-        { t: 0, hex: '#606c38' }, { t: 0.35, hex: '#7f8c4f' }, { t: 0.5, hex: '#344520' },
-        { t: 0.68, hex: '#dda15e' }, { t: 0.86, hex: '#bc6c25' }, { t: 1, hex: '#fefae0' },
-      ]),
-      light: makeRamp([
-        { t: 0, hex: '#606c38' }, { t: 0.35, hex: '#a3ad78' }, { t: 0.5, hex: '#f4eed0' },
-        { t: 0.68, hex: '#dda15e' }, { t: 0.86, hex: '#bc6c25' }, { t: 1, hex: '#283618' },
-      ]),
-    },
-    sequential: {
-      dark: makeRamp([
-        { t: 0, hex: '#283618' }, { t: 0.35, hex: '#606c38' },
-        { t: 0.7, hex: '#bc6c25' }, { t: 1, hex: '#fefae0' },
-      ]),
-      light: makeRamp([
-        { t: 0, hex: '#fefae0' }, { t: 0.35, hex: '#dda15e' },
-        { t: 0.7, hex: '#bc6c25' }, { t: 1, hex: '#283618' },
-      ]),
-    },
+    diverging: { dark: REDS, light: REDS },
+    sequential: { dark: REDS, light: REDS },
   };
 
   /* ---------- Geometry ---------- */
@@ -213,8 +199,8 @@
         anchor,
         samplePts,
         areaKm2: totalArea,
-        fill: '#606c38',
-        ink: '#fefae0',
+        fill: '#3a3a3a',
+        ink: '#f5f5f5',
         labelW: -1,
       });
     }
@@ -282,10 +268,12 @@
       spherePreview: null, // { x, y }
       sphereDrag: null, // { sx, sy, x0, y0, rKm, count, dragged }
       showNumbers: true,
+      layers: { roots: null, detail: null }, // cell layers: { paths, colors, cellKm, clip, index }
+      cellHover: null,
       focusMix: 0, focusFrom: 0, focusTo: 0, focusT0: 0, focusDur: 340,
       switchMix: 1, switchT0: 0, switchDur: 300,
       pulse: null, intro: null,
-      listeners: { hover: [], select: [], sphere: [], view: [] }, colors: null,
+      listeners: { hover: [], select: [], sphere: [], view: [], cell: [] }, colors: null, noFire: new Set(),
       frame: 0, dirtyBase: false, dirtyOver: false,
       flight: null, wheel: null, inertia: null, drag: null, pinch: null, pointers: new Map(), hoverReq: null,
     };
@@ -296,22 +284,22 @@
       const v = (n, d) => cs.getPropertyValue(n).trim() || d;
       const isLight = st.theme === 'light';
       st.colors = {
-        border: v('--map-border', isLight ? 'rgba(40,54,24,.24)' : 'rgba(254,250,224,.20)'),
-        outerStroke: isLight ? 'rgba(188, 108, 37, 0.72)' : 'rgba(221, 161, 94, 0.65)',
-        brazilFill: isLight ? '#e5dec0' : '#212d14',
-        brazilBorder: isLight ? 'rgba(40, 54, 24, 0.18)' : 'rgba(254, 250, 224, 0.14)',
-        brazilOuter: isLight ? 'rgba(96, 108, 56, 0.34)' : 'rgba(221, 161, 94, 0.24)',
-        brazilText: isLight ? 'rgba(40, 54, 24, 0.45)' : 'rgba(254, 250, 224, 0.36)',
-        gridLine: isLight ? 'rgba(40, 54, 24, 0.06)' : 'rgba(254, 250, 224, 0.05)',
-        gridText: isLight ? 'rgba(40, 54, 24, 0.38)' : 'rgba(254, 250, 224, 0.32)',
-        nodata: v('--map-nodata', '#2f3e1c'),
-        hover: v('--map-hover', '#fefae0'),
-        hoverFill: v('--map-hover-fill', 'rgba(254,250,224,.15)'),
-        select: v('--map-select', '#dda15e'),
-        accent: v('--accent', '#bc6c25'),
-        halo: v('--map-halo', 'rgba(22,31,13,.84)'),
-        inkDark: v('--ink-on-light', '#283618'),
-        inkLight: v('--ink-on-dark', '#fefae0'),
+        border: v('--map-border', isLight ? 'rgba(0,0,0,.28)' : 'rgba(0,0,0,.35)'),
+        outerStroke: isLight ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.6)',
+        brazilFill: isLight ? '#d6d6d6' : '#4a4a4a',
+        brazilBorder: isLight ? 'rgba(0, 0, 0, 0.16)' : 'rgba(255, 255, 255, 0.12)',
+        brazilOuter: isLight ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.22)',
+        brazilText: isLight ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.36)',
+        gridLine: isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.05)',
+        gridText: isLight ? 'rgba(0, 0, 0, 0.38)' : 'rgba(255, 255, 255, 0.32)',
+        nodata: v('--map-nodata', '#2a2a2a'),
+        hover: v('--map-hover', '#ffffff'),
+        hoverFill: v('--map-hover-fill', 'rgba(255,255,255,.14)'),
+        select: v('--map-select', '#ffffff'),
+        accent: v('--accent', '#c62828'),
+        halo: v('--map-halo', 'rgba(0,0,0,.84)'),
+        inkDark: v('--ink-on-light', '#111111'),
+        inkLight: v('--ink-on-dark', '#ffffff'),
         font: v('--map-font', '600 11.5px system-ui, sans-serif'),
         fontStrong: v('--map-font-strong', '700 13px system-ui, sans-serif'),
         monoFont: '600 10px ui-monospace, "Cascadia Mono", Consolas, monospace',
@@ -319,7 +307,7 @@
     }
 
     function colorFor(value, scaleOverride) {
-      if (value === null || value === undefined || !Number.isFinite(value)) return st.colors ? st.colors.nodata : '#2f3e1c';
+      if (value === null || value === undefined || !Number.isFinite(value)) return st.colors ? st.colors.nodata : '#2a2a2a';
       const s = scaleOverride || st.scale;
       const ramp = RAMPS[s.type === 'sequential' ? 'sequential' : 'diverging'][st.theme === 'light' ? 'light' : 'dark'];
       const t = s.type === 'sequential'
@@ -330,8 +318,11 @@
 
     function recolor() {
       const dl = relLuminance(st.colors.inkDark), ll = relLuminance(st.colors.inkLight);
+      const floor = colorFor(st.scale.type === 'sequential' ? 0 : st.scale.min);
       for (const f of st.features) {
-        f.fill = colorFor(st.values.get(f.id));
+        const v = st.values.get(f.id);
+        // No hotspots and no history to compare with: paint the start of the scale (white), not "no data".
+        f.fill = (v === null || v === undefined) && st.noFire.has(f.id) ? floor : colorFor(v);
         const L = relLuminance(f.fill);
         f.ink = contrast(L, dl) >= contrast(L, ll) ? st.colors.inkDark : st.colors.inkLight;
       }
@@ -627,11 +618,8 @@
 
         let alpha = baseDimAlpha;
         if (hasSphere) {
-          if (st.sphere.ids.has(f.id)) {
-            alpha = 1;
-          } else if (f === hov) {
-            alpha = Math.max(alpha, 0.68);
-          }
+          if (st.sphere.ids.has(f.id)) alpha = Math.max(alpha, 0.5);
+          else if (f === hov) alpha = Math.max(alpha, 0.68);
         } else if (f === prevSel && st.switchMix < 1) {
           alpha = baseDimAlpha + (1 - baseDimAlpha) * (1 - st.switchMix);
         } else if (f === hov && fMix > 0.01) {
@@ -656,15 +644,26 @@
         }
       }
 
-      // Highlight borders of municipalities inside the active 2D Circle
+      // Inside the circle only: full colour and borders of the municipalities it covers (the analysed area)
       if (hasSphere) {
-        ctx.globalAlpha = 0.95;
-        ctx.strokeStyle = st.colors.select;
-        ctx.lineWidth = 1.4 / k;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(st.sphere.x, st.sphere.y, st.sphere.rKm, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.globalAlpha = 1;
+        for (const id of st.sphere.ids) {
+          const mf = st.byId.get(id);
+          if (!mf || !visible(mf.bbox, v)) continue;
+          ctx.fillStyle = mf.fill;
+          ctx.fill(mf.path, 'evenodd');
+        }
+        ctx.strokeStyle = st.colors.border;
+        ctx.lineWidth = 0.85 / k;
         for (const id of st.sphere.ids) {
           const mf = st.byId.get(id);
           if (mf && visible(mf.bbox, v)) ctx.stroke(mf.path);
         }
+        ctx.restore();
       }
 
       // 6. Selected Municipality fill (fast, no shadowBlur)
@@ -675,6 +674,37 @@
         ctx.fill(sel.path, 'evenodd');
       }
 
+      ctx.globalAlpha = 1;
+
+      // 6b. Cell layers: state-wide focos-raiz, then the detail of the selected area (clipped to it)
+      for (const name of ['roots', 'detail']) {
+        const L = st.layers[name];
+        if (!L) continue;
+        ctx.save();
+        if (L.clip && L.clip.kind === 'feature') {
+          const cf = st.byId.get(L.clip.id);
+          if (cf) ctx.clip(cf.path, 'evenodd');
+        } else if (L.clip && L.clip.kind === 'sphere' && st.sphere) {
+          ctx.beginPath();
+          ctx.arc(st.sphere.x, st.sphere.y, st.sphere.rKm, 0, Math.PI * 2);
+          ctx.clip();
+        }
+        const grow = Math.max(0, 1.6 / k - L.cellKm);
+        ctx.globalAlpha = L.alpha;
+        ctx.lineJoin = 'miter';
+        for (let i = 0; i < L.paths.length; i++) {
+          ctx.fillStyle = L.colors[i];
+          ctx.fill(L.paths[i]);
+          if (grow > 0) { ctx.strokeStyle = L.colors[i]; ctx.lineWidth = grow; ctx.stroke(L.paths[i]); }
+        }
+        if (L.grid && k * L.cellKm >= 7) {   // cell outlines once cells are big enough to read
+          ctx.globalAlpha = 0.35;
+          ctx.strokeStyle = st.colors.border;
+          ctx.lineWidth = 0.6 / k;
+          for (const pth of L.paths) ctx.stroke(pth);
+        }
+        ctx.restore();
+      }
       ctx.globalAlpha = 1;
 
       // 7. Labels & Real Regional Numbers
@@ -756,7 +786,8 @@
 
         const alpha = f.id === st.hover || inSphere ? 0.98 : neighborAlpha;
         ctx.globalAlpha = alpha;
-        const haloColor = f.ink === st.colors.inkLight ? st.colors.halo : 'rgba(254,250,224,.82)';
+        // Halo always opposes the ink: light text gets a dark halo (also on dark-red fills in the light theme).
+        const haloColor = f.ink === st.colors.inkLight ? 'rgba(0,0,0,.78)' : 'rgba(255,255,255,.82)';
 
         if (showFullName) {
           ctx.font = st.colors.font;
@@ -806,9 +837,9 @@
       // 1. Flat 2D Circle Fill & Border
       ctx.beginPath();
       ctx.arc(cx, cy, rPx, 0, Math.PI * 2);
-      ctx.fillStyle = isPreview ? 'rgba(221, 161, 94, 0.10)' : 'rgba(221, 161, 94, 0.16)';
+      ctx.fillStyle = isPreview ? 'rgba(198, 40, 40, 0.10)' : 'rgba(198, 40, 40, 0.16)';
       ctx.fill();
-      ctx.strokeStyle = isPreview ? 'rgba(221, 161, 94, 0.72)' : st.colors.select;
+      ctx.strokeStyle = isPreview ? 'rgba(198, 40, 40, 0.72)' : st.colors.select;
       ctx.lineWidth = isPreview ? 1.5 : 2;
       if (isPreview) ctx.setLineDash([6, 4]);
       ctx.stroke();
@@ -838,7 +869,7 @@
         const py = Math.max(8, cy - rPx - ph - 6);
 
         roundRectPath(ctx, px, py, pw, ph, 6);
-        ctx.fillStyle = st.theme === 'light' ? 'rgba(254, 250, 224, 0.94)' : 'rgba(40, 54, 24, 0.94)';
+        ctx.fillStyle = st.theme === 'light' ? 'rgba(255, 255, 255, 0.94)' : 'rgba(20, 20, 20, 0.94)';
         ctx.fill();
         ctx.strokeStyle = st.colors.select;
         ctx.lineWidth = 1.2;
@@ -919,7 +950,7 @@
           const py = Math.min(Math.max(8, sy - pillH / 2), st.h - pillH - 8);
 
           roundRectPath(ctx, px, py, pillW, pillH, 13);
-          ctx.fillStyle = st.theme === 'light' ? 'rgba(254, 250, 224, 0.95)' : 'rgba(40, 54, 24, 0.95)';
+          ctx.fillStyle = st.theme === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(20, 20, 20, 0.95)';
           ctx.fill();
 
           ctx.lineWidth = 1.4;
@@ -1073,7 +1104,7 @@
     }
 
     function applySphereAt(wx, wy, rKm, shouldFly, shouldEmit) {
-      const radius = Math.max(15, Math.min(260, Math.round(rKm)));
+      const radius = Math.max(5, Math.min(260, Math.round(rKm)));
       st.sphereRadiusKm = radius;
       const ids = computeSphereIds(wx, wy, radius);
       let centerId = null, bestD = Infinity;
@@ -1095,11 +1126,15 @@
       }
       invalidate(true, true);
       if (shouldEmit !== false) {
+        const [lon, lat] = unproject(wx, wy);
         emit('sphere', {
           x: wx,
           y: wy,
+          lon: Math.round(lon * 1e5) / 1e5,
+          lat: Math.round(lat * 1e5) / 1e5,
           radiusKm: radius,
           areaKm2: Math.round(Math.PI * radius * radius),
+          shares: sphereShares(),
           ids: [...ids],
           centerId,
         });
@@ -1129,6 +1164,12 @@
         st.dirtyOver = true;
       }
       emit('hover', id ? { id, x: sx, y: sy } : null);
+      if (st.layers.detail && st.layers.detail.index) {
+        const [wx, wy] = screenToWorld(sx, sy);
+        const c = cellAtWorld(wx, wy);
+        st.cellHover = c;
+        emit('cell', c ? { cell: c.cell, x: sx, y: sy } : null);
+      }
     }
 
     function clearHover() {
@@ -1139,6 +1180,7 @@
         invalidate(false, true);
       }
       emit('hover', null);
+      if (st.cellHover) { st.cellHover = null; emit('cell', null); }
     }
 
     /* ---------- Input ---------- */
@@ -1186,7 +1228,7 @@
           st.sphereDrag.dragged = true;
           const [wx, wy] = screenToWorld(sx, sy);
           const distKm = Math.hypot(wx - st.sphereDrag.x0, wy - st.sphereDrag.y0);
-          const nextR = Math.max(15, Math.min(260, Math.round(distKm)));
+          const nextR = Math.max(5, Math.min(260, Math.round(distKm)));
           if (nextR !== st.sphereDrag.rKm) {
             st.sphereDrag.rKm = nextR;
             st.sphereDrag.count = computeSphereIds(st.sphereDrag.x0, st.sphereDrag.y0, nextR).size;
@@ -1371,6 +1413,7 @@
         if (/^\d{7}$/.test(id)) st.values.set(id, typeof v === 'number' && Number.isFinite(v) ? v : null);
       }
       if (scale) st.scale = Object.assign({}, scale);
+      st.noFire = new Set(scale && Array.isArray(scale.noFireIds) ? scale.noFireIds : []);
       recolor();
     }
 
@@ -1425,13 +1468,120 @@
     }
 
     function setSphereRadius(rKm) {
-      const radius = Math.max(15, Math.min(260, Number(rKm) || 85));
+      const radius = Math.max(5, Math.min(260, Number(rKm) || 85));
       st.sphereRadiusKm = radius;
       if (st.sphere) {
         applySphereAt(st.sphere.x, st.sphere.y, radius, false, true);
       } else {
         invalidate(false, true);
       }
+    }
+
+    /**
+     * Cell layer ('roots' = state-wide focos-raiz, 'detail' = cells of the selected area).
+     * layer = { cellKm, classes: [{ color, cells: [[lon, lat, ...data], …] }], clip?: { kind: 'feature', id } | { kind: 'sphere' },
+     *           hover?: boolean, grid?: boolean, alpha?: number } or null.
+     * Cells are projected once into one Path2D per class; panning/zooming costs one fill per class.
+     */
+    function setPointLayer(layer, name) {
+      const key = name === 'detail' ? 'detail' : 'roots';
+      if (!layer || !Array.isArray(layer.classes)) {
+        st.layers[key] = null;
+        if (key === 'detail' && st.cellHover) { st.cellHover = null; emit('cell', null); }
+        invalidate(true, false);
+        return 0;
+      }
+      const cellKm = Math.max(0.2, Math.min(20, Number(layer.cellKm) || 1));
+      const half = cellKm / 2;
+      const paths = [], colors = [], index = layer.hover ? new Map() : null;
+      let n = 0;
+      for (const c of layer.classes) {
+        if (!c || typeof c.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(c.color) || !Array.isArray(c.cells)) continue;
+        const p = new Path2D();
+        for (const cell of c.cells) {
+          const lon = cell[0], lat = cell[1];
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+          const [x, y] = project(lon, lat);
+          p.rect(x - half, y - half, cellKm, cellKm);
+          if (index) {
+            const bk = Math.floor(x / cellKm) + ':' + Math.floor(y / cellKm);
+            const list = index.get(bk);
+            const item = { x, y, cell };
+            if (list) list.push(item); else index.set(bk, [item]);
+          }
+          n++;
+        }
+        paths.push(p); colors.push(c.color);
+      }
+      const clip = layer.clip && (layer.clip.kind === 'sphere' || (layer.clip.kind === 'feature' && st.byId.has(layer.clip.id))) ? layer.clip : null;
+      st.layers[key] = paths.length ? { paths, colors, cellKm, clip, index, grid: !!layer.grid,
+        alpha: Number.isFinite(layer.alpha) ? Math.max(0.1, Math.min(1, layer.alpha)) : 0.9 } : null;
+      invalidate(true, false);
+      return n;
+    }
+
+    /** Detail cell under a world point (nearest centre within the cell), or null. */
+    function cellAtWorld(wx, wy) {
+      const L = st.layers.detail;
+      if (!L || !L.index) return null;
+      if (L.clip && L.clip.kind === 'sphere' && st.sphere && Math.hypot(wx - st.sphere.x, wy - st.sphere.y) > st.sphere.rKm) return null;
+      if (L.clip && L.clip.kind === 'feature') {
+        const cf = st.byId.get(L.clip.id);
+        if (!cf || !hit.isPointInPath(cf.path, wx, wy, 'evenodd')) return null;
+      }
+      const bx = Math.floor(wx / L.cellKm), by = Math.floor(wy / L.cellKm);
+      let best = null, bestD = L.cellKm * 0.75;
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        const list = L.index.get((bx + i) + ':' + (by + j));
+        if (!list) continue;
+        for (const it of list) {
+          const d = Math.max(Math.abs(it.x - wx), Math.abs(it.y - wy));
+          if (d < bestD) { bestD = d; best = it; }
+        }
+      }
+      return best;
+    }
+
+    /** Share of each municipality's area that lies inside the current circle (grid sampling, ~2 000 points). */
+    function sphereShares() {
+      if (!st.sphere || !st.sphere.ids.size) return {};
+      const { x, y, rKm } = st.sphere;
+      const step = Math.max(0.25, rKm / 25);
+      const cand = [...st.sphere.ids].map((id) => st.byId.get(id)).filter(Boolean);
+      const hits = new Map();
+      for (let wx = x - rKm + step / 2; wx < x + rKm; wx += step) {
+        for (let wy = y - rKm + step / 2; wy < y + rKm; wy += step) {
+          if ((wx - x) * (wx - x) + (wy - y) * (wy - y) > rKm * rKm) continue;
+          for (const f of cand) {
+            const b = f.bbox;
+            if (wx < b[0] || wx > b[2] || wy < b[1] || wy > b[3]) continue;
+            if (hit.isPointInPath(f.path, wx, wy, 'evenodd')) { hits.set(f.id, (hits.get(f.id) || 0) + 1); break; }
+          }
+        }
+      }
+      const out = {};
+      for (const f of cand) {
+        const inside = (hits.get(f.id) || 0) * step * step;
+        out[f.id] = f.areaKm2 > 0 ? Math.min(1, inside / f.areaKm2) : 0;
+      }
+      return out;
+    }
+
+    /** Municipality bounding box in degrees [west, south, east, north] (padded for the polyconic). */
+    function bboxLonLat(id) {
+      const f = st.byId.get(id);
+      if (!f) return null;
+      const c = [unproject(f.bbox[0], f.bbox[1]), unproject(f.bbox[2], f.bbox[1]), unproject(f.bbox[0], f.bbox[3]), unproject(f.bbox[2], f.bbox[3])];
+      const lons = c.map((q) => q[0]), lats = c.map((q) => q[1]);
+      return [Math.min(...lons) - 0.02, Math.min(...lats) - 0.02, Math.max(...lons) + 0.02, Math.max(...lats) + 0.02];
+    }
+
+    /** True when the point (lon, lat) falls inside municipality `id`. */
+    function contains(id, lon, lat) {
+      const f = st.byId.get(id);
+      if (!f) return false;
+      const [x, y] = project(lon, lat);
+      return hit.isPointInPath(f.path, x, y, 'evenodd');
     }
 
     function setShowNumbers(flag) {
@@ -1491,7 +1641,7 @@
       over.removeEventListener('wheel', onWheel);
       over.removeEventListener('keydown', onKey);
       base.remove(); over.remove();
-      st.listeners = { hover: [], select: [], sphere: [], view: [] };
+      st.listeners = { hover: [], select: [], sphere: [], view: [], cell: [] };
     }
 
     readColors();
@@ -1507,6 +1657,10 @@
       sphereRadius: () => st.sphereRadiusKm,
       setShowNumbers,
       showNumbers: () => st.showNumbers,
+      setPointLayer,
+      contains,
+      bboxLonLat,
+      areaKm2: (id) => { const f = st.byId.get(id); return f ? f.areaKm2 : null; },
       neighborsOf,
       reset,
       resetBrazil,

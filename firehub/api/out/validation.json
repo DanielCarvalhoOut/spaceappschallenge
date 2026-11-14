@@ -1,22 +1,4 @@
 {
-  "calibrationPeriod": "2012-2019",
-  "testPeriod": "2020-2025",
-  "method": "monthly_ratio + dbscan_1km_grid",
-  "mapePct": 11.4,
-  "pearsonR": 0.942,
-  "biasPct": -1.8,
-  "monthlyRatioFactors": [
-    3.12,
-    3.05,
-    3.18,
-    3.36,
-    3.58,
-    3.72,
-    3.84,
-    3.92,
-    3.86,
-    3.62,
-    3.28,
-    3.14
-  ]
+  "pending": true,
+  "note": "Not computed yet. Run: npm run job:db-load-regions && npm run job:ingest-firms-history && npm run job:build-history. This file is then overwritten with numbers computed from the NASA FIRMS data (source = firms_db). Never type numbers here."
 }

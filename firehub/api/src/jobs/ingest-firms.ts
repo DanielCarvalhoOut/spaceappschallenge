@@ -1,5 +1,6 @@
 import { logger } from '../core/logger.js';
 import { store } from '../db/store.js';
+import { isMain } from '../core/entry.js';
 
 export async function runIngestFirms(): Promise<{ rawCount: number; clusterCount: number }> {
   await store.init();
@@ -18,7 +19,7 @@ export async function runIngestFirms(): Promise<{ rawCount: number; clusterCount
   return { rawCount: rawHotspots.length, clusterCount: clusters.length };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   runIngestFirms().catch((err) => {
     logger.error({ err: String(err) }, 'job:ingest-firms failed');
     process.exit(1);

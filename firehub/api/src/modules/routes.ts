@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import * as history from '../db/history.js';
+import { registerHistoryRoutes } from './history-routes.js';
 import { config } from '../config.js';
 import { firmsConnector } from '../connectors/firms.js';
 import { ibgeConnector } from '../connectors/ibge.js';
@@ -77,10 +79,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   // 1. GET /api/meta
   app.get('/api/meta', async () => {
-    const { validation, inpeCheck } = store.ensureValidationArtifacts();
+    const fromDb = await history.hasHistory();
+    const computed = history.readHarmonizationValidation();
+    const projectionCheck = history.readProjectionValidation();
     const mlModel = store.getMlModel();
     return {
       service: 'firehub',
+      // 'firms_db' = real NASA FIRMS history in PostGIS; 'synthetic' = demo store (never show its numbers as results)
+      dataKind: fromDb ? 'firms_db' : 'synthetic',
       period: { firstYear: 2000, lastYear: 2025 },
       supportedSensors: [
         'MODIS_NRT',
@@ -131,14 +137,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           role: 'Dry-season vegetation vigor (NDVI) context',
         },
       ],
-      validation: {
-        mapePct: validation.mapePct,
-        pearsonR: validation.pearsonR,
-        biasPct: validation.biasPct,
-        calibrationPeriod: validation.calibrationPeriod,
-        testPeriod: validation.testPeriod,
-        inpePearsonR: inpeCheck.pearsonR,
-      },
+      validation: computed && fromDb
+        ? {
+            mapePct: computed.mapePct,
+            wapePct: computed.wapePct,
+            pearsonR: computed.pearsonR,
+            biasPct: computed.biasPct,
+            calibrationPeriod: computed.calibrationPeriod,
+            testPeriod: computed.testPeriod,
+            nMonths: computed.nMonths,
+            municipalities: computed.municipalities,
+            computedAt: computed.computedAt,
+          }
+        : null,
+      projectionCheck: fromDb ? projectionCheck : null,
       mlModel: {
         modelType: mlModel.modelType,
         trainPeriod: mlModel.trainPeriod,
@@ -168,22 +180,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return mesh;
   });
 
-  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count|propensity
+  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count|density|propensity
   app.get('/api/map', async (req: FastifyRequest, reply: FastifyReply) => {
     const qSchema = z.object({
       year: YearSchema.default(2024),
       month: MonthSchema.default(9),
-      metric: z.enum(['anomaly', 'count', 'propensity']).default('anomaly'),
+      metric: z.enum(['anomaly', 'count', 'density', 'propensity']).default('anomaly'),
     });
     const parsed = qSchema.safeParse(req.query);
     if (!parsed.success) {
       return sendProblem(reply, 400, 'Invalid map query parameters', parsed.error.message);
     }
     const { year, month, metric } = parsed.data;
+    // The propensity model is trained on the in-memory store (job:train-ml), not on the PostGIS history.
+    if (metric === 'propensity') {
+      return { year, month, metric, dataKind: 'synthetic', values: store.getMapValues(year, month, metric) };
+    }
+    if (await history.hasHistory()) {
+      return { year, month, metric, dataKind: 'firms_db', values: await history.mapValues(year, month, metric) };
+    }
+    if (metric === 'density') {
+      return sendProblem(reply, 503, 'History not built', 'Density needs the PostGIS history (job:build-history).');
+    }
     return {
       year,
       month,
       metric,
+      dataKind: 'synthetic',
       values: store.getMapValues(year, month, metric),
     };
   });
@@ -195,6 +218,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return sendProblem(reply, 400, 'Invalid IBGE code', parsed.error.message);
     }
+    if (await history.hasHistory()) {
+      const region = await history.regionIdByIbge(parsed.data.ibge);
+      if (!region) return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found in Goiás`);
+      return { ibge: parsed.data.ibge, name: region.name, areaKm2: region.areaKm2, dataKind: 'firms_db', rows: await history.calendar(region.id) };
+    }
     const muni = store.getMunicipality(parsed.data.ibge);
     if (!muni) {
       return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found in Goiás`);
@@ -202,6 +230,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return {
       ibge: muni.ibgeCode,
       name: muni.name,
+      dataKind: 'synthetic',
       rows: store.getCalendar(muni.ibgeCode),
     };
   });
@@ -212,6 +241,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const parsed = pSchema.safeParse(req.params);
     if (!parsed.success) {
       return sendProblem(reply, 400, 'Invalid IBGE code', parsed.error.message);
+    }
+    if (await history.hasHistory()) {
+      const region = await history.regionIdByIbge(parsed.data.ibge);
+      if (!region) return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found in Goiás`);
+      return { dataKind: 'firms_db', ...(await history.pattern(region.id)) };
     }
     const muni = store.getMunicipality(parsed.data.ibge);
     if (!muni) {
@@ -481,4 +515,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       predictability,
     };
   });
+
+  // Real-history routes (PostGIS): projection, exact circle, focos-raiz overlay, validation
+  await registerHistoryRoutes(app);
 }

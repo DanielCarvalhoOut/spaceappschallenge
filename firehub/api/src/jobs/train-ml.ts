@@ -1,5 +1,6 @@
 import { logger } from '../core/logger.js';
 import { store } from '../db/store.js';
+import { isMain } from '../core/entry.js';
 
 export async function runTrainMl(): Promise<void> {
   await store.init();
@@ -18,7 +19,7 @@ export async function runTrainMl(): Promise<void> {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   runTrainMl().catch((err) => {
     logger.error({ err: String(err) }, 'job:train-ml failed');
     process.exit(1);

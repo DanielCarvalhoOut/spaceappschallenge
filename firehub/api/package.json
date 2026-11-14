@@ -16,7 +16,11 @@
     "job:build-calendar": "tsx src/jobs/build-calendar.ts",
     "job:ingest-context": "tsx src/jobs/ingest-context.ts",
     "job:train-ml": "tsx src/jobs/train-ml.ts",
-    "job:pipeline": "tsx src/jobs/run-pipeline.ts"
+    "job:pipeline": "tsx src/jobs/run-pipeline.ts",
+    "job:db-load-regions": "tsx src/jobs/db-load-regions.ts",
+    "job:ingest-firms-history": "tsx src/jobs/ingest-firms-history.ts",
+    "job:build-history": "tsx src/jobs/build-history.ts",
+    "test:db": "vitest run src/tests/history.db.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

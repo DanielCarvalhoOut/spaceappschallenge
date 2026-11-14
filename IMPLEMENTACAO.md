@@ -160,6 +160,34 @@ Colunas do FIRMS, diferenças MODIS × VIIRS e tamanhos: ver `Tema_08_MODIS_VIIR
 
 > Se o erro for alto nos meses chuvosos (poucos focos), não esconder: mostrar o erro por mês em "Method & limits".
 
+### F2b · Histórico real, faixa esperada e focos-raiz (`schema_projecao.sql`)
+
+Mantém a normalização de F2 (confiança → célula-dia de 1 km → fator mensal VIIRS ÷ MODIS) e acrescenta, tudo calculado no banco a partir do FIRMS:
+
+- **Fator com encolhimento:** `w = MODIS/(MODIS+30)` puxa o fator do município para o do estado quando há poucos focos. Fontes fixas (FIRMS `type=2` ou ≥8 meses distintos em ≥3 anos) ficam fora (`fire.static_cell`).
+- **Erro da harmonização:** calibra 2012–2019, testa 2020–2025 (WAPE, MAPE nos meses com ≥10, Pearson, viés), no estado e por município (mediana e p90) → `out/validation.json`.
+- **Faixa esperada pelo histórico** (não é previsão): P10/P50/P90 dos mesmos meses dos anos anteriores (`all` = 2002→ano−1 ou `recent10`), e anos análogos (acumulado jan→mês−1 mais parecido). O método mostrado é escolhido por **retroteste** 2015–2025 (cobertura P10–P90 entre 70 e 90 %, depois menor erro da mediana). Os análogos só aparecem se baterem a faixa → `out/projection_validation.json`.
+- **Focos-raiz:** anos com fogo por célula (1 km harmonizado; 500 m só VIIRS 2012+), com vizinhança 3×3. Acerto testado no último ano carregado (janela de 10 anos, ≥5 anos com fogo).
+- **Raio exato:** só as células cujo centro está dentro do círculo. Mínimo de 5 km com 1 km e de 1 km com VIIRS 500 m.
+- **Densidade** por 1.000 km² no `/api/map?metric=density`.
+
+Rotas novas (zod, problem+json, 503 enquanto não houver histórico): `GET /api/validation`, `GET /api/projection?ibge=&year=&month=`, `GET /api/area/history?lon=&lat=&radiusKm=&source=`, `GET /api/layers/recurrence?west=&south=&east=&north=&from=&to=&month=&source=&res=`, `GET /api/layers/cells?ibge=` ou `?lon=&lat=&radiusKm=` + `&year=&month=&res=` (células de 1, 2 ou 5 km dentro do município ou do círculo; a soma é o valor harmonizado da área no mês, conferido em `teste_projecao.sql`). `/api/meta` informa `dataKind: firms_db | synthetic`.
+
+**Rodar (Windows, dados no D:\\):** o C: não tem espaço para o histórico. No Docker Desktop, *Settings → Resources → Advanced → Disk image location* → `D:\DockerData`, *Apply & restart*. Não montar `PGDATA` direto numa pasta NTFS, porque o Postgres recusa as permissões. Depois, em `firehub/`:
+
+```powershell
+docker compose up -d                      # aplica 01…05_schema_projecao.sql num volume novo
+# volume antigo (sem o 05)? aplicar à mão:
+# Get-Content ..\Tema_08_MODIS_VIIRS\db\schema_projecao.sql | docker exec -i firehub-postgis psql -U firehub -d firehub
+cd api
+npm run job:db-load-regions               # IBGE → fire.region (UF 52 + 246 municípios)
+npm run job:ingest-firms-history -- --from=2001 --to=2025          # FIRMS SP; pula anos já carregados
+npm run job:build-history                 # grades, fatores, calendários, retroteste, out/*.json
+npm run test:db                           # com TEST_DATABASE_URL apontando para um banco descartável
+```
+
+Sem FIRMS carregado, `out/validation.json` fica `{"pending": true}` e a interface mostra DEMO. Nunca digitar números nesses arquivos.
+
 ### F3 · API (sáb 22h – dom 13h)
 
 Contrato que o front já consome (detalhes no `Mapa iterativo/README.md`):
@@ -204,7 +232,7 @@ Ver `Mapa iterativo/README.md`. Resumo das decisões:
 
 ## 7. Testes e verificação
 
-- **Banco:** `teste_schema.sql`, `teste_firehub.sql`, `teste_contexto.sql` + um teste com amostra real de Goiás conferida contra o CSV original.
+- **Banco:** `teste_schema.sql`, `teste_firehub.sql`, `teste_contexto.sql`, `teste_projecao.sql` (dados sintéticos com resposta conhecida) + um teste com amostra real de Goiás conferida contra o CSV original.
 - **Conectores:** cada um com fixture local (sem rede): CSV do FIRMS, zip do INPE, GeoJSON do IBGE e do WFS, JSON do SATVeg e do POWER; inclui resposta malformada → erro tratado.
 - **Jobs:** idempotência (rodar duas vezes, mesma contagem) e recorte (nenhum foco fora do polígono de GO).
 - **API:** integração com Testcontainers (PostGIS); entradas inválidas → 400 problem+json; CSV com célula `=cmd` sai com `'`.
