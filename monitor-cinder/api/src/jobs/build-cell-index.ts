@@ -35,7 +35,9 @@ type Row = [number, number, number, number, number];
 interface YearFile { fetchedAt: string; complete: boolean; rows: Row[] }
 
 const WINDOW_DAYS = 5;        // the FIRMS area API serves 1–5 days per request
-const AREA_CONCURRENCY = 4;   // keeps the run inside 5 000 requests per 10 minutes per MAP_KEY
+const AREA_CONCURRENCY = 4;   // parallel windows; the transaction limit is handled by waiting (withLimitWait)
+const LIMIT_WAIT_MS = 60_000; // FIRMS counts transactions in a rolling 10-minute window
+const LIMIT_RETRIES = 15;     // up to 15 min of waiting per window before it is recorded as a gap
 const DAY = 86_400_000;
 
 function parseArgs(argv: string[]): { from: number } {
@@ -76,7 +78,7 @@ async function fetchWindows(sensor: Sensor, year: number, windows: Win[]): Promi
   const one = async (w: Win, stream: 'sp' | 'nrt'): Promise<void> => {
     const code = stream === 'sp' ? STREAMS[sensor].sp : STREAMS[sensor].nrt;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    const timer = setTimeout(() => ctrl.abort(), 180_000); // peak-season windows (Aug–Oct) are large
     const got: Row[] = [];
     try {
       for await (const r of firmsConnector.fetch({ mode: 'area_api', sensor: code, bbox: config.bbox, dayRange: WINDOW_DAYS, date: w.date }, ctrl.signal)) {
@@ -94,15 +96,30 @@ async function fetchWindows(sensor: Sensor, year: number, windows: Win[]): Promi
       rows.push(g);
     }
   };
+  // The MAP_KEY allows 5 000 transactions per 10 minutes (a Goiás 5-day window costs several). When FIRMS says the
+  // limit is exceeded, wait and ask for the same window again instead of leaving a hole in the history.
+  const withLimitWait = async (w: Win, stream: 'sp' | 'nrt'): Promise<void> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await one(w, stream);
+        return;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/transaction limit/i.test(msg) || attempt >= LIMIT_RETRIES) throw err;
+        if (attempt === 0) logger.warn({ sensor, date: w.date, waitS: LIMIT_WAIT_MS / 1000 }, 'FIRMS transaction limit reached; waiting and retrying the window');
+        await new Promise((r) => setTimeout(r, LIMIT_WAIT_MS));
+      }
+    }
+  };
   const worker = async (): Promise<void> => {
     while (next < windows.length) {
       const w = windows[next++]!;
       try {
-        await one(w, w.stream);
+        await withLimitWait(w, w.stream);
       } catch (err) {
         const other = w.stream === 'sp' ? 'nrt' : 'sp';
         try {
-          await one(w, other);
+          await withLimitWait(w, other);
         } catch (err2) {
           failed.push(w.date);
           logger.warn({ sensor, date: w.date, err: err instanceof Error ? err.message : String(err), retry: err2 instanceof Error ? err2.message : String(err2) }, 'FIRMS window refused on SP and NRT; left out');

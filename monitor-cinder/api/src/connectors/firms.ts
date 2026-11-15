@@ -271,6 +271,12 @@ export class FirmsConnector implements SourceConnector<FirmsQuery, FirmsHotspotR
 
     logger.info({ source: this.id, url: redactSecrets(url), sensor: query.sensor }, 'Fetching FIRMS CSV');
     const csvText = await fetchWithRetry(url, signal);
+    // FIRMS sometimes answers 200 with a message instead of CSV (e.g. the transaction limit). Without the CSV header
+    // that would silently read as "no fire"; make it an error so the caller retries or leaves a recorded gap.
+    const head = (csvText.split(/\r?\n/, 1)[0] ?? '').trim();
+    if (head && !/(^|,)\s*latitude\s*(,|$)/i.test(head)) {
+      throw new Error(`FIRMS returned no CSV: ${redactSecrets(head.slice(0, 160))}`);
+    }
     const records = parseFirmsCsv(csvText, query.sensor, bbox);
     for (const rec of records) {
       yield rec;
