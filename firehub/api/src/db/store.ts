@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
-import { computeMod13q1BiomassProfile } from '../connectors/embrapa-satveg.js';
+import { computeMod13q1BiomassProfile, embrapaSatVegConnector } from '../connectors/embrapa-satveg.js';
 import { firmsConnector } from '../connectors/firms.js';
 import { ibgeConnector, pointInMunicipality, type IbgeMunicipalityRecord } from '../connectors/ibge.js';
-import { computeMcd12q1LandCoverProfile } from '../connectors/modis-landcover.js';
+import { computeMcd12q1LandCoverProfile, modisLandCoverConnector } from '../connectors/modis-landcover.js';
 import { nasaPowerConnector } from '../connectors/nasa-power.js';
 import {
   analyzeRootFires,
@@ -96,6 +96,8 @@ class FireHubDataStore {
   private liveClusters: ClusteredFireEvent[] = [];
   private liveByMuni = new Map<string, FirmsHotspotRecord[]>();
   private powerCache = new Map<string, NasaPowerDailyRecord[]>();
+  private mod13q1ObsCache = new Map<string, { ndviMean: number; eviMean: number; ndviWetPeak: number }>();
+  private mcd12q1Cache = new Map<string, Mcd12q1LandCoverProfile>();
   private rootCache = new Map<string, RootFireSummary>();
   private mlModel: TrainedMlPropensityModel | null = null;
   private initialized = false;
@@ -105,6 +107,7 @@ class FireHubDataStore {
     this.municipalities = await ibgeConnector.loadMunicipalities('52');
     this.ensureValidationArtifacts();
     await this.loadLiveFirmsSnapshot();
+    this.loadCachedSatelliteProfilesFromDisk();
     this.buildAllCalendars();
     this.trainOrLoadMlModel(false);
     this.initialized = true;
@@ -117,6 +120,36 @@ class FireHubDataStore {
       },
       'FireHub data store initialized'
     );
+  }
+
+  private loadCachedSatelliteProfilesFromDisk(): void {
+    try {
+      if (!fs.existsSync(config.dataDir)) return;
+      const files = fs.readdirSync(config.dataDir);
+      for (const f of files) {
+        const mod13Match = /^mod13q1_(\d{7})_(\d{4})_(\d{2})\.json$/.exec(f);
+        if (mod13Match) {
+          const parsed = JSON.parse(fs.readFileSync(path.join(config.dataDir, f), 'utf8')) as {
+            ndviMean: number;
+            eviMean: number;
+            ndviWetPeak: number;
+          };
+          if (parsed && typeof parsed.ndviMean === 'number') {
+            this.mod13q1ObsCache.set(`${mod13Match[1]}:${mod13Match[2]}-${mod13Match[3]}`, parsed);
+          }
+          continue;
+        }
+        const mcd12Match = /^mcd12q1_(\d{7})_(\d{4})\.json$/.exec(f);
+        if (mcd12Match) {
+          const parsed = JSON.parse(fs.readFileSync(path.join(config.dataDir, f), 'utf8')) as Mcd12q1LandCoverProfile;
+          if (parsed && typeof parsed.croplandPct === 'number') {
+            this.mcd12q1Cache.set(`${mcd12Match[1]}:${mcd12Match[2]}`, parsed);
+          }
+        }
+      }
+    } catch {
+      // ignore disk scan errors
+    }
   }
 
   public getMlModel(): TrainedMlPropensityModel {
@@ -779,17 +812,23 @@ class FireHubDataStore {
     const isDroughtYear =
       year === 2007 || year === 2010 || year === 2017 || year === 2020 || year === 2024;
 
-    const ndviWetPeak = 0.72 + southAgriFactor * 0.11 + (rBase() - 0.5) * 0.06;
     const historicalNdviBaseline = isPeakDry
       ? 0.41 + southAgriFactor * 0.05
       : isDry
         ? 0.49 + southAgriFactor * 0.06
         : 0.68 + southAgriFactor * 0.08;
 
+    const clampedYear = Math.min(2025, Math.max(2001, year));
+    const mm = String(month).padStart(2, '0');
+    const mod13Key = `${ibge}:${clampedYear}-${mm}`;
+    const cachedMod13 = this.mod13q1ObsCache.get(mod13Key);
+
     const droughtDrop = isDroughtYear ? 0.055 : 0;
+    const ndviWetPeak =
+      cachedMod13?.ndviWetPeak ?? 0.72 + southAgriFactor * 0.11 + (rBase() - 0.5) * 0.06;
     const ndviMean =
-      historicalNdviBaseline - droughtDrop + (r() - 0.52) * 0.07;
-    const eviMean = ndviMean * (0.68 + r() * 0.06);
+      cachedMod13?.ndviMean ?? historicalNdviBaseline - droughtDrop + (r() - 0.52) * 0.07;
+    const eviMean = cachedMod13?.eviMean ?? ndviMean * (0.68 + r() * 0.06);
 
     const mod13q1 = computeMod13q1BiomassProfile({
       ndviMean,
@@ -798,6 +837,12 @@ class FireHubDataStore {
       historicalNdviBaseline,
       consecutiveDryDays,
     });
+
+    const mcdKey = `${ibge}:${ Math.min(2024, Math.max(2001, year)) }`;
+    const cachedMcd12 = this.mcd12q1Cache.get(mcdKey);
+    if (cachedMcd12) {
+      return { mod13q1, mcd12q1: cachedMcd12 };
+    }
 
     const croplandPct = 14 + southAgriFactor * 42 + (rBase() - 0.5) * 14;
     const pastureGrasslandPct = 22 + (1 - southAgriFactor) * 18 + (rBase() - 0.5) * 12;
@@ -817,6 +862,110 @@ class FireHubDataStore {
     });
 
     return { mod13q1, mcd12q1 };
+  }
+
+  /**
+   * Queries the live NASA ORNL DAAC MODIS Web Service REST API (`MOD13Q1` 250m NDVI/EVI & `MCD12Q1` 500m IGBP Land Cover)
+   * and INPE TerraBrasilis PRODES WFS for a municipality, with disk + memory caching.
+   */
+  public async fetchLiveMod13q1AndMcd12q1Profiles(
+    ibge: string,
+    year: number,
+    month: number,
+    consecutiveDryDays: number
+  ): Promise<{ mod13q1: Mod13q1BiomassProfile; mcd12q1: Mcd12q1LandCoverProfile }> {
+    const muni = this.municipalities.get(ibge);
+    const lat = muni?.centroidLat ?? -16.68;
+    const lon = muni?.centroidLon ?? -49.25;
+    const clampedYear = Math.min(2025, Math.max(2001, year));
+    const mcdYear = Math.min(2024, Math.max(2001, year));
+    const mm = String(month).padStart(2, '0');
+
+    const mod13Key = `${ibge}:${clampedYear}-${mm}`;
+    const mcd12Key = `${ibge}:${mcdYear}`;
+    const mod13DiskFile = path.join(config.dataDir, `mod13q1_${ibge}_${clampedYear}_${mm}.json`);
+    const mcd12DiskFile = path.join(config.dataDir, `mcd12q1_${ibge}_${mcdYear}.json`);
+
+    if (!this.mod13q1ObsCache.has(mod13Key) && fs.existsSync(mod13DiskFile)) {
+      try {
+        const cached = JSON.parse(fs.readFileSync(mod13DiskFile, 'utf8')) as {
+          ndviMean: number;
+          eviMean: number;
+          ndviWetPeak: number;
+        };
+        if (cached && typeof cached.ndviMean === 'number') {
+          this.mod13q1ObsCache.set(mod13Key, cached);
+        }
+      } catch {
+        // ignore invalid disk cache
+      }
+    }
+
+    if (!this.mcd12q1Cache.has(mcd12Key) && fs.existsSync(mcd12DiskFile)) {
+      try {
+        const cached = JSON.parse(fs.readFileSync(mcd12DiskFile, 'utf8')) as Mcd12q1LandCoverProfile;
+        if (cached && typeof cached.croplandPct === 'number') {
+          this.mcd12q1Cache.set(mcd12Key, cached);
+        }
+      } catch {
+        // ignore invalid disk cache
+      }
+    }
+
+    const fallback = this.buildMod13q1AndMcd12q1Profiles(ibge, year, month, consecutiveDryDays);
+
+    const needMod13 = !this.mod13q1ObsCache.has(mod13Key);
+    const needMcd12 = !this.mcd12q1Cache.has(mcd12Key);
+
+    if (needMod13 || needMcd12) {
+      // Offset centroid slightly by ~3 km into rural agricultural ring to avoid sampling only urban concrete center
+      const ruralLat = Number((lat + 0.03).toFixed(2));
+      const ruralLon = Number((lon + 0.03).toFixed(2));
+
+      const refreshTask = (async () => {
+        if (needMod13) {
+          const liveMod13 = await embrapaSatVegConnector.fetchLiveMod13q1Observations(
+            ruralLat,
+            ruralLon,
+            clampedYear,
+            month
+          );
+          if (liveMod13) {
+            this.mod13q1ObsCache.set(mod13Key, liveMod13);
+            try {
+              fs.writeFileSync(mod13DiskFile, JSON.stringify(liveMod13), 'utf8');
+            } catch {
+              // ignore write error
+            }
+          }
+        }
+        if (needMcd12) {
+          const liveMcd12 = await modisLandCoverConnector.fetchLiveMcd12q1LandCover(
+            ruralLat,
+            ruralLon,
+            mcdYear,
+            muni?.bbox,
+            fallback.mcd12q1.prodesDeforestationKm2
+          );
+          if (liveMcd12) {
+            this.mcd12q1Cache.set(mcd12Key, liveMcd12);
+            try {
+              fs.writeFileSync(mcd12DiskFile, JSON.stringify(liveMcd12), 'utf8');
+            } catch {
+              // ignore write error
+            }
+          }
+        }
+      })();
+
+      // Wait up to 4.5s synchronously if the NASA tile is warm; otherwise let the background fetch finish and cache to disk
+      await Promise.race([
+        refreshTask,
+        new Promise<void>((resolve) => setTimeout(resolve, 4500)),
+      ]);
+    }
+
+    return this.buildMod13q1AndMcd12q1Profiles(ibge, year, month, consecutiveDryDays);
   }
 
   public getAgroB2BRiskReportSync(ibge: string, year: number, month: number): AgroB2BRiskReport {
@@ -890,7 +1039,7 @@ class FireHubDataStore {
     const calRow = rows.find((r) => r.year === year && r.month === month);
     const rootFires = this.getRootFireAnalysis(ibge);
     const predictability = await this.getPredictabilityAndWeather(ibge, year, month);
-    const { mod13q1, mcd12q1 } = this.buildMod13q1AndMcd12q1Profiles(
+    const { mod13q1, mcd12q1 } = await this.fetchLiveMod13q1AndMcd12q1Profiles(
       ibge,
       year,
       month,
@@ -918,7 +1067,7 @@ class FireHubDataStore {
     const cal = this.getCalendar(ibge).filter((x) => x.year === year);
     const modisYear = cal.reduce((acc, row) => acc + (row.modis ?? 0), 0);
     const pred = await this.getPredictabilityAndWeather(ibge, year, 9);
-    const { mod13q1, mcd12q1 } = this.buildMod13q1AndMcd12q1Profiles(
+    const { mod13q1, mcd12q1 } = await this.fetchLiveMod13q1AndMcd12q1Profiles(
       ibge,
       year,
       9,
