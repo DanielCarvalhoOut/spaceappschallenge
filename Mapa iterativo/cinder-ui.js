@@ -478,6 +478,76 @@
   function syncLayout() {
     const panel = $('panel');
     panel.closest('.layout').classList.toggle('has-side', !panel.hidden && !isModalMode());
+    applySideWidth(state.sideWidth);
+  }
+
+  /* ---------- Docked panel width: drag the left edge, arrows on the handle, double-click resets ---------- */
+  const SIDE_MIN = 360;            // px, the panel never gets narrower than this
+  const SIDE_MAP_MIN = 360;        // px, the map keeps at least this much
+  const SIDE_MAX_FRAC = 0.75;      // of the layout width
+  const SIDE_KEY = 'cinder.sideWidth';
+  function sideLimits() {
+    const w = $('panel').closest('.layout').clientWidth || window.innerWidth;
+    const max = Math.max(SIDE_MIN, Math.min(w * SIDE_MAX_FRAC, w - SIDE_MAP_MIN));
+    return { min: SIDE_MIN, max, def: Math.min(max, Math.max(SIDE_MIN, w * 0.5)) };
+  }
+  /** null = default (half the screen). Clamped to the limits every time, so a window resize never breaks it. */
+  function applySideWidth(px) {
+    const layout = $('panel').closest('.layout');
+    const { min, max, def } = sideLimits();
+    const w = Math.round(Math.min(max, Math.max(min, Number.isFinite(px) ? px : def)));
+    layout.style.setProperty('--side-w', `${w}px`);
+    const h = $('panel-resize');
+    h.setAttribute('aria-valuemin', String(min));
+    h.setAttribute('aria-valuemax', String(Math.round(max)));
+    h.setAttribute('aria-valuenow', String(w));
+    return w;
+  }
+  function saveSideWidth() {
+    try { if (Number.isFinite(state.sideWidth)) localStorage.setItem(SIDE_KEY, String(state.sideWidth)); else localStorage.removeItem(SIDE_KEY); } catch (_) { /* storage blocked */ }
+  }
+  function setupPanelResize() {
+    try { const v = Number(localStorage.getItem(SIDE_KEY)); state.sideWidth = v > 0 ? v : null; } catch (_) { state.sideWidth = null; }
+    const handle = $('panel-resize'), layout = $('panel').closest('.layout');
+    let dragging = false;
+    // After a resize, bring the selected municipality back to the centre of the (new) map column.
+    const refocus = () => { if (state.selected) map.select(state.selected, { fly: true, emit: false }); };
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      handle.setPointerCapture(e.pointerId);
+      layout.classList.add('is-resizing');
+      e.preventDefault();
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      state.sideWidth = applySideWidth(layout.getBoundingClientRect().right - e.clientX);
+    });
+    const stop = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+      layout.classList.remove('is-resizing');
+      saveSideWidth();
+      refocus();
+    };
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+    handle.addEventListener('dblclick', () => { state.sideWidth = null; applySideWidth(null); saveSideWidth(); });
+    handle.addEventListener('keydown', (e) => {
+      const step = e.shiftKey ? 96 : 32;
+      const cur = Number(handle.getAttribute('aria-valuenow')) || sideLimits().def;
+      if (e.key === 'ArrowLeft') state.sideWidth = applySideWidth(cur + step);
+      else if (e.key === 'ArrowRight') state.sideWidth = applySideWidth(cur - step);
+      else if (e.key === 'Home') state.sideWidth = applySideWidth(sideLimits().max);
+      else if (e.key === 'End') state.sideWidth = applySideWidth(SIDE_MIN);
+      else return;
+      e.preventDefault();
+      saveSideWidth();
+      refocus();
+    });
+    window.addEventListener('resize', () => applySideWidth(state.sideWidth));
+    applySideWidth(state.sideWidth);
   }
   function openModal() {
     const wasOpen = !$('panel').hidden;
@@ -2067,6 +2137,7 @@
     });
 
     $('p-close').addEventListener('click', dismissDetails);
+    setupPanelResize();
     $('cal-prev').addEventListener('click', () => { state.calYear -= 1; renderCalView(); });
     $('cal-next').addEventListener('click', () => { state.calYear += 1; renderCalView(); });
     setupModal();
