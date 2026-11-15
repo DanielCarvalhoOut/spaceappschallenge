@@ -709,3 +709,39 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .toast p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.4; color: var(--text); }
 .toast__close { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; }
 .modal__card .watch__lead, .modal__card .watch__alert p { font-size: 13.5px; }
+
+/* ---------- Floating fire-notice bell (bottom-left of the map) ---------- */
+.notif { position: absolute; left: 12px; bottom: 12px; z-index: 7; }
+.notif[hidden] { display: none; }
+.map-wrap.has-notif .legend--roots { bottom: 72px; }
+.notif__btn {
+  position: relative; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  background: var(--hud-glass); color: var(--text); border: 1px solid var(--hud-border); box-shadow: var(--hud-shadow);
+}
+.notif__btn:hover, .notif__btn:focus-visible, .notif__btn[aria-expanded="true"] { border-color: var(--accent-2); color: var(--accent-2); }
+.notif__count {
+  position: absolute; top: -4px; right: -4px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+  background: var(--accent); color: var(--white); font: 700 11px/19px var(--mono); text-align: center; border: 2px solid var(--surface);
+}
+.notif__count[hidden] { display: none; }
+.notif__btn.is-ringing { animation: bellRing 1.4s ease; color: var(--accent-2); border-color: var(--accent-2); }
+.notif__btn.is-ringing svg { transform-origin: 50% 10%; animation: bellSwing .7s ease 2; }
+@keyframes bellRing { 0%, 100% { box-shadow: var(--hud-shadow); } 30% { box-shadow: 0 0 0 8px rgba(242, 109, 109, .35), var(--hud-shadow); } 60% { box-shadow: 0 0 0 14px rgba(242, 109, 109, 0), var(--hud-shadow); } }
+@keyframes bellSwing { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(16deg); } 40% { transform: rotate(-14deg); } 60% { transform: rotate(9deg); } 80% { transform: rotate(-5deg); } }
+@media (prefers-reduced-motion: reduce) { .notif__btn.is-ringing, .notif__btn.is-ringing svg { animation: none; } }
+.notif__pop {
+  position: absolute; left: 0; bottom: 56px; width: min(380px, calc(100vw - 40px)); max-height: 60vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--hud-border); border-radius: 12px; box-shadow: 0 16px 40px rgba(0, 0, 0, .5); padding: 10px 12px;
+}
+.notif__pop[hidden] { display: none; }
+.notif__head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.notif__head strong { margin-right: auto; font-size: 14px; }
+.notif__link { background: none; border: 0; color: var(--accent-2); font: 600 12px var(--font); cursor: pointer; padding: 2px 0; }
+.notif__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.notif__list > li.muted { font-size: 12.5px; }
+.notif__item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface-2); }
+.notif__item.is-unread { border-left: 3px solid var(--accent); }
+.notif__item strong { font-size: 12.5px; }
+.notif__item p { margin: 4px 0 6px; font-size: 12.5px; line-height: 1.4; }
+.notif__go { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 3px 8px; font: 600 12px var(--font); cursor: pointer; }
+.notif__go:hover { border-color: var(--accent-2); color: var(--accent-2); }

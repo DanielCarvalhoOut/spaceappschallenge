@@ -1663,9 +1663,96 @@
     box.append(n);
     setTimeout(() => n.remove(), 30000);
   }
+  /* ---- floating bell: list of notices, unread count, ring + chime ---- */
+  const NOTIF_KEY = 'cinder.notifs', SOUND_KEY = 'cinder.sound';
+  const notifs = { list: null, audio: null };
+  const notifList = () => notifs.list || (notifs.list = (store.get(NOTIF_KEY, []) || []).filter((n) => n && typeof n.id === 'string').slice(-30));
+  const soundOn = () => store.get(SOUND_KEY, true) !== false;
+  /** Browsers only allow sound after a user gesture: the audio context is created/resumed on clicks. */
+  function unlockAudio() {
+    try {
+      const AC = global.AudioContext || global.webkitAudioContext;
+      if (!AC) return;
+      notifs.audio = notifs.audio || new AC();
+      if (notifs.audio.state === 'suspended') notifs.audio.resume();
+    } catch (_) { /* no audio */ }
+  }
+  /** Two-tone chime generated in the page (no audio file). */
+  function chime() {
+    if (!soundOn() || !notifs.audio || notifs.audio.state !== 'running') return;
+    const ctx = notifs.audio, t0 = ctx.currentTime;
+    [[880, 0], [660, 0.18]].forEach(([f, dt]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + dt);
+      g.gain.exponentialRampToValueAtTime(0.25, t0 + dt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.32);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0 + dt); o.stop(t0 + dt + 0.34);
+    });
+  }
+  function renderBell() {
+    const box = $('notif');
+    box.hidden = !watches().length && !notifList().length;
+    $('notif').closest('.map-wrap').classList.toggle('has-notif', !box.hidden);
+    const unread = notifList().filter((n) => !n.read).length;
+    const c = $('notif-count');
+    c.hidden = !unread; c.textContent = unread > 9 ? '9+' : String(unread);
+    $('notif-btn').setAttribute('aria-label', t('notif.aria', { n: unread }));
+    $('notif-btn').title = t('notif.aria', { n: unread });
+    $('notif-sound').textContent = t(soundOn() ? 'notif.soundOn' : 'notif.soundOff');
+    $('notif-sound').setAttribute('aria-pressed', soundOn() ? 'true' : 'false');
+    const list = $('notif-list');
+    clear(list);
+    const items = notifList().slice().reverse();
+    if (!items.length) { list.append(el('li', 'muted', t('notif.empty'))); return; }
+    for (const n of items) {
+      const li = el('li', n.read ? 'notif__item' : 'notif__item is-unread');
+      const go = el('button', 'notif__go', t('notif.go'));
+      go.type = 'button';
+      go.onclick = () => {
+        n.read = true; store.set(NOTIF_KEY, notifList());
+        closeBell();
+        goToCoordinate({ lon: n.lon, lat: n.lat });
+        renderBell();
+      };
+      li.append(el('strong', '', n.title), el('p', '', n.body), go);
+      list.append(li);
+    }
+  }
+  function ring() {
+    const b = $('notif-btn');
+    b.classList.remove('is-ringing'); void b.offsetWidth; b.classList.add('is-ringing');
+    setTimeout(() => b.classList.remove('is-ringing'), 1600);
+    chime();
+  }
+  function openBell() { $('notif-pop').hidden = false; $('notif-btn').setAttribute('aria-expanded', 'true'); }
+  function closeBell() { $('notif-pop').hidden = true; $('notif-btn').setAttribute('aria-expanded', 'false'); }
+  function setupBell() {
+    $('notif-btn').addEventListener('click', (e) => {
+      e.stopPropagation(); unlockAudio();
+      if ($('notif-pop').hidden) openBell(); else closeBell();
+    });
+    $('notif-read').addEventListener('click', () => { notifList().forEach((n) => { n.read = true; }); store.set(NOTIF_KEY, notifList()); renderBell(); });
+    $('notif-sound').addEventListener('click', () => { store.set(SOUND_KEY, !soundOn()); unlockAudio(); renderBell(); });
+    document.addEventListener('click', (e) => { if (!$('notif').contains(e.target)) closeBell(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('notif-pop').hidden) closeBell(); });
+    // any click on the page unlocks the chime for later notices
+    document.addEventListener('pointerdown', unlockAudio, { once: true });
+    renderBell();
+  }
+
   function notify(a, w) {
     const title = t('watch.notifTitle', { label: w.label });
     const body = alertText(a, w.label);
+    const list = notifList();
+    if (!list.some((n) => n.id === a.id)) {
+      list.push({ id: a.id, title, body, lon: a.lon, lat: a.lat, time: a.firstSeen, read: false });
+      notifs.list = list.slice(-30);
+      store.set(NOTIF_KEY, notifs.list);
+    }
+    renderBell();
+    ring();
     toast(title, body);
     try { if ('Notification' in global && Notification.permission === 'granted') new Notification(title, { body, tag: a.id }); } catch (_) { /* not supported */ }
   }
@@ -1708,6 +1795,7 @@
   }
   const STATE_WATCH = { key: `ibge:${CFG.uf}`, area: { ibge: CFG.uf }, label: CFG.ufName || 'Goiás' };
   async function toggleWatch(which) {
+    unlockAudio();
     const cur = which === 'state' ? STATE_WATCH : currentWatchArea();
     if (!cur) return;
     const w = watches().find((x) => x.key === cur.key);
@@ -1726,6 +1814,7 @@
     } finally {
       $('watch-toggle').disabled = false; $('watch-state').disabled = false;
       renderWatchBlock();
+      renderBell();
     }
   }
   async function pollWatches() {
@@ -1931,6 +2020,7 @@
   function applyLanguage() {
     I.apply();
     labelExpand();
+    if ($('notif-btn').title) renderBell();
     setBadge();
     map.setAriaLabel(t('map.aria'));
     if (state.lastView) updateLateralScale(state.lastView);
@@ -2039,6 +2129,7 @@
       try { renderWatchFeed(await state.source.goesRun()); await pollWatches(); } catch (_) { renderWatchFeed({ lastError: t('watch.apiErr') }); }
       finally { $('watch-run').disabled = false; renderWatchBlock(); }
     });
+    setupBell();
     setInterval(pollWatches, 60000);
     setTimeout(pollWatches, 5000);
     $('png-calendar').addEventListener('click', downloadCalendarPng);

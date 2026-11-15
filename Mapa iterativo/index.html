@@ -85,6 +85,23 @@
       </div>
 
       <!-- Ferramentas de Navegação e Camadas -->
+      <!-- fire notices bell (shown while at least one area is watched) -->
+      <div id="notif" class="notif" hidden>
+        <button id="notif-btn" class="notif__btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="notif-pop">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+            <path d="M12 2a6 6 0 0 0-6 6v3.6l-1.7 3.4A1 1 0 0 0 5.2 16.5h13.6a1 1 0 0 0 .9-1.5L18 11.6V8a6 6 0 0 0-6-6zm0 20a3 3 0 0 0 2.8-2h-5.6A3 3 0 0 0 12 22z" fill="currentColor"/>
+          </svg>
+          <span id="notif-count" class="notif__count" hidden></span>
+        </button>
+        <div id="notif-pop" class="notif__pop" role="dialog" aria-labelledby="notif-title" hidden>
+          <div class="notif__head">
+            <strong id="notif-title" data-i18n="notif.title"></strong>
+            <button id="notif-sound" class="notif__link" type="button" aria-pressed="true"></button>
+            <button id="notif-read" class="notif__link" type="button" data-i18n="notif.readAll"></button>
+          </div>
+          <ul id="notif-list" class="notif__list"></ul>
+        </div>
+      </div>
       <div class="map-tools" role="group">
         <button id="zoom-in" class="icon-btn" type="button" data-i18n-attr="aria-label:zoom.in;title:zoom.in">+</button>
         <button id="zoom-out" class="icon-btn" type="button" data-i18n-attr="aria-label:zoom.out;title:zoom.out">−</button>
