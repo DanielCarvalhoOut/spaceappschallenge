@@ -40,7 +40,7 @@
   <main class="layout">
     <section class="map-wrap" data-i18n-attr="aria-label:map.aria">
       <div id="map" class="map"></div>
-      <div id="tooltip" class="tooltip" hidden><strong id="tt-name"></strong><span id="tt-value"></span></div>
+      <div id="tooltip" class="tooltip" hidden><strong id="tt-name"></strong><span id="tt-value"></span><span id="tt-extra" class="tt-row" hidden></span><span id="tt-hint" class="tt-hint" hidden></span></div>
 
       <!-- Seletor de Modo: Município vs Esfera (Área) -->
       <div class="mode-hud" role="group" data-i18n-attr="aria-label:mode.aria">
@@ -97,105 +97,114 @@
           <small id="roots-hit" class="muted"></small>
         </div>
       </figure>
+      <button id="reopen" class="reopen-chip" type="button" hidden></button>
+      <div id="panel-empty" class="map-hint" role="note">
+        <strong data-i18n="empty.title"></strong>
+        <span data-i18n="empty.p1"></span>
+      </div>
       <div id="status" class="status" role="alert" hidden>
         <span id="status-text"></span>
         <button id="status-retry" class="btn" type="button" data-i18n="status.retry" hidden></button>
       </div>
     </section>
 
-    <aside id="panel" class="panel" aria-live="polite">
-      <div id="panel-empty" class="panel__empty">
-        <h2 data-i18n="empty.title"></h2>
-        <p data-i18n="empty.p1"></p>
-        <p class="muted" data-i18n="empty.p2"></p>
-      </div>
-
-      <div id="panel-body" hidden>
-        <header class="panel__head">
+    <div id="panel" class="modal" hidden>
+      <div class="modal__backdrop" data-close="1"></div>
+      <div id="panel-body" class="modal__card" role="dialog" aria-modal="true" aria-labelledby="p-name" tabindex="-1" hidden>
+        <header class="modal__head">
           <div>
             <h2 id="p-name"></h2>
             <p id="p-sub" class="muted"></p>
           </div>
-          <button id="p-close" class="icon-btn" type="button" data-i18n-attr="aria-label:panel.close;title:panel.close">×</button>
+          <div class="modal__actions">
+            <button id="p-min" class="btn" type="button" data-i18n="panel.showMap" data-i18n-attr="title:panel.showMapTitle"></button>
+            <button id="p-close" class="icon-btn" type="button" data-i18n-attr="aria-label:panel.close;title:panel.close">×</button>
+          </div>
         </header>
 
-        <div class="kpis">
-          <div class="kpi">
-            <span class="kpi__label" id="k-period"></span>
-            <strong id="k-count">–</strong>
-            <small data-i18n="kpi.unit"></small>
+        <nav class="tabs" role="tablist" data-i18n-attr="aria-label:tabs.aria">
+          <button class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="tab-summary" id="t-summary" data-tab="summary" data-i18n="tab.summary"></button>
+          <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="tab-projection" id="t-projection" data-tab="projection" data-i18n="tab.projection"></button>
+          <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="tab-history" id="t-history" data-tab="history" data-i18n="tab.history"></button>
+          <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="tab-area" id="t-area" data-tab="area" data-i18n="tab.area"></button>
+          <button class="tab" type="button" role="tab" aria-selected="false" aria-controls="tab-context" id="t-context" data-tab="context" data-i18n="tab.context"></button>
+        </nav>
+
+        <div class="modal__body">
+          <section id="tab-summary" class="tabpane" role="tabpanel" aria-labelledby="t-summary">
+            <div class="kpis">
+              <div class="kpi">
+                <span class="kpi__label" id="k-period"></span>
+                <strong id="k-count">–</strong>
+                <small data-i18n="kpi.unit"></small>
+              </div>
+              <div class="kpi">
+                <span class="kpi__label" data-i18n="kpi.anomaly"></span>
+                <strong id="k-z">–</strong>
+                <small id="k-z-text"></small>
+              </div>
+            </div>
+            <section class="block">
+              <h3><span data-i18n="block.range"></span> <small id="range-small"></small></h3>
+              <div id="range-box" class="range-box"></div>
+            </section>
+            <section class="block">
+              <h3><span data-i18n="block.next"></span> <small data-i18n="block.nextSmall"></small></h3>
+              <div id="next-box" class="next-box"></div>
+            </section>
+          </section>
+
+          <section id="tab-projection" class="tabpane" role="tabpanel" aria-labelledby="t-projection" hidden>
+            <div id="horizons-box" class="horizons"></div>
+          </section>
+
+          <section id="tab-history" class="tabpane" role="tabpanel" aria-labelledby="t-history" hidden>
+            <section class="block">
+              <h3><span data-i18n="block.pattern"></span> <small data-i18n="block.patternSmall"></small></h3>
+              <p id="season-text" class="lead"></p>
+              <div id="pattern" class="pattern"></div>
+            </section>
+            <section class="block">
+              <h3><span data-i18n="block.calendar"></span> <small data-i18n="block.calendarSmall"></small></h3>
+              <div id="calendar" class="calendar"></div>
+            </section>
+            <section class="block">
+              <h3><span data-i18n="block.compare"></span> <small data-i18n="block.compareSmall"></small></h3>
+              <div id="compare" class="compare"></div>
+            </section>
+          </section>
+
+          <section id="tab-area" class="tabpane" role="tabpanel" aria-labelledby="t-area" hidden>
+            <section id="detail-block" class="block" hidden>
+              <h3><span data-i18n="block.detail"></span> <small id="detail-small"></small></h3>
+              <div id="detail-box" class="detail-box"></div>
+            </section>
+            <section id="subareas-block" class="block" hidden>
+              <h3><span id="subareas-title" data-i18n="block.subareas"></span> <small id="subareas-small" data-i18n="block.subareasSmall"></small></h3>
+              <div id="subareas-list" class="subareas-list"></div>
+            </section>
+          </section>
+
+          <section id="tab-context" class="tabpane" role="tabpanel" aria-labelledby="t-context" hidden>
+            <section class="block">
+              <h3><span data-i18n="block.context"></span> <small id="ctx-year"></small></h3>
+              <ul id="context" class="context"></ul>
+            </section>
+            <div class="actions">
+              <button id="csv" class="btn btn--primary" type="button" data-i18n="csv"></button>
+            </div>
+          </section>
+
+          <!-- Reviewed-inputs-only blocks (API answers 503 while disabled); kept hidden. -->
+          <div hidden>
+            <section class="block" hidden><div id="resources-box" class="intel-box"></div></section>
+            <section class="block" hidden><div id="root-fires-box" class="intel-box"></div></section>
+            <section class="block" hidden><div id="predictability-box" class="intel-box"></div></section>
+            <section class="block" hidden><div id="agro-b2b-box" class="intel-box"></div></section>
           </div>
-          <div class="kpi">
-            <span class="kpi__label" data-i18n="kpi.anomaly"></span>
-            <strong id="k-z">–</strong>
-            <small id="k-z-text"></small>
-          </div>
-        </div>
-
-        <section id="subareas-block" class="block" hidden>
-          <h3><span id="subareas-title" data-i18n="block.subareas"></span> <small id="subareas-small" data-i18n="block.subareasSmall"></small></h3>
-          <div id="subareas-list" class="subareas-list"></div>
-        </section>
-
-        <section id="detail-block" class="block" hidden>
-          <h3><span data-i18n="block.detail"></span> <small id="detail-small"></small></h3>
-          <div id="detail-box" class="detail-box"></div>
-        </section>
-        <section class="block">
-          <h3><span data-i18n="block.pattern"></span> <small data-i18n="block.patternSmall"></small></h3>
-          <p id="season-text" class="lead"></p>
-          <div id="pattern" class="pattern"></div>
-        </section>
-
-        <section class="block">
-          <h3><span data-i18n="block.calendar"></span> <small data-i18n="block.calendarSmall"></small></h3>
-          <div id="calendar" class="calendar"></div>
-        </section>
-
-        <section class="block">
-          <h3><span data-i18n="block.compare"></span> <small data-i18n="block.compareSmall"></small></h3>
-          <div id="compare" class="compare"></div>
-        </section>
-
-        <section class="block">
-          <h3><span data-i18n="block.range"></span> <small id="range-small"></small></h3>
-          <div id="range-box" class="range-box"></div>
-        </section>
-
-        <!-- A. Harmonização Espacial (DBSCAN/H3) + FRP (MW) & Escala de Recursos -->
-        <section class="block" hidden>
-          <h3><span data-i18n="block.resources"></span> <small data-i18n="block.resourcesSmall"></small></h3>
-          <div id="resources-box" class="intel-box"></div>
-        </section>
-
-        <!-- B. Calendário de Focos Raízes & Histórico (2000–Presente) -->
-        <section class="block" hidden>
-          <h3><span data-i18n="block.rootFires"></span> <small data-i18n="block.rootFiresSmall"></small></h3>
-          <div id="root-fires-box" class="intel-box"></div>
-        </section>
-
-        <!-- C. Clima (NASA POWER), Score ML de Propensão & Risco de Ignição / Propagação -->
-        <section class="block" hidden>
-          <h3><span data-i18n="block.predictability"></span> <small data-i18n="block.predictabilitySmall"></small></h3>
-          <div id="predictability-box" class="intel-box"></div>
-        </section>
-
-        <!-- D. Score Agrícola para Seguros & Inteligência B2B (FIRMS + POWER + MOD13Q1 + MCD12Q1) -->
-        <section class="block" hidden>
-          <h3><span data-i18n="block.agroB2B"></span> <small data-i18n="block.agroB2BSmall"></small></h3>
-          <div id="agro-b2b-box" class="intel-box"></div>
-        </section>
-
-        <section class="block">
-          <h3><span data-i18n="block.context"></span> <small id="ctx-year"></small></h3>
-          <ul id="context" class="context"></ul>
-        </section>
-
-        <div class="actions">
-          <button id="csv" class="btn btn--primary" type="button" data-i18n="csv"></button>
         </div>
       </div>
-    </aside>
+    </div>
   </main>
 
   <footer class="foot">

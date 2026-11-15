@@ -618,8 +618,9 @@
 
         let alpha = baseDimAlpha;
         if (hasSphere) {
-          if (st.sphere.ids.has(f.id)) alpha = Math.max(alpha, 0.5);
-          else if (f === hov) alpha = Math.max(alpha, 0.68);
+          // Only the part inside the circle is the analysed area: the rest of a touched municipality stays dimmed
+          // like any other (the circle fill below restores full colour inside the ring).
+          if (f === hov && !st.sphere.ids.has(f.id)) alpha = Math.max(alpha, 0.68);
         } else if (f === prevSel && st.switchMix < 1) {
           alpha = baseDimAlpha + (1 - baseDimAlpha) * (1 - st.switchMix);
         } else if (f === hov && fMix > 0.01) {
@@ -769,7 +770,8 @@
         const polyScreenW = (f.bbox[2] - f.bbox[0]) * k;
         const inSphere = hasSphere && st.sphere.ids.has(f.id);
         const val = st.values.get(f.id);
-        const valStr = st.showNumbers ? formatShortVal(val, isSeq ? 'sequential' : 'diverging') : '';
+        // With a circle, a municipality's value is its whole-territory number, not the circle's: hide it.
+        const valStr = st.showNumbers && !hasSphere ? formatShortVal(val, isSeq ? 'sequential' : 'diverging') : '';
 
         ctx.font = st.colors.font;
         const tw = labelWidth(ctx, f, name);

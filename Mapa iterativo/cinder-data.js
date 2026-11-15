@@ -56,6 +56,7 @@
     return (Array.isArray(rows) ? rows : []).filter((r) => r && intIn(r.year, 2000, 2100) && intIn(r.month, 1, 12)).map((r) => ({
       year: r.year, month: r.month, modis: num(r.modis), viirs: num(r.viirs),
       harmonized: num(r.harmonized), anomalyZ: num(r.anomalyZ), daysMissing: num(r.daysMissing),
+      noaa20: num(r.noaa20), provisional: r.provisional === true, partial: r.partial === true,
     }));
   }
 
@@ -211,6 +212,43 @@
           } : null,
         };
       },
+      /**
+       * Projection with a validated uncertainty band from the last observed day (daily model, hindcast 2015–2025).
+       * area: { ibge } or { lon, lat, radiusKm }. Null while the FIRMS history is not built (HTTP 503).
+       */
+      async horizons(area) {
+        const q = new URLSearchParams();
+        if (area && area.ibge) {
+          if (!(IBGE_CODE.test(area.ibge) || area.ibge === CFG.uf)) throw new Error('Invalid IBGE code');
+          q.set('ibge', area.ibge);
+        } else {
+          if (!area || !numIn(area.lon, -54, -45) || !numIn(area.lat, -20, -12) || !numIn(area.radiusKm, 5, 300)) throw new Error('Invalid circle');
+          q.set('lon', String(area.lon)); q.set('lat', String(area.lat)); q.set('radiusKm', String(area.radiusKm));
+        }
+        let j;
+        try { j = await fetchJson(`${base}/api/projection/horizons?${q}`, 60000); } catch (e) { if (/HTTP 503/.test(e.message)) return null; throw e; }
+        const DATE = /^\d{4}-\d{2}-\d{2}$/;
+        const date = (v) => (typeof v === 'string' && DATE.test(v) ? v : null);
+        const bandOf = (o) => (o && numIn(o.p10, 0, 1e8) && numIn(o.p50, 0, 1e8) && numIn(o.p90, 0, 1e8)) ? { p10: o.p10, p50: o.p50, p90: o.p90 } : null;
+        const win = (o) => { const b = bandOf(o); return b && date(o.from) && date(o.to) ? { ...b, from: o.from, to: o.to, climatology: bandOf(o.climatology) } : null; };
+        const skill = (o) => (o ? { n: num(o.n), skillPct: num(o.skillPct), coveragePct: num(o.coveragePct), published: o.published === true } : null);
+        const h = j && j.hindcast && j.hindcast.horizons;
+        const asOf = date(j && j.asOf);
+        if (!asOf) return null;
+        return {
+          asOf,
+          daily: (Array.isArray(j.daily) ? j.daily : []).slice(0, 15).filter((d) => d && date(d.date) && numIn(d.pAnyPct, 0, 100))
+            .map((d) => ({ date: d.date, pAnyPct: d.pAnyPct, p50: num(d.p50), p90: num(d.p90) })),
+          fortnight: win(j.fortnight),
+          semester: win(j.semester),
+          months: (Array.isArray(j.months) ? j.months : []).slice(0, 6).filter((m) => m && intIn(m.year, 2000, 2100) && intIn(m.month, 1, 12) && bandOf(m))
+            .map((m) => ({ year: m.year, month: m.month, observedSoFar: num(m.observedSoFar), partial: m.partial === true, ...bandOf(m) })),
+          hindcast: h ? {
+            period: typeof j.hindcast.period === 'string' ? j.hindcast.period.slice(0, 20) : '',
+            day1: skill(h.day1), fortnight: skill(h.fortnight), month: skill(h.month), semester: skill(h.semester),
+          } : null,
+        };
+      },
       /** Exact circle: only cells whose centre lies inside the radius (null if history not built). */
       async areaHistory(lon, lat, radiusKm) {
         if (!numIn(lon, -54, -45) || !numIn(lat, -20, -12) || !numIn(radiusKm, 1, 300)) throw new Error('Invalid circle');
@@ -296,7 +334,7 @@
       kind: 'offline', dataKind: 'none', historyLoad: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
       mapValues: fail, calendar: fail, pattern: fail, context: fail, intelligence: fail,
-      projection: fail, areaHistory: fail, cells: fail, recurrence: fail,
+      projection: fail, horizons: fail, areaHistory: fail, cells: fail, recurrence: fail,
       csvUrl() { return null; },
     };
   }
