@@ -13,6 +13,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 
 - **Map of Goiás** by IBGE municipality: anomaly vs. the historical pattern (z), cell-days or density, for any month since 2001.
 - **Search by name or by coordinate**: typing `-16.68, -49.25` opens a circle there.
+- **Fire notice now (opt-in)**: for a municipality or circle, the API checks NOAA GOES-19 every 10 minutes, keeps fire pixels seen in 2 of 3 consecutive scans (~20–30 min), adds the place's historical context from our series and later marks each notice confirmed or not by VIIRS. Kept apart: GOES never enters the harmonized series.
 - **Unusual months** of a municipality (anomaly ≥ +1.5σ), one click away from the month.
 - **Downloads**: monthly series (CSV), the month's fire cells with detection days, satellite and nearest locality (CSV), the calendar (PNG) and the current map (PNG).
 - **Details in a side panel beside the map** (tabs Summary · Projection · History · Area · Context; a footer button opens the same view full screen): typical fire season, monthly calendar since 2001,
@@ -29,6 +30,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 | IBGE — municipal boundaries and names | Aggregation units |
 | IBGE — Base de Localidades, 2022 Census (vilas, povoados, communities) | Map reference only: shown when zoomed in; nearest locality and straight-line distance to each fire cell |
 | INPE Programa Queimadas — reference satellite (AQUA MODIS afternoon) | External validation only |
+| NOAA GOES-19 ABI L2 Fire/Hot Spot (full disk, every 10 min, public NOAA open data) | Opt-in early notice only; never mixed into the harmonized series |
 | NASA POWER (daily point API); NASA ORNL DAAC MODIS web service (MOD13Q1 NDVI, MCD12Q1 land cover) | Context tab only, never cause |
 
 Data up to the last day FIRMS serves (NRT days are marked *provisional* in the interface).
@@ -115,7 +117,8 @@ The idea, the questions and the decisions are the team's. No AI-generated images
 - Vegetation and land-cover context: MODIS MOD13Q1 and MCD12Q1 through the NASA ORNL DAAC MODIS web service (https://modis.ornl.gov/).
 - Municipal boundaries, names and 2022 Census localities: IBGE (https://www.ibge.gov.br/), public data.
 - External validation: INPE Programa Queimadas state statistics (https://terrabrasilis.dpi.inpe.br/queimadas/portal/), public data.
-- Libraries: Fastify, @fastify/cors, @fastify/rate-limit, pg, pino, zod, tsx, vitest (MIT); TypeScript (Apache-2.0). The map engine and interface are the team's own code; no third-party map assets or fonts are bundled.
+- Early notice: NOAA GOES-19 ABI L2+ Fire/Hot Spot Characterization (https://noaa-goes19.s3.amazonaws.com/), NOAA open data.
+- Libraries: Fastify, @fastify/cors, @fastify/rate-limit, pg, pino, zod, tsx, vitest (MIT); TypeScript (Apache-2.0); h5wasm (NIST license, reads the GOES NetCDF-4 files). The map engine and interface are the team's own code; no third-party map assets or fonts are bundled.
 
 ## Team
 

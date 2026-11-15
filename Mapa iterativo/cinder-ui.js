@@ -707,6 +707,7 @@
       loadRange(id, seq);
       loadHorizons({ ibge: id }, seq);
       loadAlerts(id, seq);
+      renderWatchBlock();
       loadContext(id, seq);
       const cur = currentRow();
       loadDetail({ kind: 'muni', id }, cur ? cur.harmonized : 0, seq);
@@ -773,6 +774,7 @@
     openModal();
     dlStatus('');
     loadAlerts(null, seq);
+    renderWatchBlock();
     const centerName = (sphere.centerId && state.names.get(sphere.centerId)) || CFG.ufName;
     const subBase = t('sphere.sub', { r: sphere.radiusKm, area: I.num(sphere.areaKm2), name: centerName });
     $('p-name').textContent = t('sphere.titleR', { r: sphere.radiusKm });
@@ -1616,6 +1618,133 @@
     }
   }
 
+  /* ---------- Opt-in GOES-19 watch: early notice for the selected area ---------- */
+  const WATCH_KEY = 'cinder.watches', SEEN_KEY = 'cinder.seenAlerts';
+  const store = {
+    get(k, d) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v === null ? d : v; } catch (_) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { /* storage blocked: watch lasts this session */ } },
+  };
+  const memWatches = { list: null };
+  const watches = () => memWatches.list || (memWatches.list = (store.get(WATCH_KEY, []) || []).filter((w) => w && typeof w.id === 'string' && typeof w.key === 'string').slice(0, 20));
+  const saveWatches = (list) => { memWatches.list = list; store.set(WATCH_KEY, list); };
+  function currentWatchArea() {
+    if (state.selected) return { key: `ibge:${state.selected}`, area: { ibge: state.selected }, label: state.names.get(state.selected) || state.selected };
+    const s = state.sphereSelection;
+    if (s && Number.isFinite(s.lon) && Number.isFinite(s.lat)) {
+      const lat = Math.round(s.lat * 1e4) / 1e4, lon = Math.round(s.lon * 1e4) / 1e4;
+      return { key: `c:${lat},${lon},${s.radiusKm}`, area: { lon, lat, radiusKm: s.radiusKm }, label: t('watch.circleLabel', { r: s.radiusKm, lat: I.num(lat, 3), lon: I.num(lon, 3) }) };
+    }
+    return null;
+  }
+  const fmtTime = (iso) => {
+    const d = new Date(iso);
+    return Number.isFinite(d.getTime()) ? d.toLocaleString(I.lang() === 'en' ? 'en-GB' : 'pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
+  };
+  /** The notice text ("agent" message), built only from the API's structured fields. */
+  function alertText(a, label) {
+    const near = state.places && state.places.length ? nearestPlaces(a.lon, a.lat, 1)[0] : null;
+    const place = near ? t('watch.near', { name: near.p.name, km: I.num(near.d, 1) }) : label;
+    const parts = [t('watch.msgHead', { place, lat: I.num(a.lat, 4), lon: I.num(a.lon, 4), time: fmtTime(a.firstSeen), n: a.scansSeen })];
+    const c = a.context;
+    if (c.yearsObserved) parts.push(t('watch.msgHistory', { k: c.yearsWithFire, n: c.yearsObserved }));
+    if (c.municipality && c.anomalyZ !== null) parts.push(t('watch.msgMuni', { name: c.municipality, z: zText(c.anomalyZ).toLowerCase(), zv: fmtZ(c.anomalyZ) }));
+    if (a.frpMw !== null) parts.push(t('watch.msgFrp', { v: I.num(a.frpMw, 1) }));
+    parts.push(t(`watch.status.${a.status}`));
+    return parts.join(' ');
+  }
+  function toast(title, body) {
+    const box = $('toasts');
+    const n = el('div', 'toast');
+    n.setAttribute('role', 'status');
+    const close = el('button', 'toast__close', '×');
+    close.type = 'button'; close.setAttribute('aria-label', t('panel.close'));
+    close.onclick = () => n.remove();
+    n.append(el('strong', '', title), el('p', '', body), close);
+    box.append(n);
+    setTimeout(() => n.remove(), 30000);
+  }
+  function notify(a, w) {
+    const title = t('watch.notifTitle', { label: w.label });
+    const body = alertText(a, w.label);
+    toast(title, body);
+    try { if ('Notification' in global && Notification.permission === 'granted') new Notification(title, { body, tag: a.id }); } catch (_) { /* not supported */ }
+  }
+  function renderWatchFeed(feed) {
+    const f = $('watch-feed');
+    if (!feed) { f.textContent = ''; return; }
+    f.textContent = feed.lastError
+      ? t('watch.feedErr', { err: feed.lastError })
+      : feed.lastScan
+        ? t('watch.feed', { time: fmtTime(feed.lastScan), n: feed.detectionsInGoias ?? '–', p: feed.persistentInGoias ?? '–' })
+        : t('watch.feedWaiting');
+  }
+  async function renderWatchBlock() {
+    const cur = currentWatchArea();
+    const btn = $('watch-toggle'), list = $('watch-alerts');
+    clear(list);
+    if (!cur || isFuture()) { $('watch-block').hidden = true; return; }
+    $('watch-block').hidden = false;
+    const w = watches().find((x) => x.key === cur.key);
+    btn.textContent = t(w ? 'watch.off' : 'watch.on');
+    btn.classList.toggle('btn--primary', !w);
+    $('watch-run').hidden = !w;
+    if (!w) { renderWatchFeed(null); return; }
+    try {
+      const r = await state.source.watchAlerts(w.id);
+      if (!r) { saveWatches(watches().filter((x) => x.id !== w.id)); renderWatchBlock(); return; }
+      renderWatchFeed(r.feed);
+      if (!r.alerts.length) { list.append(el('li', 'muted', t('watch.none'))); return; }
+      for (const a of r.alerts) {
+        const li = el('li', `watch__alert is-${a.status}`);
+        li.append(el('span', 'watch__badge', t(`watch.badge.${a.status}`)), el('p', '', alertText(a, w.label)));
+        list.append(li);
+      }
+    } catch (_) {
+      renderWatchFeed({ lastError: t('watch.apiErr') });
+    }
+  }
+  async function toggleWatch() {
+    const cur = currentWatchArea();
+    if (!cur) return;
+    const w = watches().find((x) => x.key === cur.key);
+    $('watch-toggle').disabled = true;
+    try {
+      if (w) {
+        await state.source.watchDelete(w.id).catch(() => {});
+        saveWatches(watches().filter((x) => x.id !== w.id));
+      } else {
+        try { if ('Notification' in global && Notification.permission === 'default') await Notification.requestPermission(); } catch (_) { /* ignore */ }
+        const r = await state.source.watchCreate(cur.area, cur.label);
+        saveWatches(watches().concat([{ id: r.id, key: cur.key, label: cur.label }]));
+      }
+    } catch (_) {
+      renderWatchFeed({ lastError: t('watch.apiErr') });
+    } finally {
+      $('watch-toggle').disabled = false;
+      renderWatchBlock();
+    }
+  }
+  async function pollWatches() {
+    const list = watches();
+    if (!list.length || !state.source || !state.source.watchAlerts) return;
+    const seen = new Set(store.get(SEEN_KEY, []) || []);
+    let changed = false;
+    for (const w of list) {
+      try {
+        const r = await state.source.watchAlerts(w.id);
+        if (!r) { saveWatches(watches().filter((x) => x.id !== w.id)); continue; }
+        for (const a of r.alerts) {
+          if (seen.has(a.id)) continue;
+          seen.add(a.id); changed = true;
+          notify(a, w);
+        }
+      } catch (_) { /* API off: try again next round */ }
+    }
+    if (changed) store.set(SEEN_KEY, [...seen].slice(-500));
+    const cur = currentWatchArea();
+    if (cur && list.some((w) => w.key === cur.key)) renderWatchBlock();
+  }
+
   /* ---------- Unusual months (alerts) ---------- */
   async function loadAlerts(id, seq) {
     const box = $('alerts-box');
@@ -1899,6 +2028,14 @@
     setupModal();
     $('csv').addEventListener('click', downloadCsv);
     $('csv-fires').addEventListener('click', downloadFiresCsv);
+    $('watch-toggle').addEventListener('click', toggleWatch);
+    $('watch-run').addEventListener('click', async () => {
+      $('watch-run').disabled = true;
+      try { renderWatchFeed(await state.source.goesRun()); await pollWatches(); } catch (_) { renderWatchFeed({ lastError: t('watch.apiErr') }); }
+      finally { $('watch-run').disabled = false; renderWatchBlock(); }
+    });
+    setInterval(pollWatches, 60000);
+    setTimeout(pollWatches, 5000);
     $('png-calendar').addEventListener('click', downloadCalendarPng);
     $('png-map').addEventListener('click', downloadMapPng);
     $('map-png').addEventListener('click', downloadMapPng);

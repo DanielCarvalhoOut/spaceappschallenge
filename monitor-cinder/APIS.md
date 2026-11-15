@@ -52,6 +52,15 @@ Navegador (Mapa iterativo) ──▶ API Monitor Cinder (localhost:8787) ──�
 
 Os resultados ficam em `out/external_validation.json` e `out/inpe_goias_reference.json`. **Não entra em nenhum cálculo mostrado no mapa.**
 
+### 1.3b NOAA GOES-19: aviso de fogo agora (opcional, ativado pelo usuário)
+
+| Endpoint | Para que serve | Onde | Quando |
+|---|---|---|---|
+| `noaa-goes19.s3.amazonaws.com/?list-type=2&prefix=ABI-L2-FDCF/AAAA/DDD/HH/` | Lista as varreduras de fogo (disco inteiro) da última hora | `connectors/goes-fdc.ts` | A cada 10 min, só se houver alguma área monitorada |
+| `noaa-goes19.s3.amazonaws.com/ABI-L2-FDCF/.../OR_ABI-L2-FDCF-...nc` | Arquivo NetCDF (~2 MB): máscara de fogo e potência; lemos só a janela de Goiás e as categorias confiáveis (10, 11, 30, 31) | `goes-fdc.ts` (h5wasm) | Idem |
+
+**Função na aplicação:** aviso antecipado para quem ativa. Um pixel só vira aviso se aparece em 2 de 3 varreduras (~20–30 min). O aviso traz o contexto histórico (nossa série) e depois é confirmado ou não pelo VIIRS (FIRMS NRT). **Nunca entra na série harmonizada.**
+
 ### 1.4 NASA POWER: contexto climático
 
 | Endpoint | Para que serve | Onde | Quando |
@@ -85,6 +94,7 @@ Todas as rotas validam a entrada com zod e respondem erro em problem+json. As ro
 | `GET /api/daily?ibge\|circle&year&month` | Valor de cada dia do mês e o satélite do dia | Calendário diário da aba **Histórico** |
 | `GET /api/municipalities/:ibge/calendar.csv` | A mesma série em CSV (protegida contra injeção de fórmula; 20 pedidos por minuto) | Botão **Série mensal (CSV)** |
 | `GET /api/area/fires.csv?ibge\|lon&lat&radiusKm&year&month` | Células de 1 km com detecção no mês: centro, células-dia, dias e satélite, povoado mais próximo (20 pedidos por minuto) | Botão **Focos do mês (CSV)** |
+| `POST /api/watch`, `DELETE /api/watch/:id`, `GET /api/watch/:id/alerts`, `GET /api/goes/status`, `POST /api/goes/run` | Liga/desliga o aviso para uma área, lista os avisos (GOES-19 persistente, contexto, confirmação VIIRS), estado da última varredura, "verificar agora" | Bloco **Aviso de fogo agora** na aba Resumo, notificações |
 | `GET /api/municipalities/:ibge/alerts` | Meses incomuns (anomalia ≥ +1,5σ e ≥ 10 células-dia) | Bloco **Meses incomuns** na aba Resumo |
 | `GET /api/projection?ibge&year&month` | Faixa esperada do mês (P10–P50–P90 dos anos anteriores) e o retroteste | Aba **Resumo** ("faixa esperada"), modo projeção |
 | `GET /api/projection/horizons?ibge\|circle` | Projeção com faixa validada: 15 dias e 1 mês (publicados); amanhã e semestre só se tiverem ganho | Aba **Projeção**, faixa do modo projeção |

@@ -179,6 +179,16 @@
               <h3><span data-i18n="block.alerts"></span> <small data-i18n="block.alertsSmall"></small></h3>
               <ul id="alerts-box" class="alerts"></ul>
             </section>
+            <section class="block" id="watch-block">
+              <h3><span data-i18n="watch.title"></span> <small data-i18n="watch.small"></small></h3>
+              <p class="muted watch__lead" data-i18n="watch.lead"></p>
+              <div class="watch__actions">
+                <button id="watch-toggle" class="btn btn--primary" type="button"></button>
+                <button id="watch-run" class="btn" type="button" data-i18n="watch.run" data-i18n-attr="title:watch.runTitle" hidden></button>
+              </div>
+              <p id="watch-feed" class="muted watch__feed" role="status"></p>
+              <ul id="watch-alerts" class="watch__alerts" aria-live="polite"></ul>
+            </section>
             <section class="block">
               <h3 data-i18n="block.downloads"></h3>
               <div class="downloads">
@@ -241,6 +251,7 @@
       </div>
     </aside>
   </main>
+  <div id="toasts" class="toasts" aria-live="assertive"></div>
 
   <footer class="foot">
     <span data-i18n="foot.firms"></span>
