@@ -3,8 +3,9 @@
  *
  *   npm run job:build-cell-index -- --from=2001 --to=2025
  *
- * Reads the FIRMS yearly country archives (Brazil, no MAP_KEY; MODIS_SP and VIIRS_SNPP_SP, the two sensors of the
- * harmonized series), keeps nominal/high confidence inside Goiás municipalities, and writes data/firms_goias_cells.json:
+ * With FIRMS_MAP_KEY, reads the FIRMS area API for the Goiás box (MODIS_SP and VIIRS_SNPP_SP, the two sensors of
+ * the harmonized series, 5-day windows: ~73 requests per sensor-year, only Goiás rows). Without a key, or if the
+ * area API refuses a year, it reads the yearly country archive for Brazil instead. Keeps nominal/high confidence inside Goiás municipalities, and writes data/firms_goias_cells.json:
  * days with fire per 1 km cell (EPSG:5880 grid, same as fire.cell_key), the state's monthly VIIRS ÷ MODIS factor
  * (2012–2025, like fire.compute_harmonization) and without static sources (same rule as fire.build_static_cells).
  * Each yearly file is cached under data/firms_years/ so a rerun only downloads the missing years.
@@ -17,6 +18,7 @@ import { ibgeConnector, pointInMunicipality } from '../connectors/ibge.js';
 import { CELL_INDEX_FILE, cellOf, dayNumber, fromPolyconic, type CellIndex, type IndexCell } from '../core/cell-index.js';
 import { isMain } from '../core/entry.js';
 import { logger } from '../core/logger.js';
+import { historyStatus } from '../core/history-status.js';
 
 type ArchiveSensor = 'MODIS_SP' | 'VIIRS_SNPP_SP';
 const FIRST_YEAR: Record<ArchiveSensor, number> = { MODIS_SP: 2000, VIIRS_SNPP_SP: 2012 };
@@ -32,12 +34,58 @@ function parseArgs(argv: string[]): { from: number; to: number } {
   return { from, to };
 }
 
+const WINDOW_DAYS = 5;          // the FIRMS area API serves 1–5 days per request
+const AREA_CONCURRENCY = 4;     // ~2 900 requests for 2001–2025, inside the 5 000 per 10 min allowed per MAP_KEY
+
+/** One sensor-year from the FIRMS area API (Goiás box only), in 5-day windows. Throws if any window fails. */
+async function loadYearFromAreaApi(sensor: ArchiveSensor, year: number): Promise<YearRows> {
+  const starts: string[] = [];
+  for (let t = Date.UTC(year, 0, 1); t < Date.UTC(year + 1, 0, 1); t += WINDOW_DAYS * 86_400_000) {
+    starts.push(new Date(t).toISOString().slice(0, 10));
+  }
+  const rows: YearRows = [];
+  const seen = new Set<string>();
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < starts.length) {
+      const date = starts[next++]!;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60_000);
+      try {
+        for await (const r of firmsConnector.fetch({ mode: 'area_api', sensor, bbox: config.bbox, dayRange: WINDOW_DAYS, date }, ctrl.signal)) {
+          if (r.confidenceNorm < 1) continue; // nominal or high, like fire.hotspot_cell_day
+          if (r.acqDate.slice(0, 4) !== String(year)) continue; // last window of the year spills into January
+          const key = `${r.longitude},${r.latitude},${r.acqDate},${r.acqTime}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          rows.push([r.longitude, r.latitude, dayNumber(r.acqDate), r.fireType ?? -1]);
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: AREA_CONCURRENCY }, worker));
+  return rows;
+}
+
 async function loadYear(sensor: ArchiveSensor, year: number): Promise<YearRows | null> {
   if (year < FIRST_YEAR[sensor]) return null;
   const dir = path.join(config.dataDir, 'firms_years');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${sensor}_${year}_goias.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')) as YearRows;
+
+  if (config.FIRMS_MAP_KEY) {
+    try {
+      const rows = await loadYearFromAreaApi(sensor, year);
+      fs.writeFileSync(file, JSON.stringify(rows));
+      logger.info({ sensor, year, rows: rows.length, via: 'area_api' }, 'FIRMS year cached (Goiás box)');
+      return rows;
+    } catch (err) {
+      logger.warn({ sensor, year, err: err instanceof Error ? err.message : String(err) }, 'area API failed; using the yearly archive');
+    }
+  }
 
   const query: FirmsQuery = { mode: 'country_archive', sensor, year, bbox: config.bbox };
   const ctrl = new AbortController();
@@ -68,8 +116,12 @@ export async function runBuildCellIndex(from: number, to: number): Promise<void>
 
   const acc = new Map<string, Acc>();
   const loaded: { MODIS: number[]; VIIRS: number[] } = { MODIS: [], VIIRS: [] };
-  for (const sensor of ['MODIS_SP', 'VIIRS_SNPP_SP'] as ArchiveSensor[]) {
+  const sensors: ArchiveSensor[] = ['MODIS_SP', 'VIIRS_SNPP_SP'];
+  historyStatus.total = sensors.reduce((n, s) => n + Math.max(0, to - Math.max(from, FIRST_YEAR[s]) + 1), 0);
+  historyStatus.done = 0;
+  for (const sensor of sensors) {
     for (let year = from; year <= to; year++) {
+      if (year >= FIRST_YEAR[sensor]) historyStatus.done++;
       let rows: YearRows | null = null;
       try {
         rows = await loadYear(sensor, year);
@@ -130,12 +182,16 @@ export async function runBuildCellIndex(from: number, to: number): Promise<void>
   const index: CellIndex = {
     version: 1,
     builtAt: new Date().toISOString(),
-    source: 'NASA FIRMS yearly country archives (Brazil): MODIS_SP, VIIRS_SNPP_SP',
+    source: config.FIRMS_MAP_KEY
+      ? 'NASA FIRMS area API (Goiás box) with yearly archive fallback: MODIS_SP, VIIRS_SNPP_SP'
+      : 'NASA FIRMS yearly country archives (Brazil): MODIS_SP, VIIRS_SNPP_SP',
     yearsLoaded: loaded,
     monthlyFactors,
     staticCellsRemoved: removed,
     cells,
   };
+  if (!cells.length) throw new Error('No FIRMS detection loaded for Goiás; index not written');
+  fs.mkdirSync(config.dataDir, { recursive: true });
   fs.writeFileSync(path.join(config.dataDir, CELL_INDEX_FILE), JSON.stringify(index));
   logger.info({ cells: cells.length, staticCellsRemoved: removed, monthlyFactors, years: loaded }, 'job:build-cell-index completed');
 }

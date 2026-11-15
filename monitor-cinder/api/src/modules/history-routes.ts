@@ -57,6 +57,7 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
       .safeParse(req.query);
     if (!q.success) return problem(reply, 400, 'Invalid projection query', q.error.message);
     if (!(await hasHistory())) {
+      if (store.getCalendarKind() !== 'firms_index') return problem(reply, 503, 'History not loaded', 'NASA FIRMS history not loaded yet.');
       const muni = q.data.ibge === '52' ? { name: 'Goiás' } : store.getMunicipality(q.data.ibge);
       if (!muni) return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
       const p = store.getProjection(q.data.ibge, q.data.year, q.data.month);
@@ -85,7 +86,8 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
       .safeParse(req.query);
     if (!q.success) return problem(reply, 400, 'Invalid area query', q.error.message);
     if (!(await hasHistory())) {
-      return store.getCircleHistory(q.data.lon, q.data.lat, q.data.radiusKm, q.data.source);
+      const out = store.getCircleHistory(q.data.lon, q.data.lat, q.data.radiusKm, q.data.source);
+      return out ?? problem(reply, 503, 'History not loaded', 'NASA FIRMS history not loaded yet.');
     }
     try {
       return await circle(q.data.lon, q.data.lat, q.data.radiusKm, q.data.source);
@@ -190,23 +192,22 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
       .safeParse(req.query);
     if (!q.success) return problem(reply, 400, 'Invalid layer query', q.error.message);
     if (!(await hasHistory())) {
+      // Without PostGIS: 1 km harmonized cells from the FIRMS index, whole year (the only grid the index has).
+      if (q.data.source !== 'harmonized1k' || q.data.res !== 1000 || q.data.month !== undefined) {
+        return problem(reply, 400, 'Invalid layer query', 'Without PostGIS only res=1000, source=harmonized1k and no month are available');
+      }
       const out = store.getRecurrenceCells(q.data);
+      if (!out) return problem(reply, 503, 'History not loaded', 'NASA FIRMS history not loaded yet.');
+      reply.header('Cache-Control', 'public, max-age=3600');
       return {
         res: q.data.res,
         source: q.data.source,
         from: q.data.from,
         to: q.data.to,
-        month: q.data.month ?? null,
+        month: null,
         columns: ['lon', 'lat', 'yearsBurnedWithNeighbours', 'yearsBurned', 'lastYear', 'peakMonth'],
         ...out,
-        hitRate: {
-          testYear: 2025,
-          windowYears: 10,
-          minYears: 4,
-          hitPct: 78.4,
-          areaSharePct: 5.2,
-          lift: 15.1,
-        },
+        hitRate: null, // computed only by job:build-history (PostGIS); never a fixed number
       };
     }
     try {

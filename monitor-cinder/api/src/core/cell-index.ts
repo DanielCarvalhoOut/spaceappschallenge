@@ -247,3 +247,88 @@ export function monthlyCountsByMunicipality(index: CellIndex): Map<string, Map<s
   }
   return out;
 }
+
+/** Years with fire of a cell under the harmonized rule (MODIS before 2012, VIIRS S-NPP from 2012), inside [from, to]. */
+function cellYears(c: IndexCell, from: number, to: number): Set<number> {
+  const years = new Set<number>();
+  for (const d of c[3]) { const y = yearOfDay(d); if (y < 2012 && y >= from && y <= to) years.add(y); }
+  for (const d of c[4]) { const y = yearOfDay(d); if (y >= 2012 && y >= from && y <= to) years.add(y); }
+  return years;
+}
+
+/**
+ * Focos-raiz from the index (same rule as fire.cell_recurrence at 1 km): years burned per cell, with and without the
+ * 3×3 neighbourhood, last year and the month with most cell-days. cells: [lon, lat, yearsNb, years, lastYear, peakMonth].
+ */
+export function recurrenceFromIndex(
+  index: CellIndex,
+  q: { west: number; south: number; east: number; north: number; from: number; to: number; limit: number }
+): { yearsObserved: number; cells: number[][] } {
+  const byKey = new Map<string, { c: IndexCell; years: Set<number> }>();
+  for (const c of index.cells) {
+    const years = cellYears(c, q.from, q.to);
+    if (years.size) byKey.set(`${c[0]}:${c[1]}`, { c, years });
+  }
+  const out: number[][] = [];
+  for (const { c, years } of byKey.values()) {
+    const [lon, lat] = fromPolyconic((c[0] + 0.5) * 1000, (c[1] + 0.5) * 1000);
+    if (lon < q.west || lon > q.east || lat < q.south || lat > q.north) continue;
+    const nb = new Set(years);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      if (!i && !j) continue;
+      const o = byKey.get(`${c[0] + i}:${c[1] + j}`);
+      if (o) for (const y of o.years) nb.add(y);
+    }
+    const months = new Array<number>(12).fill(0);
+    for (const d of [...c[3].filter((d) => yearOfDay(d) < 2012), ...c[4].filter((d) => yearOfDay(d) >= 2012)]) {
+      months[new Date(d * 86_400_000).getUTCMonth()]!++;
+    }
+    const peak = months.indexOf(Math.max(...months)) + 1;
+    out.push([Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5, nb.size, years.size, Math.max(...years), peak]);
+  }
+  out.sort((a, b) => (b[2]! - a[2]!) || (b[3]! - a[3]!));
+  const yearsObserved = new Set([
+    ...index.yearsLoaded.MODIS.filter((y) => y < 2012 && y >= q.from && y <= q.to),
+    ...index.yearsLoaded.VIIRS.filter((y) => y >= 2012 && y >= q.from && y <= q.to),
+  ]).size;
+  return { yearsObserved, cells: out.slice(0, q.limit) };
+}
+
+/**
+ * Monthly series of a circle from the index: only 1 km cells whose centre lies inside the radius.
+ * harmonized = VIIRS S-NPP cell-days from 2012, MODIS cell-days × the state's monthly factor before (as the calendars).
+ */
+export function circleSeriesFromIndex(
+  index: CellIndex,
+  lon: number,
+  lat: number,
+  radiusKm: number
+): Array<{ year: number; month: number; modis: number; viirs: number | null; harmonized: number }> {
+  const [cx, cy] = toPolyconic(lon, lat);
+  const r = radiusKm * 1000;
+  const counts = new Map<string, { m: number; v: number }>();
+  for (const c of index.cells) {
+    if (Math.hypot((c[0] + 0.5) * 1000 - cx, (c[1] + 0.5) * 1000 - cy) > r) continue;
+    for (const [days, f] of [[c[3], 'm'], [c[4], 'v']] as const) {
+      for (const d of days) {
+        const dt = new Date(d * 86_400_000);
+        const k = `${dt.getUTCFullYear()}-${dt.getUTCMonth() + 1}`;
+        const cur = counts.get(k) ?? { m: 0, v: 0 };
+        cur[f]++;
+        counts.set(k, cur);
+      }
+    }
+  }
+  const years = [...index.yearsLoaded.MODIS, ...index.yearsLoaded.VIIRS];
+  const first = Math.min(...years), last = Math.max(...years);
+  const rows: Array<{ year: number; month: number; modis: number; viirs: number | null; harmonized: number }> = [];
+  for (let y = first; y <= last; y++) {
+    for (let m = 1; m <= 12; m++) {
+      const c = counts.get(`${y}-${m}`) ?? { m: 0, v: 0 };
+      const viirs = y >= 2012 ? c.v : null;
+      const factor = index.monthlyFactors[m - 1] ?? 1;
+      rows.push({ year: y, month: m, modis: c.m, viirs, harmonized: viirs !== null ? viirs : Math.round(c.m * factor * 10) / 10 });
+    }
+  }
+  return rows;
+}

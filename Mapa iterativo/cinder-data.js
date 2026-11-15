@@ -1,8 +1,8 @@
 /*
  * Monitor Cinder data layer (original code).
  * - Geometry and names: IBGE (public, CORS-enabled). The backend may proxy/cache the mesh.
- * - Fire statistics: Monitor Cinder API (TypeScript backend). If the API is unreachable, a clearly
- *   labelled DEMO source generates synthetic values so the interface can still be explored.
+ * - Fire statistics: Monitor Cinder API only (NASA FIRMS history). If the API is unreachable or the history
+ *   is still loading, the map shows the outlines and says so: no value is ever generated in the browser.
  * Every response is validated before use; nothing from the network is ever inserted as HTML.
  */
 (function (global) {
@@ -121,11 +121,14 @@
   /* ---------------- API source ---------------- */
   function apiSource(meta, getIds, getArea) {
     const base = CFG.apiBase;
-    const fallbackDemo = demoSource(getIds, getArea);
     const sources = Array.isArray(meta.sources) ? meta.sources.filter((s) => s && typeof s.name === 'string').slice(0, 12) : [];
     return {
       kind: 'api',
-      dataKind: meta.dataKind === 'firms_db' || meta.dataKind === 'firms_index' ? meta.dataKind : 'synthetic',
+      dataKind: ['firms_db', 'firms_index', 'loading'].includes(meta.dataKind) ? meta.dataKind : 'none',
+      historyLoad: meta.historyLoad && typeof meta.historyLoad === 'object' ? {
+        done: intIn(meta.historyLoad.done, 0, 1000) ? meta.historyLoad.done : 0,
+        total: intIn(meta.historyLoad.total, 0, 1000) ? meta.historyLoad.total : 0,
+      } : null,
       firstYear: intIn(meta.period && meta.period.firstYear, 2000, 2100) ? meta.period.firstYear : CFG.firstYear,
       lastYear: intIn(meta.period && meta.period.lastYear, 2000, 2100) ? meta.period.lastYear : CFG.lastYear,
       sources,
@@ -142,73 +145,48 @@
           }
           return out;
         };
-        try {
-          if (metric !== 'density') return await get(metric);
-          try { return await get('density'); } catch (e) {
-            if (!/HTTP 503/.test(e.message) || !getArea) throw e;
-            // API without the PostGIS history: same formula on the counts it serves (cell-days per 1,000 km²).
-            const counts = await get('count');
-            const out = {};
-            for (const id of Object.keys(counts)) {
-              const a = getArea(id), c = counts[id];
-              out[id] = a && c !== null ? Math.round((1000 * c / a) * 10) / 10 : null;
-            }
-            return out;
+        if (metric !== 'density') return await get(metric);
+        try { return await get('density'); } catch (e) {
+          if (!/HTTP 503/.test(e.message) || !getArea) throw e;
+          // API without the PostGIS history: same formula on the counts it serves (cell-days per 1,000 km²).
+          const counts = await get('count');
+          const out = {};
+          for (const id of Object.keys(counts)) {
+            const a = getArea(id), c = counts[id];
+            out[id] = a && c !== null ? Math.round((1000 * c / a) * 10) / 10 : null;
           }
-        } catch (err) {
-          console.warn('API mapValues timed out (>20s) or failed; using mock fallback:', err.message);
-          return fallbackDemo.mapValues(year, month, metric);
+          return out;
         }
       },
       async calendar(id) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
-        try {
-          const j = await fetchJson(`${base}/api/municipalities/${id}/calendar`, 20000);
-          return cleanRows(j && j.rows);
-        } catch (err) {
-          console.warn('API calendar timed out (>20s) or failed; using mock fallback:', err.message);
-          return fallbackDemo.calendar(id);
-        }
+        const j = await fetchJson(`${base}/api/municipalities/${id}/calendar`, 20000);
+        return cleanRows(j && j.rows);
       },
       async pattern(id) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
-        try {
-          const j = await fetchJson(`${base}/api/municipalities/${id}/pattern`, 20000);
-          const months = (Array.isArray(j && j.months) ? j.months : [])
-            .filter((m) => m && intIn(m.month, 1, 12))
-            .map((m) => ({ month: m.month, mean: num(m.mean), sharePct: num(m.sharePct) }));
-          const s = (j && j.season) || {};
-          return {
-            months,
-            season: {
-              months: Array.isArray(s.months) ? s.months.filter((m) => intIn(m, 1, 12)) : [],
-              coveredPct: num(s.coveredPct), peakMonth: intIn(s.peakMonth, 1, 12) ? s.peakMonth : null,
-            },
-          };
-        } catch (err) {
-          console.warn('API pattern timed out (>20s) or failed; using mock fallback:', err.message);
-          return fallbackDemo.pattern(id);
-        }
+        const j = await fetchJson(`${base}/api/municipalities/${id}/pattern`, 20000);
+        const months = (Array.isArray(j && j.months) ? j.months : [])
+          .filter((m) => m && intIn(m.month, 1, 12))
+          .map((m) => ({ month: m.month, mean: num(m.mean), sharePct: num(m.sharePct) }));
+        const s = (j && j.season) || {};
+        return {
+          months,
+          season: {
+            months: Array.isArray(s.months) ? s.months.filter((m) => intIn(m, 1, 12)) : [],
+            coveredPct: num(s.coveredPct), peakMonth: intIn(s.peakMonth, 1, 12) ? s.peakMonth : null,
+          },
+        };
       },
       async context(id, year) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
-        try {
-          const j = await fetchJson(`${base}/api/municipalities/${id}/context?year=${encodeURIComponent(year)}`, 20000);
-          return sanitizeContext(j);
-        } catch (err) {
-          console.warn('API context timed out (>20s) or failed; using mock fallback:', err.message);
-          return fallbackDemo.context(id, year);
-        }
+        const j = await fetchJson(`${base}/api/municipalities/${id}/context?year=${encodeURIComponent(year)}`, 20000);
+        return sanitizeContext(j);
       },
       async intelligence(id, year, month) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
         const q = new URLSearchParams({ year: String(year), month: String(month) });
-        try {
-          return await fetchJson(`${base}/api/municipalities/${id}/intelligence?${q}`, 20000);
-        } catch (err) {
-          console.warn('API intelligence timed out (>20s) or failed; using mock fallback:', err.message);
-          return fallbackDemo.intelligence(id, year, month);
-        }
+        return await fetchJson(`${base}/api/municipalities/${id}/intelligence?${q}`, 20000);
       },
       /** Expected range for the month + hindcast quality (null when the history is not built: HTTP 503). */
       async projection(id, year, month) {
@@ -303,391 +281,6 @@
     }));
   }
 
-  const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  function degToCardinal(deg) {
-    const norm = ((deg % 360) + 360) % 360;
-    return CARDINALS[Math.floor(((norm + 22.5) % 360) / 45)] || 'N';
-  }
-
-  function computeClientIntelligence(rows, year, month, seedId) {
-    const r = rng(hashCode(`${seedId}:${year}:${month}`));
-    const cur = rows.find((x) => x.year === year && x.month === month) || { harmonized: 0, anomalyZ: 0 };
-    const activeClusters = Math.max(0, Math.round(cur.harmonized || 0));
-    const rawDetections = Math.round(activeClusters * (2.25 + r() * 0.45));
-    const dedupPct = rawDetections > 0 ? Math.round(((rawDetections - activeClusters) / rawDetections) * 1000) / 10 : 0;
-    const seasonW = SEASON[(month - 1) % 12] || 0.05;
-    const meanFrpMw = activeClusters > 0 ? Math.round((13 + seasonW * 105 + r() * 22) * 10) / 10 : 0;
-    const maxFrpMw = activeClusters > 0 ? Math.round(meanFrpMw * (1.85 + Math.min(3.2, Math.log1p(activeClusters) * 0.6)) * 10) / 10 : 0;
-    const totalFrpMw = Math.round(activeClusters * Math.max(meanFrpMw, activeClusters > 0 ? 12.5 : 0) * 10) / 10;
-
-    let intensityClass = 'low';
-    if (activeClusters === 0) intensityClass = 'low';
-    else if (maxFrpMw >= 150 || totalFrpMw >= 1500) intensityClass = 'extreme';
-    else if (maxFrpMw >= 50 || totalFrpMw >= 500) intensityClass = 'high';
-    else if (maxFrpMw >= 15 || totalFrpMw >= 120) intensityClass = 'moderate';
-
-    const brigadistas = activeClusters === 0 ? 0 : Math.max(4, Math.ceil(activeClusters * 2.2 + totalFrpMw / 22));
-    const squads = activeClusters === 0 ? 0 : Math.max(1, Math.ceil(brigadistas / 6));
-    const waterLiters = activeClusters === 0 ? 0 : Math.round((totalFrpMw * 350 + activeClusters * 1200) / 500) * 500;
-    const waterTrucks = activeClusters === 0 ? 0 : Math.max(1, Math.ceil(waterLiters / 8000));
-    const manualKits = activeClusters === 0 ? 0 : Math.max(4, Math.ceil(activeClusters * 2.5 + totalFrpMw / 20));
-    const aircraftSupport = totalFrpMw >= 1200 || maxFrpMw >= 150 ? Math.max(1, Math.floor(totalFrpMw / 1200)) : 0;
-
-    const byMonth = Array.from({ length: 12 }, () => []);
-    for (const row of rows) {
-      if (row.month >= 1 && row.month <= 12 && Number.isFinite(row.harmonized)) {
-        byMonth[row.month - 1].push(row.harmonized);
-      }
-    }
-    let totalMean = 0;
-    const mStats = byMonth.map((vals, idx) => {
-      const n = vals.length || 1;
-      const mean = vals.reduce((a, b) => a + b, 0) / n;
-      const sd = vals.length >= 2 ? Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1)) : 0;
-      totalMean += mean;
-      return { month: idx + 1, vals, yearsObserved: vals.length, mean, sd };
-    });
-    const avgMonthly = totalMean / 12;
-    const rootMonths = [];
-    const monthProfiles = mStats.map((st) => {
-      const thresh = Math.max(4, st.mean * 0.35, avgMonthly * 0.45);
-      const yearsWithFire = st.vals.filter((v) => v >= thresh).length;
-      const recurrencePct = st.yearsObserved > 0 ? Math.round((yearsWithFire / st.yearsObserved) * 1000) / 10 : 0;
-      const cvRatio = st.mean > 0 ? Math.round((st.sd / st.mean) * 100) / 100 : 0;
-      const isRootMonth = recurrencePct >= 65 && st.mean >= Math.max(6, avgMonthly * 0.75);
-      if (isRootMonth) rootMonths.push(st.month);
-      let regime = 'low_activity';
-      if (isRootMonth && cvRatio <= 0.85) regime = 'anthropogenic_root';
-      else if (recurrencePct >= 50 && st.mean >= Math.max(5, avgMonthly * 0.6)) regime = cvRatio > 0.85 ? 'root_with_climate_spikes' : 'anthropogenic_root';
-      else if (st.mean >= Math.max(4, avgMonthly * 0.4)) regime = 'climatic_anomaly_driven';
-      return {
-        month: st.month,
-        yearsObserved: st.yearsObserved,
-        yearsWithFire,
-        recurrencePct,
-        meanHarmonized: Math.round(st.mean * 10) / 10,
-        sdHarmonized: Math.round(st.sd * 10) / 10,
-        cvRatio,
-        isRootMonth,
-        regime,
-      };
-    });
-
-    const dryProfiles = monthProfiles.filter((p) => p.month >= 7 && p.month <= 10);
-    const persistenceScorePct = dryProfiles.length
-      ? Math.round((dryProfiles.reduce((a, b) => a + b.recurrencePct, 0) / dryProfiles.length) * 10) / 10
-      : 0;
-    const rootSet = new Set(rootMonths.length ? rootMonths : [8, 9]);
-    const rootSum = monthProfiles.filter((p) => rootSet.has(p.month)).reduce((a, b) => a + b.meanHarmonized, 0);
-    const anthropogenicSharePct = totalMean > 0 ? Math.round((rootSum / totalMean) * 1000) / 10 : 0;
-
-    const anomalyYearsSet = new Set();
-    for (const row of rows) {
-      if (row.month >= 7 && row.month <= 10 && row.anomalyZ !== null && row.anomalyZ >= 1.45) {
-        anomalyYearsSet.add(row.year);
-      }
-    }
-    const climaticAnomalyYears = [...anomalyYearsSet].sort((a, b) => a - b);
-    let dominantRegime = 'low_activity';
-    if (persistenceScorePct >= 72) dominantRegime = 'anthropogenic_root';
-    else if (persistenceScorePct >= 52 && climaticAnomalyYears.length >= 2) dominantRegime = 'root_with_climate_spikes';
-    else if (totalMean >= 24) dominantRegime = 'climatic_anomaly_driven';
-
-    const isPeakDry = month === 8 || month === 9;
-    const isDry = month >= 5 && month <= 10;
-    const t2mMaxC = Math.round(((isPeakDry ? 35.4 : isDry ? 32.2 : 29.1) + (r() - 0.35) * 3.8) * 10) / 10;
-    const rh2mPct = Math.round(Math.max(15, Math.min(88, (isPeakDry ? 24.5 : isDry ? 36.0 : 68.0) + (r() - 0.5) * 12)) * 10) / 10;
-    const prectotcorrMm = isPeakDry ? Math.round(r() * 4.5 * 10) / 10 : isDry ? Math.round(r() * 28 * 10) / 10 : Math.round((85 + r() * 140) * 10) / 10;
-    const ws10mMs = Math.round(((isPeakDry ? 3.8 : 2.6) + r() * 1.9) * 10) / 10;
-    const wd10mDeg = Math.round((78 + (r() - 0.5) * 38 + 360) % 360);
-    const consecutiveDryDays = isPeakDry ? 18 + Math.floor(r() * 12) : isDry ? 9 + Math.floor(r() * 10) : 2 + Math.floor(r() * 4);
-    const esat = 6.1078 * Math.exp((17.27 * t2mMaxC) / (t2mMaxC + 237.3));
-    const vaporPressureDeficitHpa = Math.round(esat * (1 - rh2mPct / 100) * 10) / 10;
-
-    const curRecurrence = (monthProfiles[month - 1] && monthProfiles[month - 1].recurrencePct) || persistenceScorePct;
-    const tempPts = Math.min(28, Math.max(0, (t2mMaxC - 22) * 1.65));
-    const rhPts = Math.min(28, Math.max(0, (78 - rh2mPct) * 0.48));
-    const dryPts = Math.min(18, Math.max(0, consecutiveDryDays * 0.65 - prectotcorrMm * 0.15));
-    const windPts = Math.min(11, Math.max(0, ws10mMs * 2.1));
-    const rootPts = Math.min(15, Math.max(0, curRecurrence * 0.15));
-    const ignitionRiskScore = Math.round(Math.min(100, Math.max(0, tempPts + rhPts + dryPts + windPts + rootPts)) * 10) / 10;
-    const ignitionRiskClass = ignitionRiskScore >= 78 ? 'extreme' : ignitionRiskScore >= 58 ? 'high' : ignitionRiskScore >= 38 ? 'moderate' : 'low';
-
-    const azimuthDeg = (wd10mDeg + 180) % 360;
-    const moistureBoost = 1 + Math.max(0, 60 - rh2mPct) / 40;
-    const frpBoost = 1 + Math.min(0.6, Math.max(0, meanFrpMw) / 150);
-    const spreadRateKmh = Math.round(0.16 * ws10mMs * moistureBoost * frpBoost * 100) / 100;
-
-    const rawSignals = [
-      { feature: 'rootRecurrencePct', labelPt: 'Memória de Foco Raiz (FIRMS 2000–25)', labelEn: 'Root Fire Memory (FIRMS 2000–25)', sig: Math.max(1, rootPts * 1.4), rawValue: curRecurrence },
-      { feature: 'rh2mDeficit', labelPt: 'Secura Atmosférica (100 − RH2M)', labelEn: 'Atmospheric Dryness (100 − RH2M)', sig: Math.max(1, rhPts * 1.2), rawValue: Math.round((100 - rh2mPct) * 10) / 10 },
-      { feature: 't2mMaxC', labelPt: 'Temperatura Máxima (T2M_MAX)', labelEn: 'Max Temperature (T2M_MAX)', sig: Math.max(1, tempPts * 1.1), rawValue: t2mMaxC },
-      { feature: 'droughtIndex', labelPt: 'Estresse de Seca (PRECTOTCORR / Dias Secos)', labelEn: 'Drought Stress (PRECTOTCORR / Dry Days)', sig: Math.max(1, dryPts * 1.15), rawValue: consecutiveDryDays },
-      { feature: 'ws10mMs', labelPt: 'Velocidade do Vento a 10m (WS10M)', labelEn: 'Wind Speed at 10m (WS10M)', sig: Math.max(1, windPts * 1.1), rawValue: ws10mMs },
-    ];
-    const sigSum = rawSignals.reduce((a, b) => a + b.sig, 0) || 1;
-    const contributions = rawSignals
-      .map((s) => ({
-        feature: s.feature,
-        labelPt: s.labelPt,
-        labelEn: s.labelEn,
-        sharePct: Math.round((s.sig / sigSum) * 1000) / 10,
-        rawValue: s.rawValue,
-      }))
-      .sort((a, b) => b.sharePct - a.sharePct);
-
-    const ndviWetPeak = Math.round((0.74 + r() * 0.1) * 1000) / 1000;
-    const ndviMean = Math.round((isPeakDry ? 0.37 + r() * 0.1 : isDry ? 0.46 + r() * 0.12 : 0.68 + r() * 0.12) * 1000) / 1000;
-    const eviMean = Math.round(ndviMean * 0.71 * 1000) / 1000;
-    const ndviAnomalyPct = Math.round(((ndviMean - (isPeakDry ? 0.42 : 0.52)) / 0.45) * 1000) / 10;
-    const curingRatePct = Math.round(Math.min(96, Math.max(12, ((ndviWetPeak - ndviMean) / ndviWetPeak) * 88 + consecutiveDryDays * 0.7)) * 10) / 10;
-    const fuelLoadTonsHa = Math.round((4.2 + ndviWetPeak * 14.5) * (0.25 + (curingRatePct / 100) * 0.75) * 10) / 10;
-    const croplandPct = Math.round((24 + r() * 34) * 10) / 10;
-    const pastureGrasslandPct = Math.round((22 + r() * 18) * 10) / 10;
-    const savannaCerradoPct = Math.round((22 + r() * 20) * 10) / 10;
-    const forestRlAppPct = Math.round(Math.max(8, 97 - croplandPct - pastureGrasslandPct - savannaCerradoPct) * 10) / 10;
-    const interfaceRiskIndex = Math.round(Math.min(96, Math.max(18, croplandPct * 0.8 + pastureGrasslandPct * 0.9)) * 10) / 10;
-
-    const firmsFireScore = Math.round(Math.min(100, Math.max(6, curRecurrence * 0.42 + Math.log1p(activeClusters) * 7.5)) * 10) / 10;
-    const powerClimateScore = Math.round(Math.min(100, Math.max(8, ignitionRiskScore * 0.88 + spreadRateKmh * 5)) * 10) / 10;
-    const mod13q1BiomassScore = Math.round(Math.min(100, Math.max(10, curingRatePct * 0.55 + fuelLoadTonsHa * 2.3)) * 10) / 10;
-    const mcd12q1LandUseScore = Math.round(Math.min(100, Math.max(12, interfaceRiskIndex * 0.65 + croplandPct * 0.4)) * 10) / 10;
-    const agroInsuranceScore = Math.round((firmsFireScore * 0.3 + powerClimateScore * 0.25 + mod13q1BiomassScore * 0.25 + mcd12q1LandUseScore * 0.2) * 10) / 10;
-    const insurabilityScore = Math.round((100 - agroInsuranceScore) * 10);
-    const underwritingRating =
-      agroInsuranceScore < 20 ? 'AAA'
-      : agroInsuranceScore < 32 ? 'AA'
-      : agroInsuranceScore < 45 ? 'A'
-      : agroInsuranceScore < 58 ? 'BBB'
-      : agroInsuranceScore < 70 ? 'BB'
-      : agroInsuranceScore < 82 ? 'B' : 'CCC';
-    const riskTier = agroInsuranceScore >= 75 ? 'extreme' : agroInsuranceScore >= 55 ? 'high' : agroInsuranceScore >= 35 ? 'moderate' : 'low';
-    const pureRiskRatePct = Math.round((0.55 + Math.pow(agroInsuranceScore / 100, 1.65) * 5.85) * 100) / 100;
-    const recommendedLoadingPct = Math.round((agroInsuranceScore - 42) * 1.45 * 10) / 10;
-    const suggestedDeductiblePct = agroInsuranceScore >= 75 ? 22 : agroInsuranceScore >= 55 ? 15 : agroInsuranceScore >= 35 ? 10 : 8;
-    const underwritingDecision =
-      agroInsuranceScore >= 75 ? 'decline_or_reinsurance'
-      : agroInsuranceScore >= 56 ? 'manual_inspection_required'
-      : agroInsuranceScore >= 35 ? 'approve_with_firebreak_covenant' : 'auto_approve';
-    const expectedAnnualLossPct = Math.round(pureRiskRatePct * 0.84 * 100) / 100;
-    const probableMaximumLossP95Pct = Math.round(Math.min(85, expectedAnnualLossPct * (2.6 + spreadRateKmh * 0.95) + fuelLoadTonsHa * 0.55) * 10) / 10;
-    const valueAtRiskBrlPerHa = Math.round((4200 + croplandPct * 68) * (probableMaximumLossP95Pct / 100));
-    const rowClearingPriorityScore = Math.round((mod13q1BiomassScore * 0.36 + powerClimateScore * 0.32 + firmsFireScore * 0.32) * 10) / 10;
-    const smokeOutageRiskClass = rowClearingPriorityScore >= 75 ? 'extreme' : rowClearingPriorityScore >= 55 ? 'high' : rowClearingPriorityScore >= 35 ? 'moderate' : 'low';
-    const recommendedBufferWidthM = Math.round(Math.min(85, Math.max(30, 28 + fuelLoadTonsHa * 2.4 + spreadRateKmh * 14)));
-    const complianceScore = Math.round(Math.max(12, Math.min(96, 100 - persistenceScorePct * 0.42 - anthropogenicSharePct * 0.25)) * 10) / 10;
-    const creditAuditStatus = complianceScore < 48 ? 'non_compliant_high_recurrence' : complianceScore < 70 ? 'attention_seasonal_burn' : 'compliant';
-    const rlAppExposurePct = Math.round(Math.min(100, Math.max(5, forestRlAppPct * (0.45 + (firmsFireScore / 100) * 0.85))) * 10) / 10;
-
-    return {
-      resources: {
-        scaling: {
-          intensityClass,
-          activeClusters,
-          rawDetections,
-          deduplicatedRatioPct: dedupPct,
-          meanFrpMw,
-          maxFrpMw,
-          totalFrpMw,
-          brigadistas,
-          squads,
-          waterLiters,
-          waterTrucks,
-          manualKits,
-          aircraftSupport,
-        },
-      },
-      rootFires: {
-        persistenceScorePct,
-        dominantRegime,
-        rootMonths,
-        criticalWeeksLabel: 'Semanas 33–39 (Ago/Set · Manejo/Queima Recorrente)',
-        anthropogenicSharePct,
-        climaticAnomalyYears,
-        months: monthProfiles,
-      },
-      predictability: {
-        ignitionRiskScore,
-        ignitionRiskClass,
-        consecutiveDryDays,
-        vaporPressureDeficitHpa,
-        weatherSummary: {
-          t2mMaxC,
-          rh2mPct,
-          prectotcorrMm,
-          ws10mMs,
-          wd10mDeg,
-          windFromCardinal: degToCardinal(wd10mDeg),
-        },
-        propagation: {
-          azimuthDeg,
-          cardinal: degToCardinal(azimuthDeg),
-          spreadRateKmh,
-          spreadRateMMin: Math.round(((spreadRateKmh * 1000) / 60) * 10) / 10,
-          reachRadius6hKm: Math.round(spreadRateKmh * 6 * 10) / 10,
-        },
-        mlPropensity: {
-          propensityScore: ignitionRiskScore,
-          probability: Math.round((ignitionRiskScore / 100) * 1000) / 1000,
-          propensityClass: ignitionRiskClass,
-          modelRocAuc: 0.957,
-          contributions,
-        },
-      },
-      agroB2B: {
-        pillars: {
-          firmsFireScore,
-          powerClimateScore,
-          mod13q1BiomassScore,
-          mcd12q1LandUseScore,
-        },
-        mod13q1: {
-          ndviMean,
-          eviMean,
-          ndviWetPeak,
-          ndviAnomalyPct,
-          curingRatePct,
-          fuelLoadTonsHa,
-          cropVigorClass: curingRatePct >= 68 ? 'severe_senescence' : 'water_stress',
-        },
-        mcd12q1: {
-          dominantIgbpCode: 12,
-          dominantIgbpLabel: 'Agricultura / Savana',
-          croplandPct,
-          pastureGrasslandPct,
-          savannaCerradoPct,
-          forestRlAppPct,
-          interfaceRiskIndex,
-          prodesDeforestationKm2: 4.2,
-        },
-        insurance: {
-          agroInsuranceScore,
-          insurabilityScore,
-          underwritingRating,
-          riskTier,
-          pureRiskRatePct,
-          recommendedLoadingPct,
-          suggestedDeductiblePct,
-          underwritingDecision,
-        },
-        financialRisk: {
-          expectedAnnualLossPct,
-          probableMaximumLossP95Pct,
-          valueAtRiskBrlPerHa,
-          burnSeverityPotential: riskTier === 'extreme' ? 'catastrophic' : riskTier,
-        },
-        transmissionLine: {
-          rowClearingPriorityScore,
-          priorityTier: rowClearingPriorityScore >= 76 ? 'immediate_dispatch' : 'urgent_7d',
-          smokeOutageRiskClass,
-          recommendedBufferWidthM,
-        },
-        creditAudit: {
-          complianceScore,
-          creditAuditStatus,
-          anthropogenicBurnFlag: persistenceScorePct >= 68,
-          rlAppExposurePct,
-        },
-      },
-    };
-  }
-
-  /* ---------------- DEMO source (synthetic, deterministic) ---------------- */
-  function hashCode(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
-  function rng(seed) { return function () { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-  const SEASON = [0.012, 0.01, 0.014, 0.022, 0.045, 0.075, 0.12, 0.205, 0.245, 0.14, 0.07, 0.042];
-  const RATIO = [3.1, 3.0, 3.2, 3.4, 3.6, 3.7, 3.8, 3.9, 3.8, 3.6, 3.3, 3.1]; // VIIRS ÷ MODIS by month (synthetic)
-
-  function demoSource(getIds, getArea) {
-    const first = CFG.firstYear, last = CFG.lastYear;
-    const cache = new Map();
-    function series(id) {
-      if (cache.has(id)) return cache.get(id);
-      const r = rng(hashCode(id));
-      const level = Math.exp(2.5 + r() * 3.5); // yearly VIIRS-equivalent cell-days
-      let drift = 1;
-      const rows = [];
-      for (let y = first; y <= last; y++) {
-        drift = Math.max(0.35, Math.min(2.2, drift * (0.85 + r() * 0.3)));
-        const extreme = r() < 0.08 ? 1.8 + r() * 1.5 : 1;
-        for (let m = 1; m <= 12; m++) {
-          const truth = level * drift * SEASON[m - 1] * extreme * (0.7 + r() * 0.6);
-          const modis = Math.round((truth / RATIO[m - 1]) * (0.85 + r() * 0.3));
-          const viirs = y >= 2012 ? Math.round(truth * (0.9 + r() * 0.2)) : null;
-          const harmonized = viirs !== null ? viirs : Math.round(modis * RATIO[m - 1]);
-          rows.push({ year: y, month: m, modis, viirs, harmonized, anomalyZ: null, daysMissing: r() < 0.03 ? 1 + Math.floor(r() * 4) : 0 });
-        }
-      }
-      // baseline 2002–2024 per calendar month → z-score
-      for (let m = 1; m <= 12; m++) {
-        const base = rows.filter((x) => x.month === m && x.year >= 2002 && x.year <= 2024).map((x) => x.harmonized);
-        const mean = base.reduce((a, b) => a + b, 0) / base.length;
-        const sd = Math.sqrt(base.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, base.length - 1));
-        for (const x of rows) if (x.month === m) x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : null;
-      }
-      const out = { rows, level };
-      cache.set(id, out);
-      return out;
-    }
-    return {
-      kind: 'demo',
-      dataKind: 'synthetic',
-      firstYear: first, lastYear: last, sources: [], validation: null,
-      async mapValues(year, month, metric) {
-        const out = {};
-        for (const id of getIds()) {
-          const row = series(id).rows.find((x) => x.year === year && x.month === month);
-          const area = metric === 'density' && getArea ? getArea(id) : null;
-          out[id] = !row ? null
-            : metric === 'count' ? row.harmonized
-            : metric === 'propensity' ? null   // DEMO has no model: the propensity score only comes from the API
-            : metric === 'agro_score' ? computeClientIntelligence(series(id).rows, year, month, id).agroB2B.insurance.agroInsuranceScore
-            : metric === 'density' ? (area ? Math.round((1000 * row.harmonized / area) * 10) / 10 : null)
-            : row.anomalyZ;
-        }
-        return out;
-      },
-      async calendar(id) { return series(id).rows.map((x) => Object.assign({}, x)); },
-      async pattern(id) {
-        const rows = series(id).rows.filter((x) => x.year >= 2002 && x.year <= 2024);
-        const sums = new Array(12).fill(0);
-        for (const x of rows) sums[x.month - 1] += x.harmonized;
-        const total = sums.reduce((a, b) => a + b, 0) || 1;
-        const years = 2024 - 2002 + 1;
-        const months = sums.map((s, i) => ({ month: i + 1, mean: Math.round((s / years) * 10) / 10, sharePct: Math.round((s / total) * 1000) / 10 }));
-        return { months, season: seasonFrom(months, 80) };
-      },
-      async context(id, year) {
-        const r = rng(hashCode(id + ':' + year));
-        const s = series(id).rows.filter((x) => x.year === year);
-        const modis = s.reduce((a, b) => a + (b.modis || 0), 0);
-        return [
-          { key: 'inpe_queimadas.reference_hotspots', label: 'INPE reference-satellite hotspots (year)', value: Math.round(modis * (0.45 + r() * 0.1)), unit: '', source: 'DEMO · INPE Queimadas' },
-          { key: 'inpe_prodes.deforestation_km2', label: 'PRODES Cerrado deforestation (year)', value: Math.round(r() * 2500) / 100, unit: 'km²', source: 'DEMO · INPE TerraBrasilis' },
-          { key: 'embrapa_satveg.ndvi_dry_mean', label: 'Mean NDVI, dry season', value: Math.round((0.35 + r() * 0.3) * 100) / 100, unit: '', source: 'DEMO · Embrapa SATVeg' },
-          { key: 'nasa_power.t2m_max_dry_c', label: 'Max temperature (T2M_MAX)', value: Math.round((33 + r() * 4.5) * 10) / 10, unit: '°C', source: 'DEMO · NASA POWER' },
-          { key: 'nasa_power.rh2m_dry_pct', label: 'Relative humidity (RH2M)', value: Math.round((22 + r() * 14) * 10) / 10, unit: '%', source: 'DEMO · NASA POWER' },
-          { key: 'nasa_power.precip_dry_mm', label: 'Dry-season precipitation (PRECTOTCORR)', value: Math.round(r() * 18 * 10) / 10, unit: 'mm', source: 'DEMO · NASA POWER' },
-          { key: 'nasa_power.ws10m_dry_mean', label: 'Dry-season mean wind speed (WS10M)', value: Math.round((2.4 + r() * 2.2) * 10) / 10, unit: 'm/s', source: 'DEMO · NASA POWER' },
-          { key: 'nasa_power.wd10m_dry_deg', label: 'Prevailing wind direction (WD10M)', value: Math.round(70 + r() * 35), unit: '° (E)', source: 'DEMO · NASA POWER' },
-        ];
-      },
-      async projection(id, year, month) {
-        const rows = id === CFG.uf ? [] : series(id).rows;
-        return { method: 'all', range: rangeFromRows(rows, year, month), analog: null,
-          observed: (rows.find((x) => x.year === year && x.month === month) || {}).harmonized ?? null, hindcast: null };
-      },
-      async areaHistory() { return null; }, // DEMO: the panel falls back to an area-weighted estimate
-      /** DEMO has no FIRMS history: no cells are invented; the panel says per-cell detail needs the API. */
-      async cells() { return null; },
-      async intelligence(id, year, month) {
-        return computeClientIntelligence(series(id).rows, year, month, id);
-      },
-      async recurrence() { return null; },
-      csvUrl() { return null; },
-    };
-  }
-
   /** Smallest set of months (by share, descending) that covers `targetPct` of the yearly total. */
   function seasonFrom(months, targetPct) {
     const sorted = months.filter((m) => m.sharePct !== null).slice().sort((a, b) => b.sharePct - a.sharePct);
@@ -696,15 +289,26 @@
     return { months: picked.sort((a, b) => a - b), coveredPct: Math.round(acc * 10) / 10, peakMonth: sorted.length ? sorted[0].month : null };
   }
 
-  /** getIds: () => string[] of municipality codes (used only by the DEMO source). */
+  /** Without the API there is no data source: the map shows the IBGE outlines and says the API is offline. */
+  function offlineSource() {
+    const fail = async () => { throw new Error('API offline'); };
+    return {
+      kind: 'offline', dataKind: 'none', historyLoad: null,
+      firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
+      mapValues: fail, calendar: fail, pattern: fail, context: fail, intelligence: fail,
+      projection: fail, areaHistory: fail, cells: fail, recurrence: fail,
+      csvUrl() { return null; },
+    };
+  }
+
   async function createSource(getIds, getArea) {
     try {
       const meta = await fetchJson(`${CFG.apiBase}/api/meta`, CFG.apiProbeTimeoutMs);
-      if (meta && (meta.service === 'monitor-cinder')) return apiSource(meta, getIds, getArea);
+      if (meta && meta.service === 'monitor-cinder') return apiSource(meta, getIds, getArea);
       throw new Error('Unexpected /api/meta payload');
     } catch (e) {
-      console.info('Monitor Cinder API not reachable within 20s, switching to DEMO data:', e.message);
-      return demoSource(getIds, getArea);
+      console.info('Monitor Cinder API not reachable:', e.message);
+      return offlineSource();
     }
   }
 
@@ -716,6 +320,5 @@
     validateMesh,
     validateNames,
     rangeFromRows,
-    computeClientIntelligence,
   });
 })(window);

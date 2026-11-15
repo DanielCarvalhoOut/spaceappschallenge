@@ -160,6 +160,12 @@ Colunas do FIRMS, diferenças MODIS × VIIRS e tamanhos: ver `Tema_08_MODIS_VIIR
 
 > Se o erro for alto nos meses chuvosos (poucos focos), não esconder: mostrar o erro por mês em "Method & limits".
 
+### F2a · Sem banco: a API baixa o histórico real sozinha
+
+Sem PostGIS e sem `data/firms_goias_cells.json`, o `npm run dev` começa a baixar o histórico do NASA FIRMS em segundo plano (`job:build-cell-index`): API de área com a `FIRMS_MAP_KEY` (só a caixa de Goiás, MODIS_SP 2001–2025 e VIIRS_SNPP_SP 2012–2025, janelas de 5 dias, cerca de 2 900 requisições) e o arquivo anual do Brasil como reserva. Cada ano fica em `data/firms_years/`, então reiniciar não baixa de novo. Enquanto isso, `/api/meta` informa `dataKind: "loading"` com o progresso e as rotas de dados respondem 503. Ao terminar, calendários, mapa, faixa esperada (com retroteste calculado), círculo exato, células, focos-raiz e `out/validation.json` (erro 2012–2019 → 2020–2025) saem dos focos reais.
+
+Não existe mais dado sintético: sem semeadura de focos, sem tabela fixa de clima e sem DEMO no front. Os blocos A–D, o mapa de propensão e o score agro respondem 503 até serem refeitos com entradas reais.
+
 ### F2b · Histórico real, faixa esperada e focos-raiz (`schema_projecao.sql`)
 
 Mantém a normalização de F2 (confiança → célula-dia de 1 km → fator mensal VIIRS ÷ MODIS) e acrescenta, tudo calculado no banco a partir do FIRMS:

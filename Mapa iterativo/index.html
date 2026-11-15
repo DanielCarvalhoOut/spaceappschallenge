@@ -22,8 +22,6 @@
           <option value="anomaly" data-i18n="metric.anomaly"></option>
           <option value="count" data-i18n="metric.count"></option>
           <option value="density" data-i18n="metric.density"></option>
-          <option value="propensity" data-i18n="metric.propensity"></option>
-          <option value="agro_score" data-i18n="metric.agro_score"></option>
         </select>
       </label>
       <label class="field"><span data-i18n="field.year"></span> <select id="year"></select></label>
@@ -165,25 +163,25 @@
         </section>
 
         <!-- A. Harmonização Espacial (DBSCAN/H3) + FRP (MW) & Escala de Recursos -->
-        <section class="block">
+        <section class="block" hidden>
           <h3><span data-i18n="block.resources"></span> <small data-i18n="block.resourcesSmall"></small></h3>
           <div id="resources-box" class="intel-box"></div>
         </section>
 
         <!-- B. Calendário de Focos Raízes & Histórico (2000–Presente) -->
-        <section class="block">
+        <section class="block" hidden>
           <h3><span data-i18n="block.rootFires"></span> <small data-i18n="block.rootFiresSmall"></small></h3>
           <div id="root-fires-box" class="intel-box"></div>
         </section>
 
         <!-- C. Clima (NASA POWER), Score ML de Propensão & Risco de Ignição / Propagação -->
-        <section class="block">
+        <section class="block" hidden>
           <h3><span data-i18n="block.predictability"></span> <small data-i18n="block.predictabilitySmall"></small></h3>
           <div id="predictability-box" class="intel-box"></div>
         </section>
 
         <!-- D. Score Agrícola para Seguros & Inteligência B2B (FIRMS + POWER + MOD13Q1 + MCD12Q1) -->
-        <section class="block">
+        <section class="block" hidden>
           <h3><span data-i18n="block.agroB2B"></span> <small data-i18n="block.agroB2BSmall"></small></h3>
           <div id="agro-b2b-box" class="intel-box"></div>
         </section>

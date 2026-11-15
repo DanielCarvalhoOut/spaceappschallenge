@@ -80,7 +80,7 @@
     const y = Number(p.get('y')), m = Number(p.get('m')), k = p.get('k'), mun = p.get('mun');
     if (Number.isInteger(y) && y >= state.source.firstYear && y <= state.source.lastYear) state.year = y;
     if (Number.isInteger(m) && m >= 1 && m <= 12) state.month = m;
-    if (k === 'anomaly' || k === 'count' || k === 'density' || k === 'propensity' || k === 'agro_score') state.metric = k;
+    if (k === 'anomaly' || k === 'count' || k === 'density') state.metric = k; // propensity/agro are off in the API
     if (mun && /^\d{7}$/.test(mun) && state.ids.includes(mun)) state.selected = mun;
   }
   function writeHash() {
@@ -105,11 +105,14 @@
   function setBadge() {
     const b = $('source-badge');
     if (!state.source) { b.textContent = t('badge.loading'); b.className = 'badge'; return; }
-    const demo = state.source.kind === 'demo';
     const kind = state.source.dataKind;
-    const synthetic = !demo && kind !== 'firms_db' && kind !== 'firms_index';
-    b.className = 'badge ' + (demo || synthetic ? 'badge--demo' : 'badge--live');
-    b.textContent = t(demo ? 'badge.demo' : synthetic ? 'badge.synthetic' : kind === 'firms_index' ? 'badge.firmsIndex' : 'badge.firms');
+    const live = kind === 'firms_db' || kind === 'firms_index';
+    b.className = 'badge ' + (live ? 'badge--live' : 'badge--demo');
+    const h = state.source.historyLoad;
+    b.textContent = state.source.kind === 'offline' ? t('badge.offline')
+      : kind === 'loading' ? t('badge.historyLoading', { done: h ? h.done : 0, total: h ? h.total : 0 })
+        : kind === 'none' ? t('badge.historyNone')
+          : t(kind === 'firms_index' ? 'badge.firmsIndex' : 'badge.firms');
   }
 
   /* ---------- Lateral Scale & Proportion HUD ---------- */
@@ -563,16 +566,7 @@
         method: 'all', range: global.FireData.rangeFromRows(rows, state.year, state.month), analog: null,
         observed: cur ? cur.harmonized : null, hindcast: null,
       }, true);
-      const sphereIntel = global.FireData.computeClientIntelligence(
-        rows,
-        state.year,
-        state.month,
-        `sphere:${sphere.centerId || 'go'}:${sphere.radiusKm}`
-      );
-      renderResourcesBox(sphereIntel.resources);
-      renderRootFiresBox(sphereIntel.rootFires);
-      renderPredictabilityBox(sphereIntel.predictability);
-      renderAgroB2BBox(sphereIntel.agroB2B);
+      setIntelVisible(false); // blocks A–D only come from the API, per municipality
       if (sphere.centerId) loadContext(sphere.centerId, seq);
       if (Number.isFinite(sphere.lon) && sphere.radiusKm >= 5) {
         loadDetail({ kind: 'circle', lon: sphere.lon, lat: sphere.lat, radiusKm: sphere.radiusKm }, cur ? cur.harmonized : 0, seq);
@@ -957,32 +951,28 @@
     return () => clearInterval(intervalId);
   }
 
+  const INTEL_BOXES = ['resources-box', 'root-fires-box', 'predictability-box', 'agro-b2b-box'];
+  /** Blocks A–D are shown only when the API serves them (it disables them while their inputs are not real). */
+  function setIntelVisible(on) {
+    for (const id of INTEL_BOXES) {
+      const sec = $(id) && $(id).closest('section');
+      if (sec) sec.hidden = !on;
+    }
+  }
+
   async function loadIntelligence(id, seq) {
-    const stopLoading = renderIntelLoading(['resources-box', 'root-fires-box', 'predictability-box', 'agro-b2b-box']);
+    setIntelVisible(false);
+    if (!state.source.intelligence) return;
     try {
-      const fetchPromise = state.source.intelligence
-        ? state.source.intelligence(id, state.year, state.month)
-        : Promise.resolve(global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id));
-
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Satellite query exceeded 20s timeout')), 20000);
-      });
-
-      const intel = await Promise.race([fetchPromise, timeoutPromise]);
-      stopLoading();
+      const intel = await state.source.intelligence(id, state.year, state.month);
       if (seq !== state.panelSeq || !intel) return;
+      setIntelVisible(true);
       if (intel.resources) renderResourcesBox(intel.resources);
       if (intel.rootFires) renderRootFiresBox(intel.rootFires);
       if (intel.predictability) renderPredictabilityBox(intel.predictability);
       if (intel.agroB2B) renderAgroB2BBox(intel.agroB2B, intel.telemetryMode || 'live_satellite');
     } catch (err) {
-      stopLoading();
-      if (seq !== state.panelSeq) return;
-      const fallback = global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id);
-      renderResourcesBox(fallback.resources);
-      renderRootFiresBox(fallback.rootFires);
-      renderPredictabilityBox(fallback.predictability);
-      renderAgroB2BBox(fallback.agroB2B, 'fallback_mock');
+      // 503 "Not available" or offline: the blocks stay hidden; nothing is computed in the browser.
     }
   }
 
@@ -1534,7 +1524,8 @@
       readHash();
       fillControls();
       setupSearch();
-      await refreshMap();
+      const ready = state.source.dataKind === 'firms_db' || state.source.dataKind === 'firms_index';
+      if (ready) await refreshMap(); else watchHistory();
 
       // Cinematic flight in motion from Brazil overview into Goiás (or selected municipality)
       setTimeout(() => {
@@ -1547,6 +1538,24 @@
       console.error(e);
       setStatus('status.mapErr', { msg: e.message }, true, () => location.reload());
     }
+  }
+
+  /** While the API downloads the FIRMS history, show its progress and reload once it is ready. */
+  function watchHistory() {
+    const k = state.source.dataKind;
+    if (state.source.kind === 'offline') { setStatus('status.apiOffline', null, true, () => location.reload()); return; }
+    if (k !== 'loading' && k !== 'none') return;
+    const h = state.source.historyLoad;
+    setStatus(k === 'loading' ? 'status.historyLoading' : 'status.historyNone', { done: h ? h.done : 0, total: h ? h.total : 0 }, k === 'none');
+    setTimeout(async () => {
+      try {
+        const src = await global.FireData.createSource(() => state.ids, (id) => map.areaKm2(id));
+        if (src.dataKind === 'firms_db' || src.dataKind === 'firms_index') { location.reload(); return; }
+        state.source = src;
+        setBadge();
+      } catch (_) { /* keep polling */ }
+      watchHistory();
+    }, 15000);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

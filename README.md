@@ -9,7 +9,7 @@ Prazo de submissão: **domingo, 15/11/2026, 23h59 no horário do evento local** 
 | Pasta | Conteúdo |
 | --- | --- |
 | `Tema_08_MODIS_VIIRS/` | **Foco (Monitor Cinder).** Dados do FIRMS, harmonização, banco testado (PostGIS) com padrão histórico, anomalia e alertas, contrato da API e catálogo |
-| `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás por município do IBGE, painel com calendário e padrão histórico. Abre com dois cliques; sem API entra em modo DEMO |
+| `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás por município do IBGE, painel com calendário e padrão histórico. Todos os números vêm da API (histórico real do NASA FIRMS); sem API mostra só os contornos |
 | `IMPLEMENTACAO.md` / `CLAUDE.md` | Guia de implementação (back em TypeScript, conectores NASA/IBGE/INPE/Embrapa) e regras para o Claude Code |
 | `00_Geral/` | Kit de decisão, regras de entrega e recursos dos desafios, vencedores globais de 2025 (PDFs) |
 

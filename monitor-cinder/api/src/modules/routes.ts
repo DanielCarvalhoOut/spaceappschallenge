@@ -17,6 +17,42 @@ import {
   type FirmsSensorCode,
 } from '../core/types.js';
 import { store } from '../db/store.js';
+import { historyStatus } from '../core/history-status.js';
+
+/** FIRMS history available (PostGIS or the cell index)? Otherwise answer 503 with the load progress. */
+async function requireFirmsHistory(reply: FastifyReply): Promise<boolean> {
+  if ((await history.hasHistory()) || store.getCalendarKind() === 'firms_index') return true;
+  const detail = historyStatus.phase === 'building'
+    ? `Loading the NASA FIRMS history: year ${historyStatus.done} of ${historyStatus.total}.`
+    : historyStatus.phase === 'failed'
+      ? `Loading the NASA FIRMS history failed: ${historyStatus.error ?? 'unknown error'}.`
+      : 'NASA FIRMS history not loaded (run job:build-cell-index or the PostGIS jobs).';
+  await reply
+    .code(503)
+    .header('content-type', 'application/problem+json; charset=utf-8')
+    .header('Retry-After', '15')
+    .send({ type: 'about:blank', title: 'History not loaded', status: 503, detail });
+  return false;
+}
+
+/**
+ * Blocks A–D, the propensity map and the agro score stay off until they are rebuilt on real inputs
+ * (they used a fixed weather table, an ML model trained on generated features and hand-set weights).
+ */
+const REVIEWED_INPUTS_ONLY_FEATURES = false;
+
+/** Features whose inputs are not real yet (fixed weather table, ML trained on generated features, hand-set weights). */
+async function disabledFeature(reply: FastifyReply): Promise<FastifyReply> {
+  return reply
+    .code(503)
+    .header('content-type', 'application/problem+json; charset=utf-8')
+    .send({
+      type: 'about:blank',
+      title: 'Not available',
+      status: 503,
+      detail: 'Disabled: this output depended on generated inputs (weather table, ML weights) not validated with real data.',
+    });
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.resolve(__dirname, '../../../../Mapa iterativo');
@@ -81,16 +117,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/meta', async () => {
     const fromDb = await history.hasHistory();
     const calKind = store.getCalendarKind();
-    const hasLiveSat = store.hasAnyLiveSatelliteSnapshot();
-    const computed = history.readHarmonizationValidation();
+    const computed = fromDb ? history.readHarmonizationValidation() : store.ensureValidationArtifacts();
     const projectionCheck = history.readProjectionValidation();
-    const mlModel = store.getMlModel();
+    const index = store.getIndex();
+    const indexYears = index ? [...index.yearsLoaded.MODIS, ...index.yearsLoaded.VIIRS] : [];
     return {
       service: 'monitor-cinder',
-      // 'firms_db' = real NASA FIRMS history in PostGIS or live satellite snapshot;
-      // 'firms_index' = real FIRMS calendars/cells from the local cell index (no PostGIS)
-      dataKind: fromDb ? 'firms_db' : calKind === 'firms_index' ? 'firms_index' : hasLiveSat ? 'firms_db' : 'synthetic',
-      period: { firstYear: !fromDb && calKind === 'firms_index' ? 2001 : 2000, lastYear: 2025 },
+      // 'firms_db' = FIRMS history in PostGIS; 'firms_index' = FIRMS history in the local cell index;
+      // 'loading' = being downloaded now; 'none' = not loaded. There is no synthetic mode.
+      dataKind: fromDb ? 'firms_db' : calKind === 'firms_index' ? 'firms_index' : historyStatus.phase === 'building' ? 'loading' : 'none',
+      historyLoad: { phase: historyStatus.phase, done: historyStatus.done, total: historyStatus.total, error: historyStatus.error },
+      period: {
+        firstYear: !fromDb && indexYears.length ? Math.min(...indexYears) : 2001,
+        lastYear: !fromDb && indexYears.length ? Math.max(...indexYears) : 2025,
+      },
       supportedSensors: [
         'MODIS_NRT',
         'MODIS_SP',
@@ -100,7 +140,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         'VIIRS_NOAA20_SP',
         'VIIRS_NOAA21_NRT',
         'VIIRS_NOAA21_SP',
-        'LANDSAT_NRT',
       ],
       sources: [
         {
@@ -146,7 +185,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           role: 'Cropland, pasture, savanna & Reserva Legal/APP exposure for B2B underwriting & credit audit',
         },
       ],
-      validation: computed && fromDb
+      validation: computed
         ? {
             mapePct: computed.mapePct,
             wapePct: computed.wapePct,
@@ -160,22 +199,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           }
         : null,
       projectionCheck: fromDb ? projectionCheck : null,
-      mlModel: {
-        modelType: mlModel.modelType,
-        trainPeriod: mlModel.trainPeriod,
-        testPeriod: mlModel.testPeriod,
-        trainSamples: mlModel.trainSamples,
-        testSamples: mlModel.testSamples,
-        metrics: mlModel.metrics,
-        featureImportances: mlModel.featureImportances,
-      },
+      mlModel: null,
     };
   });
 
   // 1b. GET /api/ml/model
-  app.get('/api/ml/model', async () => {
-    return store.getMlModel();
-  });
+  app.get('/api/ml/model', async (_req: FastifyRequest, reply: FastifyReply) => disabledFeature(reply));
 
   // 2. GET /api/geo/municipalities?uf=52
   app.get('/api/geo/municipalities', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -203,13 +232,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return sendProblem(reply, 400, 'Invalid map query parameters', parsed.error.message);
     }
     const { year, month, metric } = parsed.data;
-    // The propensity model and multi-sensor agro_score are computed on the in-memory store.
-    if (metric === 'propensity' || metric === 'agro_score') {
-      return { year, month, metric, dataKind: 'synthetic', values: store.getMapValues(year, month, metric) };
-    }
+    if (metric === 'propensity' || metric === 'agro_score') return disabledFeature(reply);
     if (await history.hasHistory()) {
       return { year, month, metric, dataKind: 'firms_db', values: await history.mapValues(year, month, metric) };
     }
+    if (!(await requireFirmsHistory(reply))) return reply;
     return {
       year,
       month,
@@ -231,6 +258,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (!region) return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found in Goiás`);
       return { ibge: parsed.data.ibge, name: region.name, areaKm2: region.areaKm2, dataKind: 'firms_db', rows: await history.calendar(region.id) };
     }
+    if (!(await requireFirmsHistory(reply))) return reply;
     const muni = store.getMunicipality(parsed.data.ibge);
     if (!muni) {
       return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found in Goiás`);
@@ -255,6 +283,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (!region) return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found in Goiás`);
       return { dataKind: 'firms_db', ...(await history.pattern(region.id)) };
     }
+    if (!(await requireFirmsHistory(reply))) return reply;
     const muni = store.getMunicipality(parsed.data.ibge);
     if (!muni) {
       return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found in Goiás`);
@@ -319,9 +348,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!muni) {
       return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found`);
     }
-    const rows = store.getCalendar(muni.ibgeCode);
+    let rows: Array<{ year: number; month: number; modis: number | null; viirs: number | null; harmonized: number | null; anomalyZ: number | null; daysMissing: number | null }>;
+    if (await history.hasHistory()) {
+      const region = await history.regionIdByIbge(muni.ibgeCode);
+      rows = region ? await history.calendar(region.id) : [];
+    } else {
+      if (!(await requireFirmsHistory(reply))) return reply;
+      rows = store.getCalendar(muni.ibgeCode);
+    }
     const lines = [
-      'ibge_code,municipality,year,month,modis_hotspots,viirs_hotspots,harmonized_cell_days,anomaly_z,days_missing,mean_frp_mw,max_frp_mw',
+      'ibge_code,municipality,year,month,modis_cell_days,viirs_snpp_cell_days,harmonized_cell_days,anomaly_z,days_missing',
     ];
     for (const r of rows) {
       lines.push(
@@ -335,8 +371,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           sanitizeCsvCell(r.harmonized),
           sanitizeCsvCell(r.anomalyZ),
           sanitizeCsvCell(r.daysMissing),
-          sanitizeCsvCell(r.meanFrpMw),
-          sanitizeCsvCell(r.maxFrpMw),
         ].join(',')
       );
     }
@@ -353,6 +387,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // A. Harmonização MODIS + VIIRS & Escala de Recursos (DBSCAN/H3 + FRP MW)
   // ============================================================================
   app.get('/api/municipalities/:ibge/resources', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
     const pSchema = z.object({ ibge: IbgeCodeSchema });
     const qSchema = z.object({
       year: YearSchema.default(2024),
@@ -451,6 +486,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // B. Calendário de Focos Raízes & Histórico (2000–Presente)
   // ============================================================================
   app.get('/api/municipalities/:ibge/root-fires', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
     const pSchema = z.object({ ibge: IbgeCodeSchema });
     const parsed = pSchema.safeParse(req.params);
     if (!parsed.success) {
@@ -467,6 +503,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // C. Clima e Previsibilidade de Ocorrência (NASA POWER Daily Point)
   // ============================================================================
   app.get('/api/municipalities/:ibge/predictability', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
     const pSchema = z.object({ ibge: IbgeCodeSchema });
     const qSchema = z.object({
       year: YearSchema.default(2024),
@@ -493,6 +530,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   //    (FIRMS + NASA POWER + MOD13Q1 Biomassa/Safra + MCD12Q1 Uso do Solo)
   // ============================================================================
   const handleAgroScore = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
     const pSchema = z.object({ ibge: IbgeCodeSchema });
     const qSchema = z.object({
       year: YearSchema.default(2024),
@@ -529,6 +567,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Unified Intelligence Endpoint (A + B + C + D in a single round-trip)
   // ============================================================================
   app.get('/api/municipalities/:ibge/intelligence', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
     const pSchema = z.object({ ibge: IbgeCodeSchema });
     const qSchema = z.object({
       year: YearSchema.default(2024),

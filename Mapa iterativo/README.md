@@ -7,7 +7,7 @@ Mapa interativo de Goiás por município, escrito do zero pela equipe. Não reap
 Dê dois cliques em `index.html`. Não precisa de build nem de servidor:
 - os scripts são clássicos (sem módulos ES), por isso funcionam via `file://`;
 - a malha e os nomes dos municípios vêm em tempo de execução da API pública do IBGE (precisa de internet);
-- se o backend do Monitor Cinder (`http://localhost:8787`) não responder, a tela entra em **DEMO** com valores sintéticos. A faixa amarela no topo deixa isso explícito.
+- se o backend do Monitor Cinder (`http://localhost:8787`) não responder, a tela mostra só os contornos do IBGE e avisa que a API está desligada. Enquanto a API baixa o histórico do FIRMS, o selo mostra o progresso e a página recarrega sozinha. **Não há modo DEMO nem valor gerado no navegador.**
 
 ## Arquivos
 
@@ -18,7 +18,7 @@ Dê dois cliques em `index.html`. Não precisa de build nem de servidor:
 | `config.js` | `window.CINDER_CONFIG`: endereço da API, URLs do IBGE, período. **Sem chaves.** |
 | `i18n.js` | Textos em português (padrão) e inglês (botão `EN`/`PT`). Expõe `window.FireI18n`. |
 | `mapa-engine.js` | Motor do mapa: projeção policônica (parâmetros do EPSG:5880), `Path2D` por município, câmera (roda suave ancorada no cursor, arraste com inércia, pinça no celular, voo de zoom ótimo de van Wijk & Nuij), hit-test, rótulos com contraste WCAG, rampas de cor em OKLab. Expõe `window.FireMap`. |
-| `cinder-data.js` | Camada de dados: IBGE (malha e nomes), cliente da API do Monitor Cinder, fonte DEMO. Valida toda resposta. Expõe `window.FireData`. |
+| `cinder-data.js` | Camada de dados: IBGE (malha e nomes), cliente da API do Monitor Cinder (sem fonte sintética). Valida toda resposta. Expõe `window.FireData`. |
 | `cinder-ui.js` | Controlador da tela: filtros, legenda, tooltip, busca, painel com padrão histórico, calendário, comparação MODIS × VIIRS × harmonizado, contexto (INPE/Embrapa/POWER) e CSV. |
 
 ## API do motor (`FireMap`)

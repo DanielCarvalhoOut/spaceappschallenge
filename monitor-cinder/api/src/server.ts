@@ -6,6 +6,34 @@ import { logger, redactSecrets } from './core/logger.js';
 import { store } from './db/store.js';
 import { registerRoutes } from './modules/routes.js';
 import { isMain } from './core/entry.js';
+import { hasHistory } from './db/history.js';
+import { loadCellIndex } from './core/cell-index.js';
+import { historyStatus } from './core/history-status.js';
+import { runBuildCellIndex } from './jobs/build-cell-index.js';
+
+/**
+ * Without PostGIS history and without the cell index, load the real FIRMS history in the background
+ * (job:build-cell-index). The API answers meanwhile; data routes return 503 with the progress.
+ */
+export function startHistoryLoadIfMissing(): void {
+  if (historyStatus.phase === 'building') return;
+  void (async () => {
+    if ((await hasHistory()) || loadCellIndex()) { historyStatus.phase = 'ready'; return; }
+    historyStatus.phase = 'building';
+    historyStatus.startedAt = new Date().toISOString();
+    historyStatus.error = null;
+    logger.info('No FIRMS history yet: loading it in the background (job:build-cell-index 2001–2025)');
+    try {
+      await runBuildCellIndex(2001, 2025);
+      store.reloadFromIndex();
+      historyStatus.phase = 'ready';
+    } catch (err) {
+      historyStatus.phase = 'failed';
+      historyStatus.error = redactSecrets(err instanceof Error ? err.message : String(err));
+      logger.error({ err: historyStatus.error }, 'FIRMS history load failed');
+    }
+  })();
+}
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -58,6 +86,7 @@ if (isMain(import.meta.url)) {
     .then(async (app) => {
       await app.listen({ port: config.PORT, host: config.HOST });
       logger.info({ port: config.PORT, host: config.HOST }, 'Monitor Cinder API listening');
+      startHistoryLoadIfMissing();
     })
     .catch((err) => {
       logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Failed to start server');
