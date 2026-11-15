@@ -28,7 +28,7 @@ const map = FireMap.create(elemento, { lon0: -54, theme: 'dark', idProp: 'codare
 map.setGeometry(featureCollectionDoIBGE);    // retorna o nº de municípios
 map.setNames(new Map([['5208707', 'Goiânia']]));
 map.setValues({ '5208707': 2.1 }, { type: 'diverging', min: -3, max: 3 }); // ou { type: 'sequential', max }
-// opcional: scale.noFireIds = ['5200050'] pinta de branco (início da escala) os municípios com valor null por não terem fogo, em vez de "sem dado"
+// opcional: scale.noFireIds = ['5200050'] pinta de branco (início da escala) os municípios sem focos no mês, qualquer que seja o valor (ex.: anomalia perto do normal)
 map.on('hover', (h) => {});                  // { id, x, y } ou null
 map.on('select', (id) => {});                // código IBGE ou null
 map.select('5208707', { fly: true });

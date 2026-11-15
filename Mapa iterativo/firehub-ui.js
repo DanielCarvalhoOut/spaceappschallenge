@@ -104,9 +104,10 @@
     const b = $('source-badge');
     if (!state.source) { b.textContent = t('badge.loading'); b.className = 'badge'; return; }
     const demo = state.source.kind === 'demo';
-    const synthetic = !demo && state.source.dataKind !== 'firms_db';
+    const kind = state.source.dataKind;
+    const synthetic = !demo && kind !== 'firms_db' && kind !== 'firms_index';
     b.className = 'badge ' + (demo || synthetic ? 'badge--demo' : 'badge--live');
-    b.textContent = t(demo ? 'badge.demo' : synthetic ? 'badge.synthetic' : 'badge.firms');
+    b.textContent = t(demo ? 'badge.demo' : synthetic ? 'badge.synthetic' : kind === 'firms_index' ? 'badge.firmsIndex' : 'badge.firms');
   }
 
   /* ---------- Lateral Scale & Proportion HUD ---------- */
@@ -210,7 +211,8 @@
       state.values = values;
       const scale = scaleFor(values);
       if (isAnomaly && counts) {
-        scale.noFireIds = Object.keys(values).filter((id) => values[id] === null && counts[id] === 0);
+        // Colour must say whether the area burned this month: zero hotspots is white even when its anomaly is near normal.
+        scale.noFireIds = Object.keys(counts).filter((id) => counts[id] === 0);
       }
       map.setValues(values, scale);
       drawLegend(scale);
@@ -757,7 +759,7 @@
       from: state.source.firstYear, to: state.source.lastYear,
     })));
     // "Cells add up to the area's value" only holds when the area values also come from the FIRMS database.
-    if (Number.isFinite(d.total) && state.source.dataKind === 'firms_db') box.append(el('p', 'range-line', t('detail.sum', { v: fmt1(d.total) })));
+    if (Number.isFinite(d.total) && (state.source.dataKind === 'firms_db' || state.source.dataKind === 'firms_index')) box.append(el('p', 'range-line', t('detail.sum', { v: fmt1(d.total) })));
     const keys = el('div', 'roots-legend__keys');
     keys.append(el('span', 'muted', t('detail.legend')));
     for (const c of DETAIL_CLASSES) {

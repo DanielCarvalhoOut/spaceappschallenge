@@ -124,7 +124,7 @@
     const sources = Array.isArray(meta.sources) ? meta.sources.filter((s) => s && typeof s.name === 'string').slice(0, 12) : [];
     return {
       kind: 'api',
-      dataKind: meta.dataKind === 'firms_db' ? 'firms_db' : 'synthetic',
+      dataKind: meta.dataKind === 'firms_db' || meta.dataKind === 'firms_index' ? meta.dataKind : 'synthetic',
       firstYear: intIn(meta.period && meta.period.firstYear, 2000, 2100) ? meta.period.firstYear : CFG.firstYear,
       lastYear: intIn(meta.period && meta.period.lastYear, 2000, 2100) ? meta.period.lastYear : CFG.lastYear,
       sources,

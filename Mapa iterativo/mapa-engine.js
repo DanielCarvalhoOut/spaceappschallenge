@@ -321,8 +321,8 @@
       const floor = colorFor(st.scale.type === 'sequential' ? 0 : st.scale.min);
       for (const f of st.features) {
         const v = st.values.get(f.id);
-        // No hotspots and no history to compare with: paint the start of the scale (white), not "no data".
-        f.fill = (v === null || v === undefined) && st.noFire.has(f.id) ? floor : colorFor(v);
+        // No hotspots this month: always the start of the scale (white), whatever the anomaly value or "no data".
+        f.fill = st.noFire.has(f.id) ? floor : colorFor(v);
         const L = relLuminance(f.fill);
         f.ink = contrast(L, dl) >= contrast(L, ll) ? st.colors.inkDark : st.colors.inkLight;
       }

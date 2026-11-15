@@ -86,8 +86,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return {
       service: 'firehub',
       // 'firms_db' = real NASA FIRMS history in PostGIS; 'synthetic' = demo store (never show its numbers as results)
-      dataKind: fromDb ? 'firms_db' : 'synthetic',
-      period: { firstYear: 2000, lastYear: 2025 },
+      // 'firms_index' = real FIRMS calendars/cells from the local index (no PostGIS); other panels may still be synthetic
+      dataKind: fromDb ? 'firms_db' : store.getCalendarKind(),
+      // The FIRMS index starts in 2001 (first full MODIS year); the synthetic store starts in Nov/2000.
+      period: { firstYear: !fromDb && store.getCalendarKind() === 'firms_index' ? 2001 : 2000, lastYear: 2025 },
       supportedSensors: [
         'MODIS_NRT',
         'MODIS_SP',
@@ -203,7 +205,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       year,
       month,
       metric,
-      dataKind: 'synthetic',
+      dataKind: store.getCalendarKind(),
       values: store.getMapValues(year, month, metric),
     };
   });
@@ -227,7 +229,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return {
       ibge: muni.ibgeCode,
       name: muni.name,
-      dataKind: 'synthetic',
+      dataKind: store.getCalendarKind(),
       rows: store.getCalendar(muni.ibgeCode),
     };
   });

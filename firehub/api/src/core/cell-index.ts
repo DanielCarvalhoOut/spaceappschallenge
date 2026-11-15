@@ -221,3 +221,29 @@ export function areaCellsFromIndex(
   const yearsObserved = new Set([...index.yearsLoaded.MODIS.filter((y) => y < 2012), ...index.yearsLoaded.VIIRS.filter((y) => y >= 2012)]).size;
   return { yearsObserved, total: Math.round(total * 10) / 10, cells: cells.slice(0, 20000) };
 }
+
+/* ---------------- municipal monthly counts (the calendar without PostGIS) ---------------- */
+
+export interface MonthlyCounts { modis: number; viirs: number }
+
+/**
+ * Cell-days per municipality and month ("YYYY-M" → MODIS and VIIRS S-NPP cell-days), straight from the index.
+ * Summing the cells of a municipality gives exactly these numbers, so map, calendar and cells agree.
+ */
+export function monthlyCountsByMunicipality(index: CellIndex): Map<string, Map<string, MonthlyCounts>> {
+  const out = new Map<string, Map<string, MonthlyCounts>>();
+  const bump = (ibge: string, d: number, field: keyof MonthlyCounts): void => {
+    const dt = new Date(d * 86_400_000);
+    const key = `${dt.getUTCFullYear()}-${dt.getUTCMonth() + 1}`;
+    let m = out.get(ibge);
+    if (!m) { m = new Map(); out.set(ibge, m); }
+    const cur = m.get(key) ?? { modis: 0, viirs: 0 };
+    cur[field]++;
+    m.set(key, cur);
+  };
+  for (const c of index.cells) {
+    for (const d of c[3]) bump(c[2], d, 'modis');
+    for (const d of c[4]) bump(c[2], d, 'viirs');
+  }
+  return out;
+}
