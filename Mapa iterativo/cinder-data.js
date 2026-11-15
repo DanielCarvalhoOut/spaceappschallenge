@@ -231,7 +231,7 @@
         const date = (v) => (typeof v === 'string' && DATE.test(v) ? v : null);
         const bandOf = (o) => (o && numIn(o.p10, 0, 1e8) && numIn(o.p50, 0, 1e8) && numIn(o.p90, 0, 1e8)) ? { p10: o.p10, p50: o.p50, p90: o.p90 } : null;
         const win = (o) => { const b = bandOf(o); return b && date(o.from) && date(o.to) ? { ...b, from: o.from, to: o.to, climatology: bandOf(o.climatology) } : null; };
-        const skill = (o) => (o ? { n: num(o.n), skillPct: num(o.skillPct), coveragePct: num(o.coveragePct), published: o.published === true } : null);
+        const skill = (o) => (o ? { n: num(o.n), skillPct: num(o.skillPct), coveragePct: num(o.coveragePct), rawCoveragePct: num(o.rawCoveragePct), widen: num(o.widen), published: o.published === true } : null);
         const h = j && j.hindcast && j.hindcast.horizons;
         const asOf = date(j && j.asOf);
         if (!asOf) return null;
@@ -245,6 +245,8 @@
             .map((m) => ({ year: m.year, month: m.month, observedSoFar: num(m.observedSoFar), partial: m.partial === true, ...bandOf(m) })),
           hindcast: h ? {
             period: typeof j.hindcast.period === 'string' ? j.hindcast.period.slice(0, 20) : '',
+            calibrationPeriod: typeof j.hindcast.calibrationPeriod === 'string' ? j.hindcast.calibrationPeriod.slice(0, 20) : '',
+            testPeriod: typeof j.hindcast.testPeriod === 'string' ? j.hindcast.testPeriod.slice(0, 20) : '',
             day1: skill(h.day1), fortnight: skill(h.fortnight), month: skill(h.month), semester: skill(h.semester),
           } : null,
         };

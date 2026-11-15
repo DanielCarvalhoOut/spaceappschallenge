@@ -1,0 +1,150 @@
+{
+  "computedAt": "2026-11-15T06:22:59.640Z",
+  "reference": {
+    "source": "INPE Programa Queimadas, estatísticas por estado (satélite de referência AQUA_M-T desde 2002-07-04)",
+    "url": "https://data.inpe.br/queimadas/estatisticas/media/estatistica/paises/brasil.json",
+    "snapshot": "20261115T040001",
+    "dataLimite": "2026-11-14"
+  },
+  "note": "INPE counts AQUA afternoon detections (focos); Monitor Cinder counts harmonized 1 km cell-days on the VIIRS S-NPP scale. Units differ by design, so agreement is measured by correlation, ranking and anomaly sign, not by equality.",
+  "period": "2003-01 to 2026-10",
+  "monthly": {
+    "n": 286,
+    "pearsonLogHarmonized": 0.955,
+    "pearsonLogModisRaw": 0.991
+  },
+  "annual": {
+    "years": 23,
+    "pearsonHarmonized": 0.954,
+    "spearmanHarmonized": 0.849,
+    "pearsonModisRaw": 0.98
+  },
+  "anomaly": {
+    "pearsonZ": 0.797,
+    "unusualMonthsInpe": 85,
+    "sameSign": 79,
+    "sameSignPct": 92.9
+  },
+  "year2026": [
+    {
+      "month": 1,
+      "inpeFocos": 35,
+      "harmonizedCellDays": 213,
+      "ratio": 6.086,
+      "ratioMedian2013_2025": 4.139,
+      "ratioRange2013_2025": [
+        1.442,
+        7.413
+      ],
+      "insideHistoricalRange": true
+    },
+    {
+      "month": 2,
+      "inpeFocos": 26,
+      "harmonizedCellDays": 63,
+      "ratio": 2.423,
+      "ratioMedian2013_2025": 2.149,
+      "ratioRange2013_2025": [
+        0.728,
+        7.735
+      ],
+      "insideHistoricalRange": true
+    },
+    {
+      "month": 3,
+      "inpeFocos": 25,
+      "harmonizedCellDays": 82,
+      "ratio": 3.28,
+      "ratioMedian2013_2025": 1.617,
+      "ratioRange2013_2025": [
+        0.667,
+        2.97
+      ],
+      "insideHistoricalRange": false
+    },
+    {
+      "month": 4,
+      "inpeFocos": 88,
+      "harmonizedCellDays": 362.2,
+      "ratio": 4.116,
+      "ratioMedian2013_2025": 3.246,
+      "ratioRange2013_2025": [
+        1.51,
+        8.113
+      ],
+      "insideHistoricalRange": true
+    },
+    {
+      "month": 5,
+      "inpeFocos": 136,
+      "harmonizedCellDays": 635,
+      "ratio": 4.669,
+      "ratioMedian2013_2025": 4.333,
+      "ratioRange2013_2025": [
+        3.547,
+        4.99
+      ],
+      "insideHistoricalRange": true
+    },
+    {
+      "month": 6,
+      "inpeFocos": 155,
+      "harmonizedCellDays": 622.1,
+      "ratio": 4.014,
+      "ratioMedian2013_2025": 4.292,
+      "ratioRange2013_2025": [
+        3.773,
+        5.401
+      ],
+      "insideHistoricalRange": true
+    },
+    {
+      "month": 7,
+      "inpeFocos": 238,
+      "harmonizedCellDays": 807.1,
+      "ratio": 3.391,
+      "ratioMedian2013_2025": 4.242,
+      "ratioRange2013_2025": [
+        2.867,
+        5.063
+      ],
+      "insideHistoricalRange": true
+    },
+    {
+      "month": 8,
+      "inpeFocos": 738,
+      "harmonizedCellDays": 2714.3,
+      "ratio": 3.678,
+      "ratioMedian2013_2025": 4.403,
+      "ratioRange2013_2025": [
+        3.146,
+        5.457
+      ],
+      "insideHistoricalRange": true
+    },
+    {
+      "month": 9,
+      "inpeFocos": 431,
+      "harmonizedCellDays": 2769,
+      "ratio": 6.425,
+      "ratioMedian2013_2025": 4.562,
+      "ratioRange2013_2025": [
+        2.71,
+        6.172
+      ],
+      "insideHistoricalRange": false
+    },
+    {
+      "month": 10,
+      "inpeFocos": 404,
+      "harmonizedCellDays": 1540,
+      "ratio": 3.812,
+      "ratioMedian2013_2025": 6.921,
+      "ratioRange2013_2025": [
+        4.639,
+        10.068
+      ],
+      "insideHistoricalRange": false
+    }
+  ]
+}

@@ -1224,9 +1224,10 @@ class CinderDataStore {
       ? (area.ibge === '52' ? () => true : (c: { 2: string }) => c[2] === area.ibge)
       : inCircle(area.lon, area.lat, area.radiusKm);
     const input = dailySeries(this.index, keep as Parameters<typeof dailySeries>[1]);
-    const projection = projectFrom(input, 500);
-    if (!projection) return null;
     const hc = hindcast(input, { paths: 'ibge' in area && area.ibge === '52' ? 200 : 120, twicePerMonth: 'ibge' in area && area.ibge === '52' });
+    const widen = hc ? { fortnight: hc.horizons.fortnight.widen, month: hc.horizons.month.widen, semester: hc.horizons.semester.widen } : undefined;
+    const projection = projectFrom(input, 500, widen);
+    if (!projection) return null;
     const out = { projection, hindcast: hc };
     if (this.horizonCache.size > 300) this.horizonCache.clear();
     this.horizonCache.set(key, out);

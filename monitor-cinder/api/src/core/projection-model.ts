@@ -12,8 +12,10 @@
  * keep the horizons coherent (the days add up to the month).
  *
  * Validation (hindcast): coefficients fitted on data up to 2014, origins on the 1st (and 16th) of each month in
- * 2015–2025. Each horizon is scored against the climatological reference (the same calendar window in every earlier
- * year): CRPS skill for sums, Brier skill for next-day fire. A horizon is published only when its skill is > 0.
+ * 2015–2025. The band is calibrated on the 2015–2020 origins (smallest widening on the log1p scale that puts 80 % of
+ * the observations inside P10–P90) and then scored only on the 2021–2025 origins, which neither the coefficients nor
+ * the calibration saw: CRPS skill vs the climatological reference (the same calendar window in every earlier year)
+ * for sums, Brier skill for next-day fire, and P10–P90 coverage. A horizon is published only when its skill is > 0.
  */
 
 const DAY = 86_400_000;
@@ -226,21 +228,45 @@ const band = (xs: number[]): { p10: number; p50: number; p90: number } => {
 
 /* ---------------- hindcast ---------------- */
 
-export interface HorizonSkill { n: number; skillPct: number | null; coveragePct: number | null; published: boolean }
+export interface HorizonSkill {
+  n: number;                    // test cases (origins in 2021–2025)
+  skillPct: number | null;      // CRPS skill vs climatology on the test origins, with the calibrated band
+  coveragePct: number | null;   // share of test cases inside the calibrated P10–P90 (target 80 %)
+  rawCoveragePct: number | null;// same, before calibration (the model's own spread)
+  widen: number;                // band calibration factor on the log1p scale (1 = none), fitted on 2015–2020 origins
+  published: boolean;
+}
 export interface Hindcast {
   period: string;
   trainedUntil: string;
+  calibrationPeriod: string;
+  testPeriod: string;
   horizons: { day1: HorizonSkill; fortnight: HorizonSkill; month: HorizonSkill; semester: HorizonSkill };
 }
+export type Widen = { fortnight: number; month: number; semester: number };
 
 const HORIZON_DAYS = { fortnight: 15, month: 30, semester: 183 } as const;
+const CAL_LAST_YEAR = 2020; // band calibration on origins 2015–2020, scoring on 2021–2025
+const WIDEN_GRID = Array.from({ length: 41 }, (_, i) => 1 + i * 0.1); // 1.0 … 5.0
+const TARGET_COVERAGE = 0.8;
+
+/**
+ * Calibrated ensemble: each member moved away from the median by `k` on the log1p scale. k = 1 is the raw model.
+ * Keeps the median, keeps members ≥ 0 and widens both tails in proportion to the model's own spread.
+ */
+export function widenEnsemble(ens: number[], k: number): number[] {
+  if (k === 1) return ens;
+  const lm = Math.log1p(quantile(ens.slice().sort((a, b) => a - b), 0.5));
+  return ens.map((x) => Math.max(0, Math.expm1(lm + k * (Math.log1p(Math.max(0, x)) - lm))));
+}
 
 export function hindcast(input: DailyInput, opts: { paths: number; twicePerMonth: boolean }): Hindcast | null {
   const until = Date.UTC(2014, 11, 31) / DAY;
   const model = fitModel(input, until);
   if (!model) return null;
   const lastDay = input.first + input.values.length - 1;
-  const acc = { fortnight: { m: 0, c: 0, cov: 0, n: 0 }, month: { m: 0, c: 0, cov: 0, n: 0 }, semester: { m: 0, c: 0, cov: 0, n: 0 } };
+  type Case = { year: number; ens: number[]; clim: number[]; obs: number };
+  const cases: Record<keyof typeof HORIZON_DAYS, Case[]> = { fortnight: [], month: [], semester: [] };
   let bsM = 0, bsC = 0, nB = 0;
   for (let y = 2015; y <= 2025; y++) {
     for (let mo = 0; mo < 12; mo++) {
@@ -253,14 +279,11 @@ export function hindcast(input: DailyInput, opts: { paths: number; twicePerMonth
           const clim = climatology(input, origin + 1, origin + H);
           if (obs === null || clim.length < 5) continue;
           const ens = paths.map((p) => { let s = 0; for (let h = 0; h < H; h++) s += p[h]!; return s; });
-          const a = acc[k];
-          a.m += crps(ens, obs); a.c += crps(clim, obs); a.n++;
-          const b = band(ens);
-          if (obs >= b.p10 && obs <= b.p90) a.cov++;
+          cases[k].push({ year: y, ens, clim, obs });
         }
-        // next day: probability of any fire vs the climatological frequency (same day ±3 in earlier years)
+        // next day: probability of any fire vs the climatological frequency (same day ±3 in earlier years); test years only
         const yObs = input.values[origin + 1 - input.first];
-        if (yObs !== null && yObs !== undefined) {
+        if (y > CAL_LAST_YEAR && yObs !== null && yObs !== undefined) {
           const pM = paths.filter((p) => p[0]! > 0).length / paths.length;
           let hit = 0, tot = 0;
           const o = new Date((origin + 1) * DAY);
@@ -281,19 +304,37 @@ export function hindcast(input: DailyInput, opts: { paths: number; twicePerMonth
     }
   }
   const r1 = (v: number): number => Math.round(v * 10) / 10;
-  const toSkill = (a: { m: number; c: number; cov: number; n: number }): HorizonSkill => {
-    const skill = a.n && a.c > 0 ? r1((1 - a.m / a.c) * 100) : null;
-    return { n: a.n, skillPct: skill, coveragePct: a.n ? r1((a.cov / a.n) * 100) : null, published: skill !== null && skill > 0 };
+  const coverage = (cs: Case[], k: number): number => {
+    if (!cs.length) return Number.NaN;
+    let inside = 0;
+    for (const c of cs) { const b = band(widenEnsemble(c.ens, k)); if (c.obs >= b.p10 && c.obs <= b.p90) inside++; }
+    return inside / cs.length;
+  };
+  const score = (cs: Case[]): HorizonSkill => {
+    const cal = cs.filter((c) => c.year <= CAL_LAST_YEAR), test = cs.filter((c) => c.year > CAL_LAST_YEAR);
+    // smallest widening that reaches the target coverage on the calibration origins (never fitted on the test years)
+    const widen = cal.length ? (WIDEN_GRID.find((k) => coverage(cal, k) >= TARGET_COVERAGE) ?? WIDEN_GRID[WIDEN_GRID.length - 1]!) : 1;
+    let m = 0, c = 0;
+    for (const t of test) { m += crps(widenEnsemble(t.ens, widen), t.obs); c += crps(t.clim, t.obs); }
+    const skill = test.length && c > 0 ? r1((1 - m / c) * 100) : null;
+    return {
+      n: test.length, skillPct: skill,
+      coveragePct: test.length ? r1(coverage(test, widen) * 100) : null,
+      rawCoveragePct: test.length ? r1(coverage(test, 1) * 100) : null,
+      widen: r1(widen * 10) / 10, published: skill !== null && skill > 0,
+    };
   };
   const day1Skill = nB && bsC > 0 ? r1((1 - bsM / bsC) * 100) : null;
   return {
     period: '2015–2025',
     trainedUntil: new Date(model.trainedUntil * DAY).toISOString().slice(0, 10),
+    calibrationPeriod: `2015–${CAL_LAST_YEAR}`,
+    testPeriod: `${CAL_LAST_YEAR + 1}–2025`,
     horizons: {
-      day1: { n: nB, skillPct: day1Skill, coveragePct: null, published: day1Skill !== null && day1Skill > 0 },
-      fortnight: toSkill(acc.fortnight),
-      month: toSkill(acc.month),
-      semester: toSkill(acc.semester),
+      day1: { n: nB, skillPct: day1Skill, coveragePct: null, rawCoveragePct: null, widen: 1, published: day1Skill !== null && day1Skill > 0 },
+      fortnight: score(cases.fortnight),
+      month: score(cases.month),
+      semester: score(cases.semester),
     },
   };
 }
@@ -310,7 +351,7 @@ export interface Projection {
   semester: { from: string; to: string; p10: number; p50: number; p90: number; climatology: { p10: number; p50: number; p90: number } | null };
 }
 
-export function projectFrom(input: DailyInput, paths = 500): Projection | null {
+export function projectFrom(input: DailyInput, paths = 500, widen: Widen = { fortnight: 1, month: 1, semester: 1 }): Projection | null {
   const lastDay = input.first + input.values.length - 1;
   let origin = lastDay;
   while (origin > input.first && (input.values[origin - input.first] ?? null) === null) origin--;
@@ -339,7 +380,8 @@ export function projectFrom(input: DailyInput, paths = 500): Projection | null {
     const h0 = Math.max(0, d0 - origin - 1), h1 = Math.min(H - 1, d1 - origin - 1);
     if (h1 < h0) continue;
     const observed = k === 0 ? windowSum({ first: input.first, values: input.values }, d0, origin) ?? 0 : 0;
-    const b = band(sumH(h0, h1).map((v) => v + observed));
+    // remaining days widened by the month calibration, then the days already observed added back
+    const b = band(widenEnsemble(sumH(h0, h1), widen.month).map((v) => v + observed));
     months.push({ year: y, month: m + 1, observedSoFar: r1(observed), ...b, partial: k === 0 && d0 <= origin });
   }
   return {
@@ -347,8 +389,8 @@ export function projectFrom(input: DailyInput, paths = 500): Projection | null {
     unit: 'cell-days (VIIRS S-NPP scale)',
     model: { family: 'negative binomial, log link (Poisson IRLS + moment dispersion)', features: FEATURES, theta: r1(model.theta), trainedUntil: iso(model.trainedUntil), nTrain: model.nTrain },
     daily,
-    fortnight: { from: iso(origin + 1), to: iso(origin + 15), ...band(sumH(0, 14)), climatology: climBand(origin + 1, origin + 15) },
+    fortnight: { from: iso(origin + 1), to: iso(origin + 15), ...band(widenEnsemble(sumH(0, 14), widen.fortnight)), climatology: climBand(origin + 1, origin + 15) },
     months,
-    semester: { from: iso(origin + 1), to: iso(origin + H), ...band(sumH(0, H - 1)), climatology: climBand(origin + 1, origin + H) },
+    semester: { from: iso(origin + 1), to: iso(origin + H), ...band(widenEnsemble(sumH(0, H - 1), widen.semester)), climatology: climBand(origin + 1, origin + H) },
   };
 }

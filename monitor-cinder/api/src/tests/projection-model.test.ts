@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { crps, fitModel, hindcast, projectFrom, simulate, type DailyInput } from '../core/projection-model.js';
+import { crps, widenEnsemble, fitModel, hindcast, projectFrom, simulate, type DailyInput } from '../core/projection-model.js';
 
 const DAY = 86_400_000;
 
@@ -34,11 +34,24 @@ describe('projection model (daily negative binomial, simulated horizons)', () =>
   it('hindcast beats the climatological reference on a process with memory, with honest P10–P90 coverage', () => {
     const { input } = knownProcess();
     const h = hindcast(input, { paths: 120, twicePerMonth: false })!;
-    expect(h.horizons.month.n).toBeGreaterThan(100);
+    // scored only on 2021–2025 origins (5 years × 12 months), never seen by the fit (≤ 2014) or the calibration (2015–2020)
+    expect(h.horizons.month.n).toBe(60);
+    expect(h.calibrationPeriod).toBe('2015–2020');
+    expect(h.testPeriod).toBe('2021–2025');
     expect(h.horizons.fortnight.skillPct!).toBeGreaterThan(0);
-    expect(h.horizons.month.coveragePct!).toBeGreaterThan(60);
+    expect(h.horizons.month.coveragePct!).toBeGreaterThan(65);
     expect(h.horizons.month.coveragePct!).toBeLessThan(95);
+    expect(h.horizons.month.widen).toBeGreaterThanOrEqual(1);
   }, 60_000);
+
+  it('widening keeps the median and only spreads the members', () => {
+    const ens = [1, 2, 4, 8, 16, 32, 64];
+    const w = widenEnsemble(ens, 2);
+    expect(w[3]).toBeCloseTo(8, 6);
+    expect(w[0]!).toBeLessThan(1);
+    expect(w[6]!).toBeGreaterThan(64);
+    expect(widenEnsemble(ens, 1)).toEqual(ens);
+  });
 
   it('projects from the last observed day: 15 daily probabilities, months that add up, no number without a band', () => {
     const { input } = knownProcess();

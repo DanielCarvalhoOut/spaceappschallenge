@@ -1,0 +1,128 @@
+{
+  "computedAt": "2026-11-15T06:22:59.636Z",
+  "source": "firms_index",
+  "indexBuiltAt": "2026-11-15T06:15:34.922Z",
+  "lastObservedDay": "2026-11-14",
+  "provisionalFrom": "2026-08-01",
+  "links": [
+    {
+      "link": "MODIS→SNPP",
+      "calibrationPeriod": "2012-2019",
+      "testPeriod": "2020-2025",
+      "nMonths": 72,
+      "wapePct": 12.4,
+      "mapePct": 27.7,
+      "pearsonR": 0.981,
+      "biasPct": 2,
+      "monthlyFactors": [
+        2.406,
+        1.818,
+        0.859,
+        1.756,
+        2.488,
+        2.525,
+        2.296,
+        2.237,
+        2.218,
+        2.872,
+        3.464,
+        2.752
+      ]
+    },
+    {
+      "link": "NOAA20→SNPP",
+      "calibrationPeriod": "2018-2023",
+      "testPeriod": "2024-2025",
+      "nMonths": 24,
+      "wapePct": 2.5,
+      "mapePct": 6.1,
+      "pearsonR": 1,
+      "biasPct": 1.3,
+      "monthlyFactors": [
+        1.004,
+        0.982,
+        1.021,
+        0.916,
+        0.968,
+        1.005,
+        0.984,
+        1.002,
+        1.008,
+        1.008,
+        0.994,
+        0.933
+      ]
+    },
+    {
+      "link": "NOAA21→SNPP",
+      "calibrationPeriod": "2023-2025",
+      "testPeriod": "2026-2026",
+      "nMonths": 10,
+      "wapePct": 3,
+      "mapePct": 8.7,
+      "pearsonR": 0.999,
+      "biasPct": -1.9,
+      "monthlyFactors": [
+        0.976,
+        1.048,
+        1.088,
+        0.977,
+        0.924,
+        1.018,
+        0.909,
+        1.014,
+        0.993,
+        1.024,
+        0.961,
+        0.935
+      ]
+    }
+  ],
+  "bookkeeping": {
+    "municipalities": 246,
+    "months": 311,
+    "maxAbsDiffCellDays": 2.8,
+    "roundingBoundCellDays": 12.3,
+    "passed": true
+  },
+  "projection": {
+    "period": "2015–2025",
+    "trainedUntil": "2014-12-31",
+    "calibrationPeriod": "2015–2020",
+    "testPeriod": "2021–2025",
+    "horizons": {
+      "day1": {
+        "n": 120,
+        "skillPct": -5.6,
+        "coveragePct": null,
+        "rawCoveragePct": null,
+        "widen": 1,
+        "published": false
+      },
+      "fortnight": {
+        "n": 120,
+        "skillPct": 18.7,
+        "coveragePct": 87.5,
+        "rawCoveragePct": 62.5,
+        "widen": 1.9,
+        "published": true
+      },
+      "month": {
+        "n": 120,
+        "skillPct": 8.8,
+        "coveragePct": 90,
+        "rawCoveragePct": 55.8,
+        "widen": 2.1,
+        "published": true
+      },
+      "semester": {
+        "n": 120,
+        "skillPct": -19.9,
+        "coveragePct": 87.5,
+        "rawCoveragePct": 68.3,
+        "widen": 1.4,
+        "published": false
+      }
+    }
+  }
+}

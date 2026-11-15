@@ -1,0 +1,61 @@
+{
+  "computedAt": "2026-11-15T06:22:59.636Z",
+  "source": "firms_index",
+  "region": "Goiás (UF 52)",
+  "model": {
+    "family": "negative binomial, log link (Poisson IRLS + moment dispersion)",
+    "features": [
+      "intercept",
+      "sin1",
+      "cos1",
+      "sin2",
+      "cos2",
+      "log1p_lag1",
+      "log1p_mean7",
+      "log1p_mean30"
+    ],
+    "theta": 3,
+    "trainedUntil": "2026-11-14",
+    "nTrain": 9419
+  },
+  "hindcast": {
+    "period": "2015–2025",
+    "trainedUntil": "2014-12-31",
+    "calibrationPeriod": "2015–2020",
+    "testPeriod": "2021–2025",
+    "horizons": {
+      "day1": {
+        "n": 120,
+        "skillPct": -5.6,
+        "coveragePct": null,
+        "rawCoveragePct": null,
+        "widen": 1,
+        "published": false
+      },
+      "fortnight": {
+        "n": 120,
+        "skillPct": 18.7,
+        "coveragePct": 87.5,
+        "rawCoveragePct": 62.5,
+        "widen": 1.9,
+        "published": true
+      },
+      "month": {
+        "n": 120,
+        "skillPct": 8.8,
+        "coveragePct": 90,
+        "rawCoveragePct": 55.8,
+        "widen": 2.1,
+        "published": true
+      },
+      "semester": {
+        "n": 120,
+        "skillPct": -19.9,
+        "coveragePct": 87.5,
+        "rawCoveragePct": 68.3,
+        "widen": 1.4,
+        "published": false
+      }
+    }
+  }
+}

@@ -884,7 +884,7 @@
   function skillBadge(sk) {
     if (!sk || sk.skillPct === null) return el('span', 'proj-badge', t('proj.skillNa'));
     return sk.published
-      ? el('span', 'proj-badge proj-badge--ok', t('proj.skillOk', { s: fmt1(sk.skillPct), c: fmt1(sk.coveragePct) }))
+      ? el('span', 'proj-badge proj-badge--ok', t('proj.skillOk', { s: fmt1(sk.skillPct), c: fmt1(sk.coveragePct), p: state.horizonsShown && state.horizonsShown.hindcast ? state.horizonsShown.hindcast.testPeriod : '' }))
       : el('span', 'proj-badge proj-badge--off', t('proj.skillOff'));
   }
   /** One horizon card: the model band only when the hindcast beat climatology; otherwise the climatology band. */
@@ -917,6 +917,12 @@
 
     const daysBlock = el('section', 'block');
     daysBlock.append(el('h3', '', t('proj.days')));
+    const d1 = hc.day1;
+    // The daily chance is shown only when it beat the climatological frequency in the test years.
+    if (!(d1 && d1.published)) {
+      daysBlock.append(el('p', 'proj-note proj-note--warn', t('proj.day1Off')));
+      box.append(daysBlock);
+    }
     const days = el('div', 'proj-days');
     for (const d of h.daily) {
       const col = el('div', 'proj-day');
@@ -928,11 +934,11 @@
       col.append(bar, el('span', '', d.date.slice(8, 10)));
       days.append(col);
     }
-    daysBlock.append(days);
-    const d1 = hc.day1;
-    daysBlock.append(el('p', d1 && d1.published ? 'proj-note' : 'proj-note proj-note--warn',
-      d1 && d1.published ? t('proj.day1Ok', { s: fmt1(d1.skillPct) }) : t('proj.day1Off')));
-    box.append(daysBlock);
+    if (d1 && d1.published) {
+      daysBlock.append(days);
+      daysBlock.append(el('p', 'proj-note', t('proj.day1Ok', { s: fmt1(d1.skillPct) })));
+      box.append(daysBlock);
+    }
 
     const cards = el('div', 'proj-cards');
     if (h.fortnight) cards.append(horizonCard(t('proj.fortnight'), t('proj.window', { from: shortDate(h.fortnight.from), to: shortDate(h.fortnight.to) }), h.fortnight, h.fortnight.climatology, hc.fortnight));
@@ -959,6 +965,7 @@
       sec.append(table);
       box.append(sec);
     }
+    if (hc.calibrationPeriod) box.append(el('p', 'proj-note', t('proj.calib', { c: hc.calibrationPeriod, t: hc.testPeriod })));
     box.append(el('p', 'proj-note', t('proj.method')));
   }
 
