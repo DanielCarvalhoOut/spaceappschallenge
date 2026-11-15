@@ -45,44 +45,74 @@ function parseArgs(argv: string[]): { from: number } {
   return { from };
 }
 
-/** Windows of one sensor-year, each tagged with the stream that serves it (SP up to spMax, NRT after). */
-function windowsOf(year: number, first: number, last: number, spMax: number | null, nrt: boolean): Array<{ date: string; stream: 'sp' | 'nrt' }> {
-  const out: Array<{ date: string; stream: 'sp' | 'nrt' }> = [];
-  const y0 = Math.max(first, Date.UTC(year, 0, 1) / DAY), y1 = Math.min(last, Date.UTC(year, 11, 31) / DAY);
+type Range = { first: number; last: number; spMax: number | null; nrtMin: number | null; nrtMax: number | null };
+type Win = { date: string; stream: 'sp' | 'nrt' };
+
+/**
+ * Windows of one sensor-year: SP (science) up to spMax, NRT inside [nrtMin, nrtMax]. Days covered by neither
+ * stream are left out (a gap, counted as missing days by the chain), never requested blindly.
+ */
+function windowsOf(year: number, r: Range): Win[] {
+  const out: Win[] = [];
+  const y0 = Math.max(r.first, Date.UTC(year, 0, 1) / DAY), y1 = Math.min(r.last, Date.UTC(year, 11, 31) / DAY);
   for (let d = y0; d <= y1; d += WINDOW_DAYS) {
-    const stream = spMax === null || d <= spMax ? 'sp' : 'nrt';
-    if (stream === 'nrt' && !nrt) continue;
-    out.push({ date: isoDay(d), stream });
+    const end = Math.min(d + WINDOW_DAYS - 1, y1);
+    if (r.spMax !== null && end <= r.spMax) out.push({ date: isoDay(d), stream: 'sp' });
+    else if (r.nrtMin !== null && r.nrtMax !== null && d >= r.nrtMin && d <= r.nrtMax) out.push({ date: isoDay(d), stream: 'nrt' });
+    else if (r.spMax !== null && d <= r.spMax) out.push({ date: isoDay(d), stream: 'sp' }); // window straddling the SP end
   }
   return out;
 }
 
-async function fetchWindows(sensor: Sensor, year: number, windows: Array<{ date: string; stream: 'sp' | 'nrt' }>): Promise<Row[]> {
+/**
+ * Fetches every window; a refused window is retried once on the other stream, and if that fails too only that
+ * window is left out (logged), not the whole year. Throws only when every window failed.
+ */
+async function fetchWindows(sensor: Sensor, year: number, windows: Win[]): Promise<{ rows: Row[]; failed: string[] }> {
   const rows: Row[] = [];
   const seen = new Set<string>();
+  const failed: string[] = [];
   let next = 0;
+  const one = async (w: Win, stream: 'sp' | 'nrt'): Promise<void> => {
+    const code = stream === 'sp' ? STREAMS[sensor].sp : STREAMS[sensor].nrt;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    const got: Row[] = [];
+    try {
+      for await (const r of firmsConnector.fetch({ mode: 'area_api', sensor: code, bbox: config.bbox, dayRange: WINDOW_DAYS, date: w.date }, ctrl.signal)) {
+        if (r.confidenceNorm < 1) continue; // nominal or high, like fire.hotspot_cell_day
+        if (r.acqDate.slice(0, 4) !== String(year)) continue;
+        got.push([r.longitude, r.latitude, dayNumber(r.acqDate), r.fireType ?? -1, stream === 'nrt' ? 1 : 0]);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+    for (const g of got) {
+      const key = `${g[0]},${g[1]},${g[2]}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(g);
+    }
+  };
   const worker = async (): Promise<void> => {
     while (next < windows.length) {
       const w = windows[next++]!;
-      const code = w.stream === 'sp' ? STREAMS[sensor].sp : STREAMS[sensor].nrt;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 60_000);
       try {
-        for await (const r of firmsConnector.fetch({ mode: 'area_api', sensor: code, bbox: config.bbox, dayRange: WINDOW_DAYS, date: w.date }, ctrl.signal)) {
-          if (r.confidenceNorm < 1) continue; // nominal or high, like fire.hotspot_cell_day
-          if (r.acqDate.slice(0, 4) !== String(year)) continue;
-          const key = `${r.longitude},${r.latitude},${r.acqDate},${r.acqTime}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          rows.push([r.longitude, r.latitude, dayNumber(r.acqDate), r.fireType ?? -1, w.stream === 'nrt' ? 1 : 0]);
+        await one(w, w.stream);
+      } catch (err) {
+        const other = w.stream === 'sp' ? 'nrt' : 'sp';
+        try {
+          await one(w, other);
+        } catch (err2) {
+          failed.push(w.date);
+          logger.warn({ sensor, date: w.date, err: err instanceof Error ? err.message : String(err), retry: err2 instanceof Error ? err2.message : String(err2) }, 'FIRMS window refused on SP and NRT; left out');
         }
-      } finally {
-        clearTimeout(timer);
       }
     }
   };
   await Promise.all(Array.from({ length: AREA_CONCURRENCY }, worker));
-  return rows;
+  if (windows.length && failed.length === windows.length) throw new Error(`all ${windows.length} windows refused`);
+  return { rows, failed };
 }
 
 async function fetchArchive(sensor: Sensor, year: number): Promise<Row[]> {
@@ -102,7 +132,7 @@ async function fetchArchive(sensor: Sensor, year: number): Promise<Row[]> {
   return rows;
 }
 
-async function loadYear(sensor: Sensor, year: number, range: { first: number; last: number; spMax: number | null; nrt: boolean }): Promise<YearFile | null> {
+async function loadYear(sensor: Sensor, year: number, range: Range): Promise<YearFile | null> {
   const dir = path.join(config.dataDir, 'firms_years');
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${sensor}_${year}_goias.json`);
@@ -118,11 +148,13 @@ async function loadYear(sensor: Sensor, year: number, range: { first: number; la
     } catch { /* refetch */ }
   }
   const yearEnd = Date.UTC(year, 11, 31) / DAY;
-  const complete = range.spMax !== null && yearEnd <= range.spMax;
+  let complete = range.spMax !== null && yearEnd <= range.spMax;
   let rows: Row[] | null = null;
   if (config.FIRMS_MAP_KEY) {
     try {
-      rows = await fetchWindows(sensor, year, windowsOf(year, range.first, range.last, range.spMax, range.nrt));
+      const got = await fetchWindows(sensor, year, windowsOf(year, range));
+      rows = got.rows;
+      if (got.failed.length) complete = false; // refetch later instead of caching a hole forever
     } catch (err) {
       logger.warn({ sensor, year, err: err instanceof Error ? err.message : String(err) }, 'area API failed; trying the yearly archive');
     }
@@ -136,7 +168,7 @@ async function loadYear(sensor: Sensor, year: number, range: { first: number; la
 }
 
 /** Day ranges per sensor from FIRMS data_availability (SP max, NRT max); defaults when it cannot be read. */
-async function sensorRanges(fromYear: number): Promise<Record<Sensor, { first: number; last: number; spMax: number | null; nrt: boolean } | null>> {
+async function sensorRanges(fromYear: number): Promise<Record<Sensor, Range | null>> {
   let avail: FirmsAvailability | null = null;
   if (config.FIRMS_MAP_KEY) {
     const ctrl = new AbortController();
@@ -146,15 +178,17 @@ async function sensorRanges(fromYear: number): Promise<Record<Sensor, { first: n
     } finally { clearTimeout(timer); }
   }
   const today = Math.floor(Date.now() / DAY);
-  const out = {} as Record<Sensor, { first: number; last: number; spMax: number | null; nrt: boolean } | null>;
+  const out = {} as Record<Sensor, Range | null>;
   for (const s of SENSORS) {
     const sp = avail?.get(STREAMS[s].sp), nrt = avail?.get(STREAMS[s].nrt);
     const firstIso = sp?.min ?? nrt?.min ?? STREAMS[s].defaultFirst;
     const first = Math.max(dayNumber(firstIso), Date.UTC(fromYear, 0, 1) / DAY);
     const spMax = sp ? dayNumber(sp.max) : avail ? null : Date.UTC(2025, 11, 31) / DAY;
     const nrtMax = nrt ? dayNumber(nrt.max) : null;
+    const nrtMin = nrt ? dayNumber(nrt.min) : null;
     const last = Math.min(today - 1, Math.max(spMax ?? -1, nrtMax ?? -1));
-    out[s] = last >= first ? { first, last, spMax, nrt: nrtMax !== null } : null;
+    out[s] = last >= first ? { first, last, spMax, nrtMin, nrtMax } : null;
+    logger.info({ sensor: s, sp: sp ? `${sp.min}..${sp.max}` : null, nrt: nrt ? `${nrt.min}..${nrt.max}` : null }, 'FIRMS availability');
   }
   return out;
 }

@@ -22,7 +22,10 @@ export function startHistoryLoadIfMissing(): void {
     const existing = loadCellIndex();
     // An index older than 6 h is refreshed in the background (only the current year is fetched again);
     // meanwhile the API keeps serving it.
-    if (existing && Date.now() - Date.parse(existing.builtAt) < 6 * 3_600_000) { historyStatus.phase = 'ready'; return; }
+    // ...and also when it stops more than 3 days before today (a year or a satellite failed to load).
+    const lastDay = existing ? Math.max(...Object.values(existing.sensors).map((r) => r.last ?? -1)) : -1;
+    const behind = Math.floor(Date.now() / 86_400_000) - lastDay > 3;
+    if (existing && !behind && Date.now() - Date.parse(existing.builtAt) < 6 * 3_600_000) { historyStatus.phase = 'ready'; return; }
     historyStatus.phase = existing ? 'ready' : 'building';
     historyStatus.startedAt = new Date().toISOString();
     historyStatus.error = null;

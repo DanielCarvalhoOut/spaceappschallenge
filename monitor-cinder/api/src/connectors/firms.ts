@@ -187,7 +187,8 @@ async function fetchWithRetry(url: string, signal: AbortSignal, maxAttempts = 3)
         if (res.status >= 500 || res.status === 429) {
           throw new Error(`HTTP ${res.status}`);
         }
-        throw new Error(`Non-retryable HTTP ${res.status}`);
+        const body = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160);
+        throw new Error(`Non-retryable HTTP ${res.status}${body ? `: ${body}` : ''}`);
       }
       return await res.text();
     } catch (err) {
