@@ -1,5 +1,5 @@
 {
-  "computedAt": "2026-11-15T06:30:26.990Z",
+  "computedAt": "2026-11-15T13:51:04.973Z",
   "source": "firms_index",
   "region": "Goiás (UF 52)",
   "model": {
@@ -26,7 +26,7 @@
     "horizons": {
       "day1": {
         "n": 120,
-        "skillPct": -5.6,
+        "skillPct": -4.4,
         "coveragePct": null,
         "rawCoveragePct": null,
         "widen": 1,
@@ -35,24 +35,24 @@
       "fortnight": {
         "n": 120,
         "skillPct": 18.7,
-        "coveragePct": 87.5,
-        "rawCoveragePct": 62.5,
+        "coveragePct": 86.7,
+        "rawCoveragePct": 63.3,
         "widen": 1.9,
         "published": true
       },
       "month": {
         "n": 120,
-        "skillPct": 8.8,
-        "coveragePct": 90,
+        "skillPct": 11.8,
+        "coveragePct": 86.7,
         "rawCoveragePct": 55.8,
-        "widen": 2.1,
+        "widen": 2,
         "published": true
       },
       "semester": {
         "n": 120,
-        "skillPct": -19.9,
-        "coveragePct": 87.5,
-        "rawCoveragePct": 68.3,
+        "skillPct": -21.9,
+        "coveragePct": 85,
+        "rawCoveragePct": 71.7,
         "widen": 1.4,
         "published": false
       }

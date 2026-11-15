@@ -949,44 +949,10 @@
     if (state.selected) return { key: state.selected, area: { ibge: state.selected } };
     return null;
   }
+  /** The years × months grid (#calendar, renderCalendar) is the month picker; below it, the days of the month. */
   function renderCalView() {
     const rows = state.calRows;
-    const tiles = $('cal-months'), detail = $('cal-month');
-    clear(tiles);
-    if (!rows || !rows.length) { clear(detail); $('cal-year').textContent = ''; return; }
-    const first = state.source.firstYear, last = lastPickYear();
-    if (!Number.isInteger(state.calYear) || state.calYear < first || state.calYear > last) state.calYear = state.year;
-    const y = state.calYear;
-    $('cal-year').textContent = String(y);
-    $('cal-prev').disabled = y <= first;
-    $('cal-next').disabled = y >= last;
-    const byKey = new Map(rows.map((r) => [r.year * 100 + r.month, r]));
-    const lastKey = Math.max(...rows.map((r) => r.year * 100 + r.month));
-    const seq = { type: 'sequential', min: 0, max: Math.max(1, ...rows.map((r) => (Number.isFinite(r.harmonized) ? r.harmonized : 0))) };
-    for (let m = 1; m <= 12; m++) {
-      const r = byKey.get(y * 100 + m);
-      const b = el('button', 'cal-tile');
-      b.type = 'button';
-      const future = !r && y * 100 + m > lastKey;
-      const proj = future && periodKind(y, m) === 'proj';
-      if (future) { b.classList.add(proj ? 'is-proj' : 'is-future'); b.disabled = !proj; }
-      if (y === state.year && m === state.month) b.classList.add('is-current');
-      if (r && (r.provisional || r.partial)) b.classList.add('is-provisional');
-      const bar = el('i', 'cal-tile__bar');
-      if (r && Number.isFinite(r.harmonized)) {
-        bar.style.background = r.harmonized > 0 ? map.colorFor(r.harmonized, seq) : map.colorFor(0, seq);
-        bar.style.width = `${Math.max(4, Math.round((Math.sqrt(r.harmonized) / Math.sqrt(seq.max)) * 100))}%`;
-      }
-      const z = r ? r.anomalyZ : null;
-      const zEl = el('small', z === null || z === undefined ? 'cal-tile__z' : z >= 1 ? 'cal-tile__z z-up' : z <= -1 ? 'cal-tile__z z-down' : 'cal-tile__z', future ? '' : fmtZ(z));
-      b.append(el('span', 'cal-tile__m', monthName(m)), el('strong', 'cal-tile__v', proj ? t('period.tagProj') : future ? '–' : r ? fmtInt(r.harmonized) : '–'), bar, zEl);
-      const label = proj ? t('cal.proj', { m: monthName(m), y }) : future ? t('cal.future', { m: monthName(m), y }) : r
-        ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) }) + (r.provisional ? t('cal.provisional') : '') + (r.partial ? t('cal.partial') : '')
-        : t('cal.empty', { m: monthName(m), y });
-      b.title = label; b.setAttribute('aria-label', label);
-      b.addEventListener('click', () => { state.year = y; state.month = m; onPeriodChange(); });
-      tiles.append(b);
-    }
+    if (!rows || !rows.length) { clear($('cal-month')); return; }
     renderMonthDetail(rows);
   }
   async function renderMonthDetail(rows) {
@@ -1712,8 +1678,6 @@
 
     $('p-close').addEventListener('click', dismissDetails);
     setupPanelResize();
-    $('cal-prev').addEventListener('click', () => { state.calYear -= 1; renderCalView(); });
-    $('cal-next').addEventListener('click', () => { state.calYear += 1; renderCalView(); });
     setupModal();
     $('csv').addEventListener('click', downloadCsv);
     $('calendar').addEventListener('click', (e) => {
