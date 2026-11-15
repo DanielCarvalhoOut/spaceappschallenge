@@ -24,7 +24,8 @@ const SCAN_EVERY_MS = 10 * 60_000;
 const CONFIRM_EVERY_MS = 60 * 60_000;
 
 let state: WatchState | null = null;
-let running = false;
+type CycleResult = { newScans: number; newAlerts: number; confirmed: number };
+let inFlight: Promise<CycleResult> | null = null;
 let lastConfirm = 0;
 const st = (): WatchState => (state ??= loadState(STATE_FILE()));
 
@@ -38,10 +39,14 @@ function inArea(area: WatchArea, lon: number, lat: number): boolean {
 }
 
 /** One cycle: new GOES scans → persistence → alerts; at most hourly, VIIRS confirmation. Never throws. */
-export async function runWatchCycle(now = new Date()): Promise<{ newScans: number; newAlerts: number; confirmed: number }> {
+export function runWatchCycle(now = new Date()): Promise<CycleResult> {
+  // a cycle already running (background or another "check now") is awaited instead of returning zeros at once
+  inFlight ??= cycle(now).finally(() => { inFlight = null; });
+  return inFlight;
+}
+
+async function cycle(now: Date): Promise<CycleResult> {
   const s = st();
-  if (running) return { newScans: 0, newAlerts: 0, confirmed: 0 };
-  running = true;
   let newScans = 0, newAlerts = 0, confirmed = 0;
   try {
     const keys = await latestKeys(3, now);
@@ -65,7 +70,6 @@ export async function runWatchCycle(now = new Date()): Promise<{ newScans: numbe
     s.lastError = err instanceof Error ? err.message.slice(0, 200) : 'GOES check failed';
     logger.warn({ err: s.lastError }, 'GOES watch cycle failed');
   } finally {
-    running = false;
     try { saveState(STATE_FILE(), s); } catch (err) { logger.warn({ err: String(err) }, 'could not save goes_watch.json'); }
   }
   return { newScans, newAlerts, confirmed };

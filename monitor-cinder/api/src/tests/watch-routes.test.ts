@@ -39,6 +39,13 @@ describe('watch routes (opt-in GOES-19 notices)', () => {
     expect((await a.inject({ method: 'POST', url: '/api/watch', payload: { ibge: '35' } })).statusCode).toBe(400);
   });
 
+  it('"check now" during a running cycle waits for it instead of returning zeros at once', async () => {
+    const { runWatchCycle } = await import('../modules/watch-routes.js');
+    const a = runWatchCycle(), b = runWatchCycle();
+    expect(a).toBe(b);
+    await a;
+  });
+
   it('refuses areas outside Goiás, unknown fields and malformed ids', async () => {
     const a = await app();
     expect((await a.inject({ method: 'POST', url: '/api/watch', payload: { lon: -46.6, lat: -23.5, radiusKm: 20 } })).statusCode).toBe(400);
