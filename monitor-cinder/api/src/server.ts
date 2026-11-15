@@ -10,6 +10,20 @@ import { hasHistory } from './db/history.js';
 import { loadCellIndex } from './core/cell-index.js';
 import { historyStatus } from './core/history-status.js';
 import { runBuildCellIndex } from './jobs/build-cell-index.js';
+import { fetchLocalities, loadCachedLocalities } from './connectors/ibge-localities.js';
+
+/** IBGE localities (Censo 2022): cached in data/; downloaded once in the background when missing. Map reference only. */
+export function startLocalitiesLoad(): void {
+  const cached = loadCachedLocalities('52');
+  if (cached) { store.setLocalities(cached); return; }
+  void (async () => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 120_000);
+    try { store.setLocalities(await fetchLocalities('52', 'GO', ctrl.signal)); }
+    catch (err) { logger.warn({ err: redactSecrets(err instanceof Error ? err.message : String(err)) }, 'IBGE localities not loaded (map works without them)'); }
+    finally { clearTimeout(t); }
+  })();
+}
 
 /**
  * Without PostGIS history and without the cell index, load the real FIRMS history in the background
@@ -94,6 +108,7 @@ if (isMain(import.meta.url)) {
       await app.listen({ port: config.PORT, host: config.HOST });
       logger.info({ port: config.PORT, host: config.HOST }, 'Monitor Cinder API listening');
       startHistoryLoadIfMissing();
+      startLocalitiesLoad();
     })
     .catch((err) => {
       logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Failed to start server');

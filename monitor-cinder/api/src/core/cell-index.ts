@@ -385,6 +385,39 @@ export function dailySeries(index: CellIndex, keep: (c: IndexCell) => boolean): 
   return { first: chain.first, values };
 }
 
+/**
+ * FIRMS detections of one map cell (1, 2 or 5 km block of the 1 km grid) in a month: the days each satellite saw fire
+ * in any 1 km cell of the block. Real observation days, not harmonized values.
+ */
+export function cellDetections(index: CellIndex, lon: number, lat: number, resM: 1000 | 2000 | 5000, year: number, month: number):
+  { days: Array<{ date: string; sensor: Sensor; provisional: boolean }>; cells1km: number } {
+  const ratio = resM / 1000;
+  const [fx, fy] = cellOf(lon, lat, 1000);
+  const bx = Math.floor(fx / ratio), by = Math.floor(fy / ratio);
+  const d0 = Date.UTC(year, month - 1, 1) / DAY, d1 = Date.UTC(year, month, 1) / DAY - 1;
+  const chain = buildChain(index);
+  const seen = new Set<string>();
+  const days: Array<{ date: string; sensor: Sensor; provisional: boolean }> = [];
+  let cells1km = 0;
+  for (const c of index.cells) {
+    if (Math.floor(c[0] / ratio) !== bx || Math.floor(c[1] / ratio) !== by) continue;
+    let any = false;
+    SENSORS.forEach((sensor, i) => {
+      for (const d of c[3 + i] as number[]) {
+        if (d < d0 || d > d1) continue;
+        any = true;
+        const k = `${d}|${sensor}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        days.push({ date: isoDay(d), sensor, provisional: chain.provisionalFrom !== null && d >= chain.provisionalFrom });
+      }
+    });
+    if (any) cells1km++;
+  }
+  days.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.sensor.localeCompare(b.sensor)));
+  return { days: days.slice(0, 120), cells1km };
+}
+
 export interface DayRow { date: string; harmonized: number | null; sensor: Sensor | null; provisional: boolean; cells: number }
 
 /**

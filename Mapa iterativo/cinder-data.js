@@ -254,6 +254,30 @@
           } : null,
         };
       },
+      /** IBGE localities (Censo 2022), map reference only: [{ id, ibge, name, kind, lon, lat }] (null while loading). */
+      async localities() {
+        let j;
+        try { j = await fetchJson(`${base}/api/localities`, 30000); } catch (e) { if (/HTTP 503/.test(e.message)) return null; throw e; }
+        const KINDS = ['sede', 'vila', 'povoado', 'lugarejo', 'urbano', 'rural', 'agrovila', 'quilombola', 'indigena', 'outra'];
+        return (Array.isArray(j && j.localities) ? j.localities : []).slice(0, 20000)
+          .filter((r) => Array.isArray(r) && typeof r[0] === 'string' && IBGE_CODE.test(r[1]) && typeof r[2] === 'string'
+            && KINDS.includes(r[3]) && numIn(r[4], -54, -45) && numIn(r[5], -20, -12))
+          .map((r) => ({ id: r[0].slice(0, 15), ibge: r[1], name: r[2].slice(0, 150), kind: r[3], lon: r[4], lat: r[5] }));
+      },
+      /** FIRMS detection days behind one map cell in a month: { days: [{ date, sensor, provisional }], cells1km }. */
+      async cellDetections(lon, lat, res, year, month) {
+        if (!numIn(lon, -54, -45) || !numIn(lat, -20, -12) || ![1000, 2000, 5000].includes(res) || !intIn(year, 2001, 2100) || !intIn(month, 1, 12)) throw new Error('Invalid cell');
+        let j;
+        try { j = await fetchJson(`${base}/api/cell/detections?${new URLSearchParams({ lon: String(lon), lat: String(lat), res: String(res), year: String(year), month: String(month) })}`); }
+        catch (e) { if (/HTTP 503/.test(e.message)) return null; throw e; }
+        const SENSORS = ['MODIS', 'SNPP', 'NOAA20', 'NOAA21'];
+        return {
+          cells1km: intIn(j && j.cells1km, 0, 100) ? j.cells1km : 0,
+          days: (Array.isArray(j && j.days) ? j.days : []).slice(0, 120)
+            .filter((d) => d && /^\d{4}-\d{2}-\d{2}$/.test(d.date) && SENSORS.includes(d.sensor))
+            .map((d) => ({ date: d.date, sensor: d.sensor, provisional: d.provisional === true })),
+        };
+      },
       /** One month day by day: { days: [{ date, harmonized|null, sensor, provisional, cells }] } (null while loading: 503). */
       async daily(area, year, month) {
         if (!intIn(year, 2001, 2100) || !intIn(month, 1, 12)) throw new Error('Invalid month');
@@ -358,7 +382,7 @@
       kind: 'offline', dataKind: 'none', historyLoad: null, lastObservedDay: null, provisionalFrom: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
       mapValues: fail, calendar: fail, pattern: fail, context: fail, intelligence: fail,
-      projection: fail, horizons: fail, daily: fail, areaHistory: fail, cells: fail, recurrence: fail,
+      projection: fail, horizons: fail, daily: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
       csvUrl() { return null; },
     };
   }

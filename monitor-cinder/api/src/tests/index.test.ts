@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChain, cellOf, dailyOfMonth, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
+import { buildChain, cellDetections, cellOf, dailyOfMonth, fromPolyconic, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 
 /**
@@ -86,5 +86,16 @@ describe('satellite chain (FIRMS index, no PostGIS)', () => {
     expect(sep26.some((d) => d.sensor === 'NOAA20')).toBe(true);
     expect(dailyOfMonth(idx, () => true, 2026, 11)).toHaveLength(10); // stops at the last observed day
     expect(dailyOfMonth(idx, () => true, 2026, 12)).toHaveLength(0);
+  });
+
+  it('lists the real detection days (and satellite) behind one map cell', () => {
+    const idx = fixture();
+    const c = idx.cells.find((x) => (x[5] as number[]).length > 0)!; // a cell NOAA-20 saw
+    const d = (c[5] as number[])[0]!;
+    const date = new Date(d * 86_400_000);
+    const [lon, lat] = fromPolyconic((c[0] + 0.5) * 1000, (c[1] + 0.5) * 1000);
+    const r = cellDetections(idx, lon, lat, 1000, date.getUTCFullYear(), date.getUTCMonth() + 1);
+    expect(r.cells1km).toBe(1);
+    expect(r.days.some((x) => x.sensor === 'NOAA20' && x.date === date.toISOString().slice(0, 10))).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import type { Locality } from '../connectors/ibge-localities.js';
 import { computeMod13q1BiomassProfile, embrapaSatVegConnector } from '../connectors/embrapa-satveg.js';
 import { firmsConnector } from '../connectors/firms.js';
 import { ibgeConnector, pointInMunicipality, type IbgeMunicipalityRecord } from '../connectors/ibge.js';
@@ -14,7 +15,7 @@ import {
   estimateResourcesByFrp,
 } from '../core/analytics.js';
 import { logger } from '../core/logger.js';
-import { buildChain, dailyOfMonth, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
+import { buildChain, cellDetections, dailyOfMonth, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 import { hindcast, projectFrom, type Hindcast, type Projection } from '../core/projection-model.js';
 import {
@@ -1252,6 +1253,19 @@ class CinderDataStore {
       }
     }
     return out;
+  }
+
+  /** FIRMS detection days of one map cell in a month (null without the FIRMS index). */
+  public getCellDetections(lon: number, lat: number, resM: 1000 | 2000 | 5000, year: number, month: number): ReturnType<typeof cellDetections> | null {
+    return this.index ? cellDetections(this.index, lon, lat, resM, year, month) : null;
+  }
+
+  private localities: Locality[] | null = null;
+  public setLocalities(list: Locality[]): void { this.localities = list; }
+  /** IBGE localities (map reference only); null while not loaded. Optionally only one municipality. */
+  public getLocalities(ibge?: string): Locality[] | null {
+    if (!this.localities) return null;
+    return ibge ? this.localities.filter((l) => l.ibge === ibge) : this.localities;
   }
 
   /** One month, day by day, for a municipality, the state ('52') or a circle (null without the FIRMS index). */

@@ -260,7 +260,7 @@
       brazilStates: [], brazilOuterPath: null, brazilInnerPath: null, brazilWorld: null, brazilFit: null,
       names: new Map(), values: new Map(),
       scale: { type: 'diverging', min: -3, max: 3 }, theme: options.theme,
-      w: 0, h: 0, dpr: 1, cam: { x: 0, y: 0, k: 1 }, fit: null, world: null,
+      w: 0, h: 0, dpr: 1, cam: { x: 0, y: 0, k: 1 }, fit: null, world: null, places: [],
       hover: null, selected: null, prevSelected: null,
       selectionMode: 'municipality', // 'municipality' | 'sphere'
       sphereRadiusKm: 85,
@@ -816,6 +816,57 @@
         }
       }
       ctx.globalAlpha = 1;
+      drawPlaces(ctx, ratio, taken);
+    }
+
+    /**
+     * IBGE localities (povoados, vilas, comunidades): reference points that appear only when zoomed in.
+     * ratio = zoom relative to the whole-state fit. Ranks: 1 vila, 2 povoado/quilombola/indígena, 3 lugarejo/agrovila,
+     * 4 núcleos, 5 other. Labels never cover a municipality label or another place label.
+     */
+    function drawPlaces(ctx, ratio, taken) {
+      if (!st.places.length || ratio < 3) return;
+      const maxRank = ratio >= 7 ? 5 : ratio >= 4.5 ? 4 : 3;
+      const showText = ratio >= 3.6;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = '600 10.5px system-ui, -apple-system, "Segoe UI", sans-serif';
+      for (const p of st.places) {
+        if (p.rank > maxRank) continue;
+        const [sx, sy] = worldToScreen(p.x, p.y);
+        if (sx < 4 || sy < 4 || sx > st.w - 4 || sy > st.h - 4) continue;
+        ctx.globalAlpha = 0.95;
+        ctx.beginPath();
+        ctx.arc(sx, sy, p.rank <= 2 ? 3.2 : 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = 'rgba(0,0,0,.85)';
+        ctx.stroke();
+        if (!showText) continue;
+        if (p.w < 0) p.w = ctx.measureText(p.name).width;
+        const r = [sx + 5, sy - 7, sx + 7 + p.w, sy + 7];
+        if (taken.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) continue;
+        taken.push(r);
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(0,0,0,.8)';
+        ctx.strokeText(p.name, sx + 6, sy);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(p.name, sx + 6, sy);
+      }
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'center';
+    }
+
+    /** places = [{ lon, lat, name, rank }] (or null to clear). Projected once. */
+    function setPlaces(places) {
+      st.places = Array.isArray(places)
+        ? places.filter((p) => p && Number.isFinite(p.lon) && Number.isFinite(p.lat) && typeof p.name === 'string')
+          .map((p) => { const [x, y] = project(p.lon, p.lat); return { x, y, name: p.name.slice(0, 80), rank: Number(p.rank) || 5, w: -1, ref: p }; })
+          .sort((a, b) => a.rank - b.rank)
+        : [];
+      invalidate(true, false);
     }
 
     /* ---------- Lightweight 2D Circle Overlay (No 3D dome, no per-frame gradients/clips) ---------- */
@@ -1166,6 +1217,20 @@
         st.dirtyOver = true;
       }
       emit('hover', id ? { id, x: sx, y: sy } : null);
+      // IBGE locality under the cursor (only where the places are drawn)
+      const ratio = st.fit ? st.cam.k / st.fit.k : 0;
+      if (st.places.length && ratio >= 3) {
+        const maxRank = ratio >= 7 ? 5 : ratio >= 4.5 ? 4 : 3;
+        let best = null, bd = 49; // 7 px
+        for (const p of st.places) {
+          if (p.rank > maxRank) continue;
+          const [px, py] = worldToScreen(p.x, p.y);
+          const d = (px - sx) ** 2 + (py - sy) ** 2;
+          if (d < bd) { bd = d; best = p; }
+        }
+        if (best !== st.placeHover) { st.placeHover = best; }
+        emit('place', best ? { place: best.ref, x: sx, y: sy } : null);
+      } else if (st.placeHover) { st.placeHover = null; emit('place', null); }
       if (st.layers.detail && st.layers.detail.index) {
         const [wx, wy] = screenToWorld(sx, sy);
         const c = cellAtWorld(wx, wy);
@@ -1660,6 +1725,7 @@
       setShowNumbers,
       showNumbers: () => st.showNumbers,
       setPointLayer,
+      setPlaces,
       contains,
       bboxLonLat,
       areaKm2: (id) => { const f = st.byId.get(id); return f ? f.areaKm2 : null; },

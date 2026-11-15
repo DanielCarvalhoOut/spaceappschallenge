@@ -33,7 +33,8 @@
     panelSeq: 0,
     minimized: false, // details hidden with "show on map"; selection kept
     horizonsShown: null,
-    calYear: null, // year shown in the History calendar // projection currently rendered (re-rendered on language change)
+    calYear: null, // year shown in the History calendar
+    places: null, // IBGE localities (map reference only) // projection currently rendered (re-rendered on language change)
   };
 
   let map = null;
@@ -1064,6 +1065,8 @@
     if (map) map.setPointLayer(null, 'detail');
     const b = $('detail-block');
     if (b) b.hidden = true;
+    const pb = $('places-block');
+    if (pb) pb.hidden = true;
   }
   /**
    * area: { kind: 'muni', id } | { kind: 'circle', lon, lat, radiusKm }
@@ -1081,7 +1084,7 @@
     if (seq !== state.panelSeq) return;
     clear(box);
     if (!d) { map.setPointLayer(null, 'detail'); box.append(el('p', 'muted', t('detail.unavailable'))); return; }
-    state.detail = { res: d.res, yearsObserved: d.yearsObserved };
+    state.detail = { res: d.res, yearsObserved: d.yearsObserved, cells: d.cells };
     const classes = DETAIL_CLASSES.map((c) => ({ color: c.color, cells: [] }));
     let withFire = 0;
     for (const c of d.cells) {
@@ -1093,6 +1096,7 @@
       cellKm: d.res / 1000, classes, hover: true, grid: true, alpha: 1,
       clip: area.kind === 'muni' ? { kind: 'feature', id: area.id } : { kind: 'sphere' },
     }, 'detail');
+    renderPlacesBlock();
 
     if (!d.cells.length) { box.append(el('p', 'muted', t('detail.none'))); return; }
     box.append(el('p', 'range-line', t('detail.summary', {
@@ -1119,11 +1123,112 @@
     const c = h.cell;
     $('tt-name').textContent = t('tt.cell', { res: I.num(state.detail.res / 1000), v: fmt1(c[2]), period: period() });
     $('tt-value').textContent = t('tt.cellYears', { y: c[3], n: state.detail.yearsObserved ?? '–', ly: c[4] ?? '–' });
-    $('tt-extra').hidden = true;
-    $('tt-hint').hidden = true;
+    const extra = $('tt-extra');
+    clear(extra);
+    extra.append(el('span', '', t('places.center')), el('b', '', `${fmtCoord(c[1])}, ${fmtCoord(c[0])}`));
+    extra.hidden = false;
+    const near = state.places && state.places.length ? nearestPlaces(c[0], c[1], 2) : [];
+    $('tt-hint').textContent = near.length ? near.map(placeText).join(' · ') : '';
+    $('tt-hint').hidden = !near.length;
     tip.hidden = false;
     const x = Math.min(h.x + 14, $('map').clientWidth - 280);
     tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, h.y - 38)}px)`;
+  }
+
+
+  /* ---------- IBGE localities: map reference (zoom), nearest locality to a fire cell ---------- */
+  const PLACE_RANK = { vila: 1, povoado: 2, quilombola: 2, indigena: 2, lugarejo: 3, agrovila: 3, rural: 4, urbano: 4, outra: 5 };
+  const toRad = Math.PI / 180;
+  /** Great-circle distance in km (the straight line between the two points, not a road distance). */
+  function kmBetween(lat1, lon1, lat2, lon2) {
+    const dp = (lat2 - lat1) * toRad, dl = (lon2 - lon1) * toRad;
+    const a = Math.sin(dp / 2) ** 2 + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dl / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.sqrt(a));
+  }
+  /** The n localities nearest to a point, from all of Goiás (a fire near a border can be closest to the neighbour's). */
+  function nearestPlaces(lon, lat, n = 2) {
+    const list = state.places || [];
+    const best = [];
+    for (const p of list) {
+      const d = kmBetween(lat, lon, p.lat, p.lon);
+      if (best.length < n || d < best[best.length - 1].d) {
+        best.push({ p, d });
+        best.sort((a, b) => a.d - b.d);
+        if (best.length > n) best.pop();
+      }
+    }
+    return best;
+  }
+  const fmtCoord = (v) => (Number.isFinite(v) ? I.num(v, 4) : '–');
+  const placeText = (x) => t('places.near', { name: x.p.name, kind: t(`kind.${x.p.kind}`), muni: state.names.get(x.p.ibge) || x.p.ibge, km: fmt1(x.d) });
+  async function loadPlaces() {
+    if (!state.source.localities) return;
+    let list = null;
+    try { list = await state.source.localities(); } catch (e) { console.warn('localities:', e.message); }
+    if (!list) { setTimeout(loadPlaces, 30000); return; } // the API downloads them in the background on first start
+    state.places = list;
+    // sedes are already the municipality labels: they count for "nearest" but are not drawn again
+    map.setPlaces(list.filter((p) => p.kind !== 'sede').map((p) => ({ lon: p.lon, lat: p.lat, name: p.name, rank: PLACE_RANK[p.kind] || 5, id: p.id })));
+    if (state.selected || state.sphereSelection) renderPlacesBlock();
+  }
+  function onPlaceHover(h) {
+    const tip = $('tooltip');
+    if (!h) return; // the municipality hover takes the tooltip back
+    const p = (state.places || []).find((x) => x.id === h.place.id);
+    if (!p) return;
+    $('tt-name').textContent = p.name;
+    $('tt-value').textContent = `${t(`kind.${p.kind}`)} · ${state.names.get(p.ibge) || p.ibge}`;
+    const extra = $('tt-extra');
+    clear(extra);
+    extra.append(el('span', '', 'lat, lon'), el('b', '', `${fmtCoord(p.lat)}, ${fmtCoord(p.lon)}`));
+    extra.hidden = false;
+    $('tt-hint').textContent = t('places.source');
+    $('tt-hint').hidden = false;
+    tip.hidden = false;
+    const x = Math.min(h.x + 14, $('map').clientWidth - 290);
+    tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, h.y - 38)}px)`;
+  }
+  /** Área tab: fire cells of the month with their nearest localities; each opens the real detection days. */
+  function renderPlacesBlock() {
+    const block = $('places-block'), box = $('places-box');
+    if (!block) return;
+    const cells = state.detail && state.detail.cells ? state.detail.cells.filter((c) => c[2] > 0) : [];
+    block.hidden = !(state.places && state.places.length);
+    clear(box);
+    if (block.hidden) return;
+    if (!cells.length) { box.append(el('p', 'muted', t('places.noFire', { period: period() }))); return; }
+    const top = cells.slice().sort((a, b) => b[2] - a[2]).slice(0, 12);
+    box.append(el('p', 'muted', t('places.howto', { n: I.num(cells.length), shown: top.length })));
+    const list = el('ul', 'places-list');
+    for (const c of top) {
+      const near = nearestPlaces(c[0], c[1], 2);
+      const li = el('li', 'places-item');
+      const head = el('button', 'places-item__head');
+      head.type = 'button';
+      head.append(el('strong', '', `${fmt1(c[2])} ${t('places.cellDays')}`), el('span', 'muted', `${fmtCoord(c[1])}, ${fmtCoord(c[0])}`));
+      const nearEl = el('p', 'places-item__near', near.map(placeText).join(' · '));
+      const days = el('div', 'places-item__days');
+      head.setAttribute('aria-expanded', 'false');
+      head.addEventListener('click', async () => {
+        const open = head.getAttribute('aria-expanded') === 'true';
+        head.setAttribute('aria-expanded', open ? 'false' : 'true');
+        clear(days);
+        if (open) return;
+        days.append(el('span', 'muted', t('day.loading')));
+        let r = null;
+        try { r = await state.source.cellDetections(c[0], c[1], state.detail.res, state.year, state.month); } catch (e) { console.warn('cell detections:', e.message); }
+        clear(days);
+        if (!r || !r.days.length) { days.append(el('span', 'muted', t('places.noDays'))); return; }
+        for (const d of r.days) {
+          const chip = el('span', d.provisional ? 'day-chip is-prov' : 'day-chip', `${d.date.slice(8, 10)}/${d.date.slice(5, 7)} · ${SENSOR_LABEL[d.sensor]}`);
+          chip.title = d.provisional ? t('day.prov') : '';
+          days.append(chip);
+        }
+      });
+      li.append(head, nearEl, days);
+      list.append(li);
+    }
+    box.append(list);
   }
 
   /* ---------- Projection with a validated uncertainty band (daily model, hindcast 2015–2025) ---------- */
@@ -1914,6 +2019,7 @@
     map.on('sphere', onSphereSelect);
     map.on('view', updateLateralScale);
     map.on('cell', onCellHover);
+    map.on('place', onPlaceHover);
 
     // Mode switcher (Município vs Esfera/Área 2D)
     let radiusTimer = 0;
@@ -1974,6 +2080,7 @@
       setupSearch();
       const ready = state.source.dataKind === 'firms_db' || state.source.dataKind === 'firms_index';
       if (ready) await refreshMap(); else watchHistory();
+      loadPlaces();
 
       // Cinematic flight in motion from Brazil overview into Goiás (or selected municipality)
       setTimeout(() => {

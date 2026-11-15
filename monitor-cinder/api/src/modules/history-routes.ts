@@ -193,6 +193,31 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
     return { ...out.projection, hindcast: out.hindcast };
   });
 
+  // IBGE localities (Censo 2022): vilas, povoados, comunidades — geographic reference for the map, never a fire input.
+  app.get('/api/localities', async (req, reply) => {
+    const q = z.object({ ibge: z.string().regex(/^52\d{5}$/).optional() }).safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid localities query', q.error.message);
+    const list = store.getLocalities(q.data.ibge);
+    if (!list) return problem(reply, 503, 'Localities not loaded', 'The IBGE localities are downloaded in the background on first start.');
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return { source: 'IBGE, Base de Localidades, Censo 2022', count: list.length, localities: list.map((l) => [l.id, l.ibge, l.name, l.kind, l.lon, l.lat]) };
+  });
+
+  // Detections behind one map cell: which days and which satellite saw fire there in the month.
+  app.get('/api/cell/detections', async (req, reply) => {
+    const q = z.object({
+      lon, lat,
+      res: z.coerce.number().refine((v): v is 1000 | 2000 | 5000 => v === 1000 || v === 2000 || v === 5000).default(1000),
+      year: z.coerce.number().int().min(2001).max(2100),
+      month: z.coerce.number().int().min(1).max(12),
+    }).safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid cell query', q.error.message);
+    const r = store.getCellDetections(q.data.lon, q.data.lat, q.data.res as 1000 | 2000 | 5000, q.data.year, q.data.month);
+    if (!r) return problem(reply, 503, 'History not loaded', 'Cell detections need the FIRMS index.');
+    reply.header('Cache-Control', 'public, max-age=600');
+    return r;
+  });
+
   // One month day by day (calendar of the History tab): municipality, state or circle.
   app.get('/api/daily', async (req, reply) => {
     const q = z

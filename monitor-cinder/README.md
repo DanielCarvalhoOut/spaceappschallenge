@@ -22,6 +22,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 | --- | --- |
 | NASA FIRMS — MODIS C6.1, VIIRS 375 m (S-NPP, NOAA-20, NOAA-21), science (SP) and near-real-time (NRT) | The only input of the harmonization, the anomaly and the projection |
 | IBGE — municipal boundaries and names | Aggregation units |
+| IBGE — Base de Localidades, 2022 Census (vilas, povoados, communities) | Map reference only: shown when zoomed in; nearest locality and straight-line distance to each fire cell |
 | INPE Programa Queimadas — reference satellite (AQUA MODIS afternoon) | External validation only |
 | NASA POWER, MODIS MOD13Q1 / MCD12Q1 | Context only, never cause |
 
