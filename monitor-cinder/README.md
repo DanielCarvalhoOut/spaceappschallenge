@@ -31,6 +31,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 | IBGE — Base de Localidades, 2022 Census (vilas, povoados, communities) | Map reference only: shown when zoomed in; nearest locality and straight-line distance to each fire cell |
 | INPE Programa Queimadas — reference satellite (AQUA MODIS afternoon) | External validation only |
 | NOAA GOES-19 ABI L2 Fire/Hot Spot (full disk, every 10 min, public NOAA open data) | Opt-in early notice only; never mixed into the harmonized series |
+| NOAA CPC Oceanic Niño Index (ONI) | Monthly forecast feature and ENSO context in the assistant; association only, never cause |
 | NASA POWER (daily point API); NASA ORNL DAAC MODIS web service (MOD13Q1 NDVI, MCD12Q1 land cover) | Context tab only, never cause |
 
 Data up to the last day FIRMS serves (NRT days are marked *provisional* in the interface).
@@ -79,6 +80,56 @@ Fitted on data up to 2014, band calibrated on 2015–2020, **scored only on 2021
 | 6 months | −19.9 % | 87.5 % | climatology |
 | next-day chance (Brier) | −5.6 % | — | hidden |
 
+## Monthly forecast (`GET /api/forecast?ibge=&year=&month=`)
+
+- Target: harmonized hotspot cell-days (1 km) per municipality and month. It forecasts **occurrence per area and month,
+  not fire behaviour** (speed, direction, reach).
+- Features: seasonality, hotspot lags (12 and 24 months, previous-year total), neighbours (5 nearest centroids), ONI
+  lagged 3 months. Ridge regression on log1p. NASA POWER and MCD12Q1 are not features (not loaded for all municipalities).
+- Temporal validation, never shuffled: trained on target years 2003–2019, tested on 2020–2025 (n = 17,712).
+
+Metrics (MAE vs climatology and persistence, Brier, P10–P90 coverage) are written by `npm run job:forecast` to
+`api/out/forecast_validation.json`; quote them from that file only. The model value is official only where it beats
+climatology; otherwise the climatological value is shown.
+
+
+## Assistant (`POST /api/assistant`)
+
+Body: `{ "question": string (3–500), "ibge"?: "52xxxxx", "lang"?: "pt" | "en" }`. Rate limit: 12 requests per minute.
+
+1. **Route** — keywords, or the small model when `GEMINI_API_KEY` is set (`gemini-3.5-flash-lite`), pick one intent:
+   historical statistics, forecast, ENSO comparison, declared interventions, mobilization ranking, controlled-burn
+   context.
+2. **Tools** — read-only aggregates of at most ~2 KB, each with n, base period and source.
+3. **Write** — a text template; the larger model (`gemini-3.5-flash`, thinking off, low `maxOutputTokens`) only for
+   multi-source answers (ENSO, interventions). A controlled-burn answer is always the fixed template, never a model.
+   The system prompt goes first and never changes, so the provider can cache the prefix. Three providers are supported: `GEMINI_API_KEY`,
+   `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. `LLM_PROVIDERS` (default `gemini,openai,anthropic`) sets the order among
+   the keys that are set; when the first fails, the next answers. Model names can be overridden per provider
+   (`*_ROUTER_MODEL`, `*_WRITER_MODEL`). Only Gemini was tested with a real key.
+4. **Check (deterministic, zero tokens)** — every number must exist in a tool result; every forecast needs interval,
+   training period and metric; every probability needs n and source; no causal sentence; no fire-behaviour claim; a
+   controlled-burn answer must deny authorisation, cite Lei 14.944/2024, the environmental agency and the Fire
+   Department; a group with n < 5 needs a small-sample warning; an association may be stated only when a tool reports
+   one. Two failures → the template, then only the verifiable facts. Each check is logged in
+   `api/out/logs/assistant_decisions.jsonl`.
+
+With an LLM key, the question and the tool aggregates of that answer are sent to the provider (Google). Nothing else
+leaves the server; the key travels in a header and is redacted from logs.
+
+Answers are cached by (municipality, intent, period, language). Data older than 24 h is flagged. Outside Goiás the
+answer is "no data".
+
+### Forecast and assistant: limits
+
+- With PostGIS up and both sensors loaded, forecast and assistant read `fire.calendar_monthly`; otherwise they fall
+  back to the in-memory FIRMS cell index. The intervention registry is still read from `api/seed/interventions.json`,
+  not from `fire.intervention`.
+- The free Gemini tier answers 429 under load; the assistant then serves the template answer.
+- ENSO phase is a monthly threshold on ONI (±0.5), not CPC's official episodes. Context and association only.
+- The intervention registry (`api/seed/interventions.json`) starts empty; before/after is an association, not an effect.
+- The Gemini path was tested with real calls on 15/11/2026; the Anthropic path only with a fake HTTP client.
+
 ## Limits
 
 - Per municipality the harmonization error is much larger than for the state (median WAPE 68.6 % over 217 municipalities, `api/out/internal_checks.json`) because counts are small;
@@ -114,6 +165,10 @@ npm run job:validate               # rewrites the evidence in api/out/
 ```
 
 The key is also used for the VIIRS confirmation of the opt-in fire notices; GOES-19 needs no key.
+
+**Monthly forecast and assistant:** run `npm run job:forecast` once (downloads ONI from NOAA CPC and writes
+`api/out/forecast_validation.json`; without it `/api/forecast` answers 503). The assistant works without any LLM key
+(keyword routing + templates); `GEMINI_API_KEY`, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in `.env` enable the LLM path.
 
 ## Stack
 

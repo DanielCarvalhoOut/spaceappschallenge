@@ -5,6 +5,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import * as history from '../db/history.js';
 import { registerHistoryRoutes } from './history-routes.js';
+import { registerForecastRoutes } from './forecast-routes.js';
+import { registerAssistantRoutes } from './assistant-routes.js';
 import { ibgeConnector } from '../connectors/ibge.js';
 import {
   IbgeCodeSchema,
@@ -349,4 +351,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   // Real-history routes (PostGIS): projection, exact circle, focos-raiz overlay, validation
   await registerHistoryRoutes(app);
+
+  // Forecast per municipality and month (validated against climatology and persistence)
+  await registerForecastRoutes(app);
+
+  // Conversational assistant (read-only tools + deterministic check of every answer)
+  await registerAssistantRoutes(app);
 }

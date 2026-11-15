@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "job:load-regions": "tsx src/jobs/load-regions.ts",
     "job:harmonize": "tsx src/jobs/harmonize.ts",
+    "job:forecast": "tsx src/jobs/forecast.ts",
     "job:db-load-regions": "tsx src/jobs/db-load-regions.ts",
     "job:ingest-firms-history": "tsx src/jobs/ingest-firms-history.ts",
     "job:build-history": "tsx src/jobs/build-history.ts",
