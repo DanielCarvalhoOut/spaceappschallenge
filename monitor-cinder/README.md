@@ -88,17 +88,32 @@ Fitted on data up to 2014, band calibrated on 2015–2020, **scored only on 2021
 
 ## Run it
 
-Requirements: Node 22 and a free FIRMS MAP_KEY (https://firms.modaps.eosdis.nasa.gov/api/map_key/).
+Requirements: Node 22. The repository already carries the harmonized FIRMS index of Goiás
+(`api/data/firms_goias_cells.json`, 2001 → 2026-11-14) and the IBGE boundaries (`api/data/ibge_uf_52.json`),
+so the whole app runs without a key and without downloads:
 
 ```bash
 cd monitor-cinder/api
-cp .env.example .env        # put FIRMS_MAP_KEY=... here; never commit it
+cp .env.example .env        # optional settings; never commit .env
 npm install
-npm run dev                 # API on http://localhost:8787; first start downloads 2001 → today (≈30–50 min, cached in data/)
-npm run job:validate        # rewrites the evidence in api/out/
+npm start                   # API on http://localhost:8787
 ```
 
-Open `Mapa iterativo/index.html` through a static server on the origin allowed by `CORS_ORIGIN` (default `.env.example`: `npx serve -l 8080 "Mapa iterativo"`, then http://localhost:8080). The front never calls FIRMS; it only talks to the API.
+In another terminal: `npx serve -l 8080 "Mapa iterativo"`, then http://localhost:8080
+(the origin allowed by `CORS_ORIGIN` in `.env.example`). The front never calls FIRMS; it only talks to the API.
+
+The same two files are in [this Google Drive folder](https://drive.google.com/drive/folders/1Jy69Rer6oaGyRSVgmKDhrblkDlWFEyAP)
+as `monitor-cinder-data.zip` (unzip into `monitor-cinder/api/`).
+
+**Optional, needs a free FIRMS MAP_KEY** (https://firms.modaps.eosdis.nasa.gov/api/map_key/) in `.env`:
+
+```bash
+npm run job:ingest-firms-history   # raw yearly FIRMS files into data/firms_years/ (~100 MB, 30–50 min)
+npm run job:build-cell-index       # rebuilds data/firms_goias_cells.json from them
+npm run job:validate               # rewrites the evidence in api/out/
+```
+
+The key is also used for the VIIRS confirmation of the opt-in fire notices; GOES-19 needs no key.
 
 ## Stack
 
