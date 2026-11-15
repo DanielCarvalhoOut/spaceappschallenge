@@ -160,6 +160,12 @@ Colunas do FIRMS, diferenças MODIS × VIIRS e tamanhos: ver `Tema_08_MODIS_VIIR
 
 > Se o erro for alto nos meses chuvosos (poucos focos), não esconder: mostrar o erro por mês em "Method & limits".
 
+### F2a · Sem banco: a API baixa o histórico real sozinha
+
+Sem PostGIS e sem `data/firms_goias_cells.json`, o `npm run dev` começa a baixar o histórico do NASA FIRMS em segundo plano (`job:build-cell-index`): API de área com a `FIRMS_MAP_KEY` (só a caixa de Goiás, MODIS_SP 2001–2025 e VIIRS_SNPP_SP 2012–2025, janelas de 5 dias, cerca de 2 900 requisições) e o arquivo anual do Brasil como reserva. Cada ano fica em `data/firms_years/`, então reiniciar não baixa de novo. Enquanto isso, `/api/meta` informa `dataKind: "loading"` com o progresso e as rotas de dados respondem 503. Ao terminar, calendários, mapa, faixa esperada (com retroteste calculado), círculo exato, células, focos-raiz e `out/validation.json` (erro 2012–2019 → 2020–2025) saem dos focos reais.
+
+Não existe mais dado sintético: sem semeadura de focos, sem tabela fixa de clima e sem DEMO no front. Os blocos A–D, o mapa de propensão e o score agro respondem 503 até serem refeitos com entradas reais.
+
 ### F2b · Histórico real, faixa esperada e focos-raiz (`schema_projecao.sql`)
 
 Mantém a normalização de F2 (confiança → célula-dia de 1 km → fator mensal VIIRS ÷ MODIS) e acrescenta, tudo calculado no banco a partir do FIRMS:
@@ -171,7 +177,7 @@ Mantém a normalização de F2 (confiança → célula-dia de 1 km → fator men
 - **Raio exato:** só as células cujo centro está dentro do círculo. Mínimo de 5 km com 1 km e de 1 km com VIIRS 500 m.
 - **Densidade** por 1.000 km² no `/api/map?metric=density`.
 
-Rotas novas (zod, problem+json, 503 enquanto não houver histórico): `GET /api/validation`, `GET /api/projection?ibge=&year=&month=`, `GET /api/area/history?lon=&lat=&radiusKm=&source=`, `GET /api/layers/recurrence?west=&south=&east=&north=&from=&to=&month=&source=&res=`, `GET /api/layers/cells?ibge=` ou `?lon=&lat=&radiusKm=` + `&year=&month=&res=` (células de 1, 2 ou 5 km dentro do município ou do círculo; a soma é o valor harmonizado da área no mês, conferido em `teste_projecao.sql`). `/api/meta` informa `dataKind: firms_db | synthetic`.
+Rotas novas (zod, problem+json, 503 enquanto não houver histórico): `GET /api/validation`, `GET /api/projection?ibge=&year=&month=`, `GET /api/area/history?lon=&lat=&radiusKm=&source=`, `GET /api/layers/recurrence?west=&south=&east=&north=&from=&to=&month=&source=&res=`, `GET /api/layers/cells?ibge=` ou `?lon=&lat=&radiusKm=` + `&year=&month=&res=` (células de 1, 2 ou 5 km dentro do município ou do círculo; a soma é o valor harmonizado da área no mês, conferido em `teste_projecao.sql`). `/api/meta` informa `dataKind: firms_db | firms_index | loading | none` e `chain` (último dia observado, início do NRT provisório, validação de cada elo MODIS→S-NPP, NOAA-20→S-NPP, NOAA-21→S-NPP). `GET /api/projection/horizons?ibge=` ou `?lon=&lat=&radiusKm=`: modelo diário binomial negativo (sazonalidade + lags 1/7/30 dias), simulado para 15 dias, meses e 6 meses; retroteste 2015–2025 (CRPS e Brier contra a climatologia, cobertura P10–P90) gravado em `out/projection_validation.json`; horizonte sem ganho mostra a climatologia. A faixa é calibrada com os erros das origens de 2015–2020 (alargamento em log1p até 80 % de cobertura) e pontuada só em 2021–2025. `npm run job:validate` grava a prova em `out/`: `internal_checks.json` (elos da cadeia, soma dos municípios = estado, retroteste calibrado), `projection_validation.json` e `external_validation.json` (série do satélite de referência do INPE/AQUA para Goiás, baixada de `data.inpe.br`: correlação mensal e anual, sinal da anomalia e 2026 já em NOAA-20/21); o INPE é só validação, nunca entrada.
 
 **Rodar (Windows, dados no D:\\):** o C: não tem espaço para o histórico. No Docker Desktop, *Settings → Resources → Advanced → Disk image location* → `D:\DockerData`, *Apply & restart*. Não montar `PGDATA` direto numa pasta NTFS, porque o Postgres recusa as permissões. Depois, em `monitor-cinder/`:
 

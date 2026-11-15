@@ -1,0 +1,1719 @@
+{
+  "source": "INPE Programa Queimadas, estatísticas por estado (satélite de referência AQUA_M-T desde 2002-07-04)",
+  "url": "https://data.inpe.br/queimadas/estatisticas/media/estatistica/paises/brasil.json",
+  "snapshot": "20261115T040001",
+  "dataLimite": "2026-11-14",
+  "uf": "52",
+  "rows": [
+    {
+      "year": 1998,
+      "month": 6,
+      "focos": 172
+    },
+    {
+      "year": 1998,
+      "month": 7,
+      "focos": 512
+    },
+    {
+      "year": 1998,
+      "month": 8,
+      "focos": 2216
+    },
+    {
+      "year": 1998,
+      "month": 9,
+      "focos": 2870
+    },
+    {
+      "year": 1998,
+      "month": 10,
+      "focos": 1036
+    },
+    {
+      "year": 1998,
+      "month": 11,
+      "focos": 48
+    },
+    {
+      "year": 1998,
+      "month": 12,
+      "focos": 13
+    },
+    {
+      "year": 1999,
+      "month": 1,
+      "focos": 14
+    },
+    {
+      "year": 1999,
+      "month": 2,
+      "focos": 334
+    },
+    {
+      "year": 1999,
+      "month": 3,
+      "focos": 1
+    },
+    {
+      "year": 1999,
+      "month": 4,
+      "focos": 25
+    },
+    {
+      "year": 1999,
+      "month": 5,
+      "focos": 98
+    },
+    {
+      "year": 1999,
+      "month": 6,
+      "focos": 252
+    },
+    {
+      "year": 1999,
+      "month": 7,
+      "focos": 311
+    },
+    {
+      "year": 1999,
+      "month": 8,
+      "focos": 1198
+    },
+    {
+      "year": 1999,
+      "month": 9,
+      "focos": 1898
+    },
+    {
+      "year": 1999,
+      "month": 10,
+      "focos": 743
+    },
+    {
+      "year": 1999,
+      "month": 11,
+      "focos": 111
+    },
+    {
+      "year": 1999,
+      "month": 12,
+      "focos": 20
+    },
+    {
+      "year": 2000,
+      "month": 1,
+      "focos": 10
+    },
+    {
+      "year": 2000,
+      "month": 2,
+      "focos": 11
+    },
+    {
+      "year": 2000,
+      "month": 3,
+      "focos": 4
+    },
+    {
+      "year": 2000,
+      "month": 4,
+      "focos": 16
+    },
+    {
+      "year": 2000,
+      "month": 5,
+      "focos": 58
+    },
+    {
+      "year": 2000,
+      "month": 6,
+      "focos": 222
+    },
+    {
+      "year": 2000,
+      "month": 7,
+      "focos": 332
+    },
+    {
+      "year": 2000,
+      "month": 8,
+      "focos": 925
+    },
+    {
+      "year": 2000,
+      "month": 9,
+      "focos": 1294
+    },
+    {
+      "year": 2000,
+      "month": 10,
+      "focos": 906
+    },
+    {
+      "year": 2000,
+      "month": 11,
+      "focos": 26
+    },
+    {
+      "year": 2000,
+      "month": 12,
+      "focos": 6
+    },
+    {
+      "year": 2001,
+      "month": 1,
+      "focos": 28
+    },
+    {
+      "year": 2001,
+      "month": 2,
+      "focos": 9
+    },
+    {
+      "year": 2001,
+      "month": 3,
+      "focos": 10
+    },
+    {
+      "year": 2001,
+      "month": 4,
+      "focos": 49
+    },
+    {
+      "year": 2001,
+      "month": 5,
+      "focos": 85
+    },
+    {
+      "year": 2001,
+      "month": 6,
+      "focos": 209
+    },
+    {
+      "year": 2001,
+      "month": 7,
+      "focos": 370
+    },
+    {
+      "year": 2001,
+      "month": 8,
+      "focos": 788
+    },
+    {
+      "year": 2001,
+      "month": 9,
+      "focos": 1861
+    },
+    {
+      "year": 2001,
+      "month": 10,
+      "focos": 477
+    },
+    {
+      "year": 2001,
+      "month": 11,
+      "focos": 15
+    },
+    {
+      "year": 2001,
+      "month": 12,
+      "focos": 18
+    },
+    {
+      "year": 2002,
+      "month": 1,
+      "focos": 12
+    },
+    {
+      "year": 2002,
+      "month": 2,
+      "focos": 9
+    },
+    {
+      "year": 2002,
+      "month": 3,
+      "focos": 48
+    },
+    {
+      "year": 2002,
+      "month": 4,
+      "focos": 78
+    },
+    {
+      "year": 2002,
+      "month": 5,
+      "focos": 171
+    },
+    {
+      "year": 2002,
+      "month": 6,
+      "focos": 303
+    },
+    {
+      "year": 2002,
+      "month": 7,
+      "focos": 792
+    },
+    {
+      "year": 2002,
+      "month": 8,
+      "focos": 1498
+    },
+    {
+      "year": 2002,
+      "month": 9,
+      "focos": 4412
+    },
+    {
+      "year": 2002,
+      "month": 10,
+      "focos": 1665
+    },
+    {
+      "year": 2002,
+      "month": 11,
+      "focos": 273
+    },
+    {
+      "year": 2002,
+      "month": 12,
+      "focos": 118
+    },
+    {
+      "year": 2003,
+      "month": 1,
+      "focos": 13
+    },
+    {
+      "year": 2003,
+      "month": 2,
+      "focos": 55
+    },
+    {
+      "year": 2003,
+      "month": 3,
+      "focos": 34
+    },
+    {
+      "year": 2003,
+      "month": 4,
+      "focos": 127
+    },
+    {
+      "year": 2003,
+      "month": 5,
+      "focos": 265
+    },
+    {
+      "year": 2003,
+      "month": 6,
+      "focos": 855
+    },
+    {
+      "year": 2003,
+      "month": 7,
+      "focos": 867
+    },
+    {
+      "year": 2003,
+      "month": 8,
+      "focos": 975
+    },
+    {
+      "year": 2003,
+      "month": 9,
+      "focos": 1978
+    },
+    {
+      "year": 2003,
+      "month": 10,
+      "focos": 1318
+    },
+    {
+      "year": 2003,
+      "month": 11,
+      "focos": 212
+    },
+    {
+      "year": 2003,
+      "month": 12,
+      "focos": 175
+    },
+    {
+      "year": 2004,
+      "month": 1,
+      "focos": 15
+    },
+    {
+      "year": 2004,
+      "month": 2,
+      "focos": 14
+    },
+    {
+      "year": 2004,
+      "month": 3,
+      "focos": 59
+    },
+    {
+      "year": 2004,
+      "month": 4,
+      "focos": 84
+    },
+    {
+      "year": 2004,
+      "month": 5,
+      "focos": 313
+    },
+    {
+      "year": 2004,
+      "month": 6,
+      "focos": 515
+    },
+    {
+      "year": 2004,
+      "month": 7,
+      "focos": 852
+    },
+    {
+      "year": 2004,
+      "month": 8,
+      "focos": 1618
+    },
+    {
+      "year": 2004,
+      "month": 9,
+      "focos": 3544
+    },
+    {
+      "year": 2004,
+      "month": 10,
+      "focos": 1548
+    },
+    {
+      "year": 2004,
+      "month": 11,
+      "focos": 356
+    },
+    {
+      "year": 2004,
+      "month": 12,
+      "focos": 94
+    },
+    {
+      "year": 2005,
+      "month": 1,
+      "focos": 30
+    },
+    {
+      "year": 2005,
+      "month": 2,
+      "focos": 110
+    },
+    {
+      "year": 2005,
+      "month": 3,
+      "focos": 46
+    },
+    {
+      "year": 2005,
+      "month": 4,
+      "focos": 150
+    },
+    {
+      "year": 2005,
+      "month": 5,
+      "focos": 269
+    },
+    {
+      "year": 2005,
+      "month": 6,
+      "focos": 248
+    },
+    {
+      "year": 2005,
+      "month": 7,
+      "focos": 536
+    },
+    {
+      "year": 2005,
+      "month": 8,
+      "focos": 970
+    },
+    {
+      "year": 2005,
+      "month": 9,
+      "focos": 1565
+    },
+    {
+      "year": 2005,
+      "month": 10,
+      "focos": 2018
+    },
+    {
+      "year": 2005,
+      "month": 11,
+      "focos": 169
+    },
+    {
+      "year": 2005,
+      "month": 12,
+      "focos": 17
+    },
+    {
+      "year": 2006,
+      "month": 1,
+      "focos": 104
+    },
+    {
+      "year": 2006,
+      "month": 2,
+      "focos": 28
+    },
+    {
+      "year": 2006,
+      "month": 3,
+      "focos": 42
+    },
+    {
+      "year": 2006,
+      "month": 4,
+      "focos": 61
+    },
+    {
+      "year": 2006,
+      "month": 5,
+      "focos": 192
+    },
+    {
+      "year": 2006,
+      "month": 6,
+      "focos": 298
+    },
+    {
+      "year": 2006,
+      "month": 7,
+      "focos": 502
+    },
+    {
+      "year": 2006,
+      "month": 8,
+      "focos": 948
+    },
+    {
+      "year": 2006,
+      "month": 9,
+      "focos": 1630
+    },
+    {
+      "year": 2006,
+      "month": 10,
+      "focos": 270
+    },
+    {
+      "year": 2006,
+      "month": 11,
+      "focos": 254
+    },
+    {
+      "year": 2006,
+      "month": 12,
+      "focos": 58
+    },
+    {
+      "year": 2007,
+      "month": 1,
+      "focos": 48
+    },
+    {
+      "year": 2007,
+      "month": 2,
+      "focos": 20
+    },
+    {
+      "year": 2007,
+      "month": 3,
+      "focos": 104
+    },
+    {
+      "year": 2007,
+      "month": 4,
+      "focos": 83
+    },
+    {
+      "year": 2007,
+      "month": 5,
+      "focos": 349
+    },
+    {
+      "year": 2007,
+      "month": 6,
+      "focos": 690
+    },
+    {
+      "year": 2007,
+      "month": 7,
+      "focos": 925
+    },
+    {
+      "year": 2007,
+      "month": 8,
+      "focos": 2948
+    },
+    {
+      "year": 2007,
+      "month": 9,
+      "focos": 4978
+    },
+    {
+      "year": 2007,
+      "month": 10,
+      "focos": 2169
+    },
+    {
+      "year": 2007,
+      "month": 11,
+      "focos": 240
+    },
+    {
+      "year": 2007,
+      "month": 12,
+      "focos": 85
+    },
+    {
+      "year": 2008,
+      "month": 1,
+      "focos": 33
+    },
+    {
+      "year": 2008,
+      "month": 2,
+      "focos": 25
+    },
+    {
+      "year": 2008,
+      "month": 3,
+      "focos": 23
+    },
+    {
+      "year": 2008,
+      "month": 4,
+      "focos": 64
+    },
+    {
+      "year": 2008,
+      "month": 5,
+      "focos": 200
+    },
+    {
+      "year": 2008,
+      "month": 6,
+      "focos": 209
+    },
+    {
+      "year": 2008,
+      "month": 7,
+      "focos": 552
+    },
+    {
+      "year": 2008,
+      "month": 8,
+      "focos": 987
+    },
+    {
+      "year": 2008,
+      "month": 9,
+      "focos": 1464
+    },
+    {
+      "year": 2008,
+      "month": 10,
+      "focos": 1425
+    },
+    {
+      "year": 2008,
+      "month": 11,
+      "focos": 195
+    },
+    {
+      "year": 2008,
+      "month": 12,
+      "focos": 63
+    },
+    {
+      "year": 2009,
+      "month": 1,
+      "focos": 47
+    },
+    {
+      "year": 2009,
+      "month": 2,
+      "focos": 45
+    },
+    {
+      "year": 2009,
+      "month": 3,
+      "focos": 60
+    },
+    {
+      "year": 2009,
+      "month": 4,
+      "focos": 37
+    },
+    {
+      "year": 2009,
+      "month": 5,
+      "focos": 136
+    },
+    {
+      "year": 2009,
+      "month": 6,
+      "focos": 201
+    },
+    {
+      "year": 2009,
+      "month": 7,
+      "focos": 481
+    },
+    {
+      "year": 2009,
+      "month": 8,
+      "focos": 638
+    },
+    {
+      "year": 2009,
+      "month": 9,
+      "focos": 709
+    },
+    {
+      "year": 2009,
+      "month": 10,
+      "focos": 413
+    },
+    {
+      "year": 2009,
+      "month": 11,
+      "focos": 111
+    },
+    {
+      "year": 2009,
+      "month": 12,
+      "focos": 42
+    },
+    {
+      "year": 2010,
+      "month": 1,
+      "focos": 60
+    },
+    {
+      "year": 2010,
+      "month": 2,
+      "focos": 100
+    },
+    {
+      "year": 2010,
+      "month": 3,
+      "focos": 96
+    },
+    {
+      "year": 2010,
+      "month": 4,
+      "focos": 144
+    },
+    {
+      "year": 2010,
+      "month": 5,
+      "focos": 280
+    },
+    {
+      "year": 2010,
+      "month": 6,
+      "focos": 723
+    },
+    {
+      "year": 2010,
+      "month": 7,
+      "focos": 1224
+    },
+    {
+      "year": 2010,
+      "month": 8,
+      "focos": 3336
+    },
+    {
+      "year": 2010,
+      "month": 9,
+      "focos": 5906
+    },
+    {
+      "year": 2010,
+      "month": 10,
+      "focos": 1418
+    },
+    {
+      "year": 2010,
+      "month": 11,
+      "focos": 79
+    },
+    {
+      "year": 2010,
+      "month": 12,
+      "focos": 53
+    },
+    {
+      "year": 2011,
+      "month": 1,
+      "focos": 40
+    },
+    {
+      "year": 2011,
+      "month": 2,
+      "focos": 56
+    },
+    {
+      "year": 2011,
+      "month": 3,
+      "focos": 26
+    },
+    {
+      "year": 2011,
+      "month": 4,
+      "focos": 111
+    },
+    {
+      "year": 2011,
+      "month": 5,
+      "focos": 161
+    },
+    {
+      "year": 2011,
+      "month": 6,
+      "focos": 333
+    },
+    {
+      "year": 2011,
+      "month": 7,
+      "focos": 600
+    },
+    {
+      "year": 2011,
+      "month": 8,
+      "focos": 1549
+    },
+    {
+      "year": 2011,
+      "month": 9,
+      "focos": 2250
+    },
+    {
+      "year": 2011,
+      "month": 10,
+      "focos": 539
+    },
+    {
+      "year": 2011,
+      "month": 11,
+      "focos": 76
+    },
+    {
+      "year": 2011,
+      "month": 12,
+      "focos": 25
+    },
+    {
+      "year": 2012,
+      "month": 1,
+      "focos": 22
+    },
+    {
+      "year": 2012,
+      "month": 2,
+      "focos": 29
+    },
+    {
+      "year": 2012,
+      "month": 3,
+      "focos": 71
+    },
+    {
+      "year": 2012,
+      "month": 4,
+      "focos": 116
+    },
+    {
+      "year": 2012,
+      "month": 5,
+      "focos": 123
+    },
+    {
+      "year": 2012,
+      "month": 6,
+      "focos": 254
+    },
+    {
+      "year": 2012,
+      "month": 7,
+      "focos": 556
+    },
+    {
+      "year": 2012,
+      "month": 8,
+      "focos": 899
+    },
+    {
+      "year": 2012,
+      "month": 9,
+      "focos": 2334
+    },
+    {
+      "year": 2012,
+      "month": 10,
+      "focos": 1450
+    },
+    {
+      "year": 2012,
+      "month": 11,
+      "focos": 64
+    },
+    {
+      "year": 2012,
+      "month": 12,
+      "focos": 113
+    },
+    {
+      "year": 2013,
+      "month": 1,
+      "focos": 43
+    },
+    {
+      "year": 2013,
+      "month": 2,
+      "focos": 67
+    },
+    {
+      "year": 2013,
+      "month": 3,
+      "focos": 74
+    },
+    {
+      "year": 2013,
+      "month": 4,
+      "focos": 61
+    },
+    {
+      "year": 2013,
+      "month": 5,
+      "focos": 187
+    },
+    {
+      "year": 2013,
+      "month": 6,
+      "focos": 202
+    },
+    {
+      "year": 2013,
+      "month": 7,
+      "focos": 356
+    },
+    {
+      "year": 2013,
+      "month": 8,
+      "focos": 527
+    },
+    {
+      "year": 2013,
+      "month": 9,
+      "focos": 735
+    },
+    {
+      "year": 2013,
+      "month": 10,
+      "focos": 567
+    },
+    {
+      "year": 2013,
+      "month": 11,
+      "focos": 162
+    },
+    {
+      "year": 2013,
+      "month": 12,
+      "focos": 69
+    },
+    {
+      "year": 2014,
+      "month": 1,
+      "focos": 60
+    },
+    {
+      "year": 2014,
+      "month": 2,
+      "focos": 34
+    },
+    {
+      "year": 2014,
+      "month": 3,
+      "focos": 54
+    },
+    {
+      "year": 2014,
+      "month": 4,
+      "focos": 117
+    },
+    {
+      "year": 2014,
+      "month": 5,
+      "focos": 197
+    },
+    {
+      "year": 2014,
+      "month": 6,
+      "focos": 302
+    },
+    {
+      "year": 2014,
+      "month": 7,
+      "focos": 424
+    },
+    {
+      "year": 2014,
+      "month": 8,
+      "focos": 1201
+    },
+    {
+      "year": 2014,
+      "month": 9,
+      "focos": 1568
+    },
+    {
+      "year": 2014,
+      "month": 10,
+      "focos": 1728
+    },
+    {
+      "year": 2014,
+      "month": 11,
+      "focos": 160
+    },
+    {
+      "year": 2014,
+      "month": 12,
+      "focos": 52
+    },
+    {
+      "year": 2015,
+      "month": 1,
+      "focos": 105
+    },
+    {
+      "year": 2015,
+      "month": 2,
+      "focos": 43
+    },
+    {
+      "year": 2015,
+      "month": 3,
+      "focos": 48
+    },
+    {
+      "year": 2015,
+      "month": 4,
+      "focos": 58
+    },
+    {
+      "year": 2015,
+      "month": 5,
+      "focos": 117
+    },
+    {
+      "year": 2015,
+      "month": 6,
+      "focos": 263
+    },
+    {
+      "year": 2015,
+      "month": 7,
+      "focos": 320
+    },
+    {
+      "year": 2015,
+      "month": 8,
+      "focos": 876
+    },
+    {
+      "year": 2015,
+      "month": 9,
+      "focos": 2033
+    },
+    {
+      "year": 2015,
+      "month": 10,
+      "focos": 1607
+    },
+    {
+      "year": 2015,
+      "month": 11,
+      "focos": 490
+    },
+    {
+      "year": 2015,
+      "month": 12,
+      "focos": 147
+    },
+    {
+      "year": 2016,
+      "month": 1,
+      "focos": 27
+    },
+    {
+      "year": 2016,
+      "month": 2,
+      "focos": 69
+    },
+    {
+      "year": 2016,
+      "month": 3,
+      "focos": 107
+    },
+    {
+      "year": 2016,
+      "month": 4,
+      "focos": 152
+    },
+    {
+      "year": 2016,
+      "month": 5,
+      "focos": 210
+    },
+    {
+      "year": 2016,
+      "month": 6,
+      "focos": 261
+    },
+    {
+      "year": 2016,
+      "month": 7,
+      "focos": 815
+    },
+    {
+      "year": 2016,
+      "month": 8,
+      "focos": 1038
+    },
+    {
+      "year": 2016,
+      "month": 9,
+      "focos": 1571
+    },
+    {
+      "year": 2016,
+      "month": 10,
+      "focos": 488
+    },
+    {
+      "year": 2016,
+      "month": 11,
+      "focos": 115
+    },
+    {
+      "year": 2016,
+      "month": 12,
+      "focos": 59
+    },
+    {
+      "year": 2017,
+      "month": 1,
+      "focos": 46
+    },
+    {
+      "year": 2017,
+      "month": 2,
+      "focos": 64
+    },
+    {
+      "year": 2017,
+      "month": 3,
+      "focos": 91
+    },
+    {
+      "year": 2017,
+      "month": 4,
+      "focos": 58
+    },
+    {
+      "year": 2017,
+      "month": 5,
+      "focos": 138
+    },
+    {
+      "year": 2017,
+      "month": 6,
+      "focos": 308
+    },
+    {
+      "year": 2017,
+      "month": 7,
+      "focos": 433
+    },
+    {
+      "year": 2017,
+      "month": 8,
+      "focos": 1109
+    },
+    {
+      "year": 2017,
+      "month": 9,
+      "focos": 2155
+    },
+    {
+      "year": 2017,
+      "month": 10,
+      "focos": 1858
+    },
+    {
+      "year": 2017,
+      "month": 11,
+      "focos": 125
+    },
+    {
+      "year": 2017,
+      "month": 12,
+      "focos": 43
+    },
+    {
+      "year": 2018,
+      "month": 1,
+      "focos": 54
+    },
+    {
+      "year": 2018,
+      "month": 2,
+      "focos": 41
+    },
+    {
+      "year": 2018,
+      "month": 3,
+      "focos": 113
+    },
+    {
+      "year": 2018,
+      "month": 4,
+      "focos": 74
+    },
+    {
+      "year": 2018,
+      "month": 5,
+      "focos": 181
+    },
+    {
+      "year": 2018,
+      "month": 6,
+      "focos": 183
+    },
+    {
+      "year": 2018,
+      "month": 7,
+      "focos": 405
+    },
+    {
+      "year": 2018,
+      "month": 8,
+      "focos": 518
+    },
+    {
+      "year": 2018,
+      "month": 9,
+      "focos": 1070
+    },
+    {
+      "year": 2018,
+      "month": 10,
+      "focos": 345
+    },
+    {
+      "year": 2018,
+      "month": 11,
+      "focos": 36
+    },
+    {
+      "year": 2018,
+      "month": 12,
+      "focos": 90
+    },
+    {
+      "year": 2019,
+      "month": 1,
+      "focos": 129
+    },
+    {
+      "year": 2019,
+      "month": 2,
+      "focos": 88
+    },
+    {
+      "year": 2019,
+      "month": 3,
+      "focos": 138
+    },
+    {
+      "year": 2019,
+      "month": 4,
+      "focos": 83
+    },
+    {
+      "year": 2019,
+      "month": 5,
+      "focos": 134
+    },
+    {
+      "year": 2019,
+      "month": 6,
+      "focos": 217
+    },
+    {
+      "year": 2019,
+      "month": 7,
+      "focos": 403
+    },
+    {
+      "year": 2019,
+      "month": 8,
+      "focos": 698
+    },
+    {
+      "year": 2019,
+      "month": 9,
+      "focos": 4149
+    },
+    {
+      "year": 2019,
+      "month": 10,
+      "focos": 873
+    },
+    {
+      "year": 2019,
+      "month": 11,
+      "focos": 160
+    },
+    {
+      "year": 2019,
+      "month": 12,
+      "focos": 88
+    },
+    {
+      "year": 2020,
+      "month": 1,
+      "focos": 60
+    },
+    {
+      "year": 2020,
+      "month": 2,
+      "focos": 92
+    },
+    {
+      "year": 2020,
+      "month": 3,
+      "focos": 124
+    },
+    {
+      "year": 2020,
+      "month": 4,
+      "focos": 156
+    },
+    {
+      "year": 2020,
+      "month": 5,
+      "focos": 150
+    },
+    {
+      "year": 2020,
+      "month": 6,
+      "focos": 314
+    },
+    {
+      "year": 2020,
+      "month": 7,
+      "focos": 402
+    },
+    {
+      "year": 2020,
+      "month": 8,
+      "focos": 964
+    },
+    {
+      "year": 2020,
+      "month": 9,
+      "focos": 1825
+    },
+    {
+      "year": 2020,
+      "month": 10,
+      "focos": 1622
+    },
+    {
+      "year": 2020,
+      "month": 11,
+      "focos": 229
+    },
+    {
+      "year": 2020,
+      "month": 12,
+      "focos": 70
+    },
+    {
+      "year": 2021,
+      "month": 1,
+      "focos": 63
+    },
+    {
+      "year": 2021,
+      "month": 2,
+      "focos": 89
+    },
+    {
+      "year": 2021,
+      "month": 3,
+      "focos": 86
+    },
+    {
+      "year": 2021,
+      "month": 4,
+      "focos": 110
+    },
+    {
+      "year": 2021,
+      "month": 5,
+      "focos": 255
+    },
+    {
+      "year": 2021,
+      "month": 6,
+      "focos": 401
+    },
+    {
+      "year": 2021,
+      "month": 7,
+      "focos": 627
+    },
+    {
+      "year": 2021,
+      "month": 8,
+      "focos": 1056
+    },
+    {
+      "year": 2021,
+      "month": 9,
+      "focos": 2634
+    },
+    {
+      "year": 2021,
+      "month": 10,
+      "focos": 576
+    },
+    {
+      "year": 2021,
+      "month": 11,
+      "focos": 71
+    },
+    {
+      "year": 2021,
+      "month": 12,
+      "focos": 52
+    },
+    {
+      "year": 2022,
+      "month": 1,
+      "focos": 69
+    },
+    {
+      "year": 2022,
+      "month": 2,
+      "focos": 96
+    },
+    {
+      "year": 2022,
+      "month": 3,
+      "focos": 120
+    },
+    {
+      "year": 2022,
+      "month": 4,
+      "focos": 124
+    },
+    {
+      "year": 2022,
+      "month": 5,
+      "focos": 415
+    },
+    {
+      "year": 2022,
+      "month": 6,
+      "focos": 394
+    },
+    {
+      "year": 2022,
+      "month": 7,
+      "focos": 553
+    },
+    {
+      "year": 2022,
+      "month": 8,
+      "focos": 975
+    },
+    {
+      "year": 2022,
+      "month": 9,
+      "focos": 1151
+    },
+    {
+      "year": 2022,
+      "month": 10,
+      "focos": 752
+    },
+    {
+      "year": 2022,
+      "month": 11,
+      "focos": 119
+    },
+    {
+      "year": 2022,
+      "month": 12,
+      "focos": 28
+    },
+    {
+      "year": 2023,
+      "month": 1,
+      "focos": 12
+    },
+    {
+      "year": 2023,
+      "month": 2,
+      "focos": 88
+    },
+    {
+      "year": 2023,
+      "month": 3,
+      "focos": 104
+    },
+    {
+      "year": 2023,
+      "month": 4,
+      "focos": 134
+    },
+    {
+      "year": 2023,
+      "month": 5,
+      "focos": 292
+    },
+    {
+      "year": 2023,
+      "month": 6,
+      "focos": 343
+    },
+    {
+      "year": 2023,
+      "month": 7,
+      "focos": 366
+    },
+    {
+      "year": 2023,
+      "month": 8,
+      "focos": 488
+    },
+    {
+      "year": 2023,
+      "month": 9,
+      "focos": 651
+    },
+    {
+      "year": 2023,
+      "month": 10,
+      "focos": 369
+    },
+    {
+      "year": 2023,
+      "month": 11,
+      "focos": 181
+    },
+    {
+      "year": 2023,
+      "month": 12,
+      "focos": 132
+    },
+    {
+      "year": 2024,
+      "month": 1,
+      "focos": 126
+    },
+    {
+      "year": 2024,
+      "month": 2,
+      "focos": 120
+    },
+    {
+      "year": 2024,
+      "month": 3,
+      "focos": 219
+    },
+    {
+      "year": 2024,
+      "month": 4,
+      "focos": 115
+    },
+    {
+      "year": 2024,
+      "month": 5,
+      "focos": 230
+    },
+    {
+      "year": 2024,
+      "month": 6,
+      "focos": 260
+    },
+    {
+      "year": 2024,
+      "month": 7,
+      "focos": 495
+    },
+    {
+      "year": 2024,
+      "month": 8,
+      "focos": 1120
+    },
+    {
+      "year": 2024,
+      "month": 9,
+      "focos": 3111
+    },
+    {
+      "year": 2024,
+      "month": 10,
+      "focos": 451
+    },
+    {
+      "year": 2024,
+      "month": 11,
+      "focos": 49
+    },
+    {
+      "year": 2024,
+      "month": 12,
+      "focos": 66
+    },
+    {
+      "year": 2025,
+      "month": 1,
+      "focos": 104
+    },
+    {
+      "year": 2025,
+      "month": 2,
+      "focos": 66
+    },
+    {
+      "year": 2025,
+      "month": 3,
+      "focos": 96
+    },
+    {
+      "year": 2025,
+      "month": 4,
+      "focos": 45
+    },
+    {
+      "year": 2025,
+      "month": 5,
+      "focos": 151
+    },
+    {
+      "year": 2025,
+      "month": 6,
+      "focos": 241
+    },
+    {
+      "year": 2025,
+      "month": 7,
+      "focos": 327
+    },
+    {
+      "year": 2025,
+      "month": 8,
+      "focos": 892
+    },
+    {
+      "year": 2025,
+      "month": 9,
+      "focos": 1625
+    },
+    {
+      "year": 2025,
+      "month": 10,
+      "focos": 1101
+    },
+    {
+      "year": 2025,
+      "month": 11,
+      "focos": 194
+    },
+    {
+      "year": 2025,
+      "month": 12,
+      "focos": 36
+    },
+    {
+      "year": 2026,
+      "month": 1,
+      "focos": 35
+    },
+    {
+      "year": 2026,
+      "month": 2,
+      "focos": 26
+    },
+    {
+      "year": 2026,
+      "month": 3,
+      "focos": 25
+    },
+    {
+      "year": 2026,
+      "month": 4,
+      "focos": 88
+    },
+    {
+      "year": 2026,
+      "month": 5,
+      "focos": 136
+    },
+    {
+      "year": 2026,
+      "month": 6,
+      "focos": 155
+    },
+    {
+      "year": 2026,
+      "month": 7,
+      "focos": 238
+    },
+    {
+      "year": 2026,
+      "month": 8,
+      "focos": 738
+    },
+    {
+      "year": 2026,
+      "month": 9,
+      "focos": 431
+    },
+    {
+      "year": 2026,
+      "month": 10,
+      "focos": 404
+    },
+    {
+      "year": 2026,
+      "month": 11,
+      "focos": 70
+    }
+  ]
+}

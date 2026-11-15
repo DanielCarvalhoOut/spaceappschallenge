@@ -9,9 +9,17 @@ Prazo de submissão: **domingo, 15/11/2026, 23h59 no horário do evento local** 
 | Pasta | Conteúdo |
 | --- | --- |
 | `Tema_08_MODIS_VIIRS/` | **Foco (Monitor Cinder).** Dados do FIRMS, harmonização, banco testado (PostGIS) com padrão histórico, anomalia e alertas, contrato da API e catálogo |
-| `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás por município do IBGE, painel com calendário e padrão histórico. Abre com dois cliques; sem API entra em modo DEMO |
+| `monitor-cinder/` | **App do Monitor Cinder.** [`README.md`](monitor-cinder/README.md) em inglês para o júri (o que faz, como harmoniza, provas, como rodar). `api/` é o back (Node 22 + TypeScript); `api/out/` guarda as provas geradas por código (`npm run job:validate`) |
+| `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás em largura total, detalhes em janela com abas (Resumo, Projeção, Histórico, Área, Contexto), hover com resumo e análise por círculo que conta só o que está dentro dele. Todos os números vêm da API (histórico real do NASA FIRMS, 2001 até ontem); sem API mostra só os contornos |
 | `IMPLEMENTACAO.md` / `CLAUDE.md` | Guia de implementação (back em TypeScript, conectores NASA/IBGE/INPE/Embrapa) e regras para o Claude Code |
 | `00_Geral/` | Kit de decisão, regras de entrega e recursos dos desafios, vencedores globais de 2025 (PDFs) |
+
+## Números do pitch (todos saem de `monitor-cinder/api/out/`)
+
+- Harmonização por satélite, testada fora da amostra: MODIS→S-NPP 12,4 % de erro (r 0,981); NOAA-20→S-NPP 2,5 %; NOAA-21→S-NPP 3,0 % (`internal_checks.json`).
+- Contra o INPE (satélite de referência, cadeia independente): correlação mensal 0,955 em 286 meses; mesma direção da anomalia em 92,9 % dos meses fora do normal (`external_validation.json`).
+- Projeção com faixa de incerteza validada em 2021–2025: 15 dias +18,7 % sobre a climatologia, 87,5 % dentro da faixa; mês +8,8 %, 90 %; 6 meses e chance diária sem ganho, por isso não aparecem (`projection_validation.json`).
+- Por município o erro é maior (mediana 68,6 %, `internal_checks.json`): o número forte é o do estado.
 
 ## Versões online (atualizadas)
 

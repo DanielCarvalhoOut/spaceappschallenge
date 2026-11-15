@@ -4,8 +4,12 @@ import { isMain } from '../core/entry.js';
 
 export async function runHarmonize(): Promise<void> {
   await store.init();
-  const { validation, inpeCheck } = store.ensureValidationArtifacts();
-  logger.info({ validation, inpeCheck }, 'job:harmonize completed -> out/validation.json & out/inpe_check.json');
+  const validation = store.ensureValidationArtifacts();
+  if (!validation) {
+    logger.warn('No FIRMS history yet: run job:build-cell-index (or the PostGIS jobs) first');
+    return;
+  }
+  logger.info({ validation }, 'job:harmonize completed -> out/validation.json');
 }
 
 if (isMain(import.meta.url)) {

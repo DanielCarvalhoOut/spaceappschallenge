@@ -6,6 +6,67 @@ import { logger, redactSecrets } from './core/logger.js';
 import { store } from './db/store.js';
 import { registerRoutes } from './modules/routes.js';
 import { isMain } from './core/entry.js';
+import { hasHistory } from './db/history.js';
+import { loadCellIndex } from './core/cell-index.js';
+import { historyStatus } from './core/history-status.js';
+import { runBuildCellIndex } from './jobs/build-cell-index.js';
+import { fetchLocalities, loadCachedLocalities } from './connectors/ibge-localities.js';
+
+/** IBGE localities (Censo 2022): cached in data/; downloaded once in the background when missing. Map reference only. */
+export function startLocalitiesLoad(): void {
+  const cached = loadCachedLocalities('52');
+  if (cached) { store.setLocalities(cached); return; }
+  void (async () => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 120_000);
+    try { store.setLocalities(await fetchLocalities('52', 'GO', ctrl.signal)); }
+    catch (err) { logger.warn({ err: redactSecrets(err instanceof Error ? err.message : String(err)) }, 'IBGE localities not loaded (map works without them)'); }
+    finally { clearTimeout(t); }
+  })();
+}
+
+/**
+ * Without PostGIS history and without the cell index, load the real FIRMS history in the background
+ * (job:build-cell-index). The API answers meanwhile; data routes return 503 with the progress.
+ */
+export function startHistoryLoadIfMissing(): void {
+  if (historyStatus.phase === 'building') return;
+  void (async () => {
+    if (await hasHistory()) { historyStatus.phase = 'ready'; return; }
+    const existing = loadCellIndex();
+    // An index older than 6 h is refreshed in the background (only the current year is fetched again);
+    // meanwhile the API keeps serving it.
+    // ...and also when it stops more than 3 days before today (a year or a satellite failed to load).
+    const lastDay = existing ? Math.max(...Object.values(existing.sensors).map((r) => r.last ?? -1)) : -1;
+    const behind = Math.floor(Date.now() / 86_400_000) - lastDay > 3;
+    if (existing && !behind && Date.now() - Date.parse(existing.builtAt) < 6 * 3_600_000) { historyStatus.phase = 'ready'; return; }
+    historyStatus.phase = existing ? 'ready' : 'building';
+    historyStatus.startedAt = new Date().toISOString();
+    historyStatus.error = null;
+    logger.info(existing ? 'Refreshing the FIRMS history up to today in the background' : 'No FIRMS history yet: loading it in the background (job:build-cell-index, 2001 to today)');
+    try {
+      await runBuildCellIndex(2001);
+      store.reloadFromIndex();
+      historyStatus.phase = 'ready';
+    } catch (err) {
+      historyStatus.phase = 'failed';
+      historyStatus.error = redactSecrets(err instanceof Error ? err.message : String(err));
+      logger.error({ err: historyStatus.error }, 'FIRMS history load failed');
+    }
+  })();
+}
+
+/**
+ * CORS: the configured origin(s), comma-separated. When the configured front is on this machine (localhost),
+ * any localhost port is accepted too, so the front keeps working when its port was already taken by another program.
+ * Any other site is refused.
+ */
+export function corsAllows(configured: string): (origin: string) => boolean {
+  const allowed = configured.split(',').map((o) => o.trim()).filter(Boolean);
+  const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d{2,5}$/;
+  const localDev = allowed.some((o) => LOCAL.test(o));
+  return (origin) => allowed.includes('*') || allowed.includes(origin) || (localDev && LOCAL.test(origin));
+}
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -13,8 +74,9 @@ export async function buildApp(): Promise<FastifyInstance> {
     trustProxy: true,
   });
 
+  const allow = corsAllows(config.CORS_ORIGIN);
   await app.register(cors, {
-    origin: config.CORS_ORIGIN === '*' ? true : config.CORS_ORIGIN,
+    origin: config.CORS_ORIGIN === '*' ? true : (origin, cb) => { cb(null, !origin || allow(origin)); },
     methods: ['GET', 'OPTIONS'],
   });
 
@@ -58,6 +120,8 @@ if (isMain(import.meta.url)) {
     .then(async (app) => {
       await app.listen({ port: config.PORT, host: config.HOST });
       logger.info({ port: config.PORT, host: config.HOST }, 'Monitor Cinder API listening');
+      startHistoryLoadIfMissing();
+      startLocalitiesLoad();
     })
     .catch((err) => {
       logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Failed to start server');

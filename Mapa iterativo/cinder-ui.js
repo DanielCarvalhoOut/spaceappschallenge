@@ -1,6 +1,6 @@
 /*
  * Monitor Cinder UI controller (original code).
- * Connects the controls, the map engine, the side panel, the 2D circle area selector,
+ * Connects the controls, the map engine, the details modal, the 2D circle area selector,
  * the lateral scale indicator, and the data layer.
  * DOM updates use createElement + textContent only — never innerHTML with external strings.
  */
@@ -31,6 +31,9 @@
     lastView: null,
     reqSeq: 0,
     panelSeq: 0,
+    horizonsShown: null,
+    calYear: null, // year shown in the History calendar
+    places: null, // IBGE localities (map reference only) // projection currently rendered (re-rendered on language change)
   };
 
   let map = null;
@@ -53,9 +56,37 @@
   const fmtZ = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : (v >= 0 ? '+' : '') + I.num(v, 2) + 'σ');
   const monthName = (m) => I.months()[m - 1] || '';
   const fmt1 = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(Math.round(v * 10) / 10));
+
+  /* ---------- the edge between observed data and projection ---------- */
+  const keyOf = (y, m) => y * 100 + m;
+  const addMonths = (key, n) => { const y = Math.floor(key / 100), m = (key % 100) - 1 + n; return keyOf(y + Math.floor(m / 12), (m % 12) + 1); };
+  const PROJ_MONTHS = 6; // the projection reaches 6 months past the last observed day
+  function edge() {
+    const d = state.source && state.source.lastObservedDay;
+    if (!d) return null;
+    const p = state.source.provisionalFrom;
+    return { key: keyOf(Number(d.slice(0, 4)), Number(d.slice(5, 7))), date: d, provKey: p ? keyOf(Number(p.slice(0, 4)), Number(p.slice(5, 7))) : null, prov: p };
+  }
+  /** 'obs' | 'prov' (observed, near-real-time) | 'partial' (month in progress) | 'proj' (future, up to 6 months) | 'none' */
+  function periodKind(y, m) {
+    const k = keyOf(y, m), e = edge();
+    if (!state.source || k < keyOf(state.source.firstYear, 1)) return 'none';
+    if (!e) return k <= keyOf(state.source.lastYear, 12) ? 'obs' : 'none';
+    if (k === e.key) return 'partial';
+    if (k < e.key) return e.provKey !== null && k >= e.provKey ? 'prov' : 'obs';
+    return k <= addMonths(e.key, PROJ_MONTHS) ? 'proj' : 'none';
+  }
+  const isFuture = () => periodKind(state.year, state.month) === 'proj';
+  /** Metric actually painted: future months show the historical pattern of that calendar month. */
+  const viewMetric = () => (isFuture() ? 'typical' : state.metric);
+  const lastPickYear = () => { const e = edge(); return e ? Math.floor(addMonths(e.key, PROJ_MONTHS) / 100) : state.source.lastYear; };
+  const fmtDay = (iso) => { const d = new Date(`${iso}T00:00:00Z`); return d.toLocaleDateString(I.lang() === 'en' ? 'en-US' : 'pt-BR', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }); };
+
   /** Value text for the active map metric (pills, tooltip). */
   const valueText = (v) => (
-    state.metric === 'anomaly'
+    viewMetric() === 'typical'
+      ? fmtInt(v)
+      : state.metric === 'anomaly'
       ? fmtZ(v)
       : state.metric === 'density'
         ? fmt1(v)
@@ -78,9 +109,9 @@
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     const y = Number(p.get('y')), m = Number(p.get('m')), k = p.get('k'), mun = p.get('mun');
-    if (Number.isInteger(y) && y >= state.source.firstYear && y <= state.source.lastYear) state.year = y;
+    if (Number.isInteger(y) && y >= state.source.firstYear && y <= lastPickYear()) state.year = y;
     if (Number.isInteger(m) && m >= 1 && m <= 12) state.month = m;
-    if (k === 'anomaly' || k === 'count' || k === 'density' || k === 'propensity' || k === 'agro_score') state.metric = k;
+    if (k === 'anomaly' || k === 'count' || k === 'density') state.metric = k; // propensity/agro are off in the API
     if (mun && /^\d{7}$/.test(mun) && state.ids.includes(mun)) state.selected = mun;
   }
   function writeHash() {
@@ -105,11 +136,14 @@
   function setBadge() {
     const b = $('source-badge');
     if (!state.source) { b.textContent = t('badge.loading'); b.className = 'badge'; return; }
-    const demo = state.source.kind === 'demo';
     const kind = state.source.dataKind;
-    const synthetic = !demo && kind !== 'firms_db' && kind !== 'firms_index';
-    b.className = 'badge ' + (demo || synthetic ? 'badge--demo' : 'badge--live');
-    b.textContent = t(demo ? 'badge.demo' : synthetic ? 'badge.synthetic' : kind === 'firms_index' ? 'badge.firmsIndex' : 'badge.firms');
+    const live = kind === 'firms_db' || kind === 'firms_index';
+    b.className = 'badge ' + (live ? 'badge--live' : 'badge--demo');
+    const h = state.source.historyLoad;
+    b.textContent = state.source.kind === 'offline' ? t('badge.offline')
+      : kind === 'loading' ? t('badge.historyLoading', { done: h ? h.done : 0, total: h ? h.total : 0 })
+        : kind === 'none' ? t('badge.historyNone')
+          : t(kind === 'firms_index' ? 'badge.firmsIndex' : 'badge.firms');
   }
 
   /* ---------- Lateral Scale & Proportion HUD ---------- */
@@ -153,25 +187,64 @@
 
   /* ---------- controls ---------- */
   function fillControls() {
-    const ySel = $('year');
-    clear(ySel);
-    for (let y = state.source.lastYear; y >= state.source.firstYear; y--) ySel.append(new Option(String(y), String(y)));
-    ySel.value = String(state.year);
+    if (periodKind(state.year, state.month) === 'none') { const e = edge(); if (e) { state.year = Math.floor(e.key / 100); state.month = e.key % 100; } }
     renderMonthOptions();
     $('metric').value = state.metric;
-    ySel.onchange = () => { state.year = Number(ySel.value); onPeriodChange(); };
-    $('month').onchange = () => { state.month = Number($('month').value); onPeriodChange(); };
     $('metric').onchange = () => { state.metric = $('metric').value; refreshMap(); if (state.calRows) renderCalendar(state.calRows); };
+    const btn = $('period-btn'), pop = $('period-pop');
+    const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+    btn.onclick = () => {
+      if (!pop.hidden) { close(); return; }
+      state.ppYear = state.year;
+      renderPeriodPicker();
+      pop.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      const cur = pop.querySelector('.period__m.is-current');
+      if (cur) cur.focus();
+    };
+    $('pp-prev').onclick = () => { state.ppYear -= 1; renderPeriodPicker(); };
+    $('pp-next').onclick = () => { state.ppYear += 1; renderPeriodPicker(); };
+    document.addEventListener('click', (e) => { if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { close(); btn.focus(); } });
+    state.closePeriod = close;
   }
+  /** Button text + tag (provisional, in progress, projection) for the selected month. */
   function renderMonthOptions() {
-    const mSel = $('month');
-    clear(mSel);
-    I.months().forEach((label, i) => mSel.append(new Option(label, String(i + 1))));
-    mSel.value = String(state.month);
+    $('period-text').textContent = `${monthName(state.month)} ${state.year}`;
+    const kind = periodKind(state.year, state.month), tag = $('period-tag');
+    const key = { prov: 'period.tagProv', partial: 'period.tagPartial', proj: 'period.tagProj' }[kind];
+    tag.hidden = !key;
+    tag.textContent = key ? t(key) : '';
+    tag.className = `period__tag period__tag--${kind}`;
+    if (!$('period-pop').hidden) renderPeriodPicker();
+  }
+  function renderPeriodPicker() {
+    const first = state.source.firstYear, last = lastPickYear();
+    if (!Number.isInteger(state.ppYear)) state.ppYear = state.year;
+    state.ppYear = Math.min(last, Math.max(first, state.ppYear));
+    const y = state.ppYear;
+    $('pp-year').textContent = String(y);
+    $('pp-prev').disabled = y <= first;
+    $('pp-next').disabled = y >= last;
+    const box = $('pp-months');
+    clear(box);
+    for (let m = 1; m <= 12; m++) {
+      const kind = periodKind(y, m);
+      const b = el('button', `period__m period__m--${kind}`, monthName(m));
+      b.type = 'button';
+      if (kind === 'none') b.disabled = true;
+      if (y === state.year && m === state.month) { b.classList.add('is-current'); b.setAttribute('aria-current', 'true'); }
+      b.title = kind === 'none' ? t('period.none') : t(`period.k${{ obs: 'Obs', prov: 'Prov', partial: 'Partial', proj: 'Proj' }[kind]}`);
+      b.onclick = () => { state.year = y; state.month = m; if (state.closePeriod) state.closePeriod(); onPeriodChange(); };
+      box.append(b);
+    }
+    const e = edge();
+    $('pp-range').textContent = e
+      ? t('period.range', { from: `${monthName(1)}/${first}`, to: fmtDay(e.date), prov: e.prov ? fmtDay(e.prov) : '–' })
+      : t('period.rangeNone');
   }
   function onPeriodChange() {
-    $('year').value = String(state.year);
-    $('month').value = String(state.month);
+    renderMonthOptions();
     refreshMap();
     if (state.sphereSelection) {
       renderSpherePanel(state.sphereSelection);
@@ -202,6 +275,30 @@
   async function refreshMap() {
     writeHash();
     const seq = ++state.reqSeq;
+    const future = isFuture();
+    document.querySelector('.map-wrap').classList.toggle('is-projection', future);
+    $('metric').disabled = future;
+    if (!future) $('proj-ribbon').hidden = true;
+    if (future) {
+      try {
+        const values = await state.source.mapValues(state.year, state.month, 'typical');
+        if (seq !== state.reqSeq) return;
+        state.values = values;
+        let max = 10;
+        for (const k of Object.keys(values)) { const v = values[k]; if (typeof v === 'number' && v > max) max = v; }
+        const scale = { type: 'sequential', min: 0, max };
+        map.setValues(values, scale);
+        drawLegend(scale);
+        if (state.selected) renderNeighborsList(state.selected);
+        setStatus(null);
+        renderRibbon(seq);
+      } catch (e) {
+        if (seq !== state.reqSeq) return;
+        console.error(e);
+        setStatus('status.valuesErr', null, true, refreshMap);
+      }
+      return;
+    }
     try {
       const isAnomaly = state.metric === 'anomaly';
       const [values, counts] = await Promise.all([
@@ -228,7 +325,7 @@
   }
 
   function drawLegend(scale) {
-    $('legend-title').textContent = t(`legend.${state.metric}`, { period: period() });
+    $('legend-title').textContent = t(`legend.${viewMetric()}`, { period: period() });
     const c = $('legend-canvas');
     const ctx = c.getContext('2d');
     for (let x = 0; x < c.width; x++) {
@@ -256,7 +353,9 @@
     const v = state.values[h.id];
     const muniName = state.names.get(h.id) || h.id;
     $('tt-name').textContent = muniName;
-    $('tt-value').textContent = state.metric === 'anomaly'
+    $('tt-value').textContent = viewMetric() === 'typical'
+      ? t('tt.typical', { n: fmtInt(v), m: monthName(state.month) })
+      : state.metric === 'anomaly'
       ? `${fmtZ(v)} · ${zText(v)}`
       : state.metric === 'density'
         ? t('tt.density', { v: fmt1(v), period: period() })
@@ -265,8 +364,15 @@
           : state.metric === 'agro_score'
             ? t('tt.agro_score', { n: v === null || v === undefined ? '–' : I.num(v, 1), period: period() })
             : t('tt.count', { n: fmtInt(v), period: period() });
+    const inf = state.info.get(h.id) || {};
+    const extra = $('tt-extra');
+    clear(extra);
+    if (inf.microregion) extra.append(el('span', '', t('tt.micro')), el('b', '', inf.microregion));
+    extra.hidden = !inf.microregion;
+    $('tt-hint').textContent = $('mode-sphere').classList.contains('is-active') ? t('tt.hintSphere') : t('tt.hint');
+    $('tt-hint').hidden = false;
     tip.hidden = false;
-    const x = Math.min(h.x + 14, $('map').clientWidth - 250);
+    const x = Math.min(h.x + 14, $('map').clientWidth - 290);
     const y = Math.max(8, h.y - 38);
     tip.style.transform = `translate(${Math.max(8, x)}px, ${y}px)`;
   }
@@ -337,10 +443,106 @@
       state.sphereSelection = null;
       state.sphereRows = null;
       if (!state.selected) {
-        $('panel-body').hidden = true;
-        $('panel-empty').hidden = false;
+        closeModal();
       }
     }
+  }
+
+  /* ---------- Details modal (tabs) ---------- */
+  let lastFocus = null;
+  /** Details open docked beside the map (side) or as the full modal (footer toggle). */
+  function isModalMode() { return $('panel').classList.contains('is-modal'); }
+  function setPanelMode(modal) {
+    const panel = $('panel'), card = $('panel-body'), btn = $('p-expand');
+    panel.classList.toggle('is-modal', modal);
+    panel.classList.toggle('is-side', !modal);
+    card.setAttribute('role', modal ? 'dialog' : 'region');
+    if (modal) card.setAttribute('aria-modal', 'true'); else card.removeAttribute('aria-modal');
+    labelExpand();
+    syncLayout();
+    if (modal) {
+      lastFocus = document.activeElement;
+      card.focus({ preventScroll: true });
+    } else if (lastFocus && document.contains(lastFocus) && lastFocus.focus) {
+      lastFocus.focus({ preventScroll: true });
+      lastFocus = null;
+    }
+  }
+  function labelExpand() {
+    const modal = isModalMode(), btn = $('p-expand');
+    btn.textContent = (modal ? '⤡ ' : '⤢ ') + t(modal ? 'panel.collapse' : 'panel.expand');
+    btn.title = t(modal ? 'panel.collapseTitle' : 'panel.expandTitle');
+    btn.setAttribute('aria-pressed', modal ? 'true' : 'false');
+  }
+  /** The map column shrinks only while the docked panel is visible (the engine's ResizeObserver redraws). */
+  function syncLayout() {
+    const panel = $('panel');
+    panel.closest('.layout').classList.toggle('has-side', !panel.hidden && !isModalMode());
+  }
+  function openModal() {
+    const wasOpen = !$('panel').hidden;
+    $('panel-empty').hidden = true;
+    $('panel').hidden = false;
+    $('panel-body').hidden = false;
+    $('csv').hidden = !!state.sphereSelection; // the CSV is per municipality
+    if (!wasOpen) setTab('summary'); // a new selection starts at the summary
+    syncLayout();
+  }
+  function closeModal() {
+    const wasModal = !$('panel').hidden && isModalMode();
+    $('panel').hidden = true;
+    $('panel-body').hidden = true;
+    if (wasModal) setPanelMode(false); // next selection opens docked again
+    syncLayout();
+    $('panel-empty').hidden = !!(state.selected || state.sphereSelection);
+  }
+  function setTab(name) {
+    for (const b of document.querySelectorAll('#panel .tab')) {
+      const on = b.dataset.tab === name;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+      const pane = $(b.getAttribute('aria-controls'));
+      if (pane) pane.hidden = !on;
+    }
+  }
+  /** Closing the details ends the analysis (same as before): selection and circle are cleared. */
+  function dismissDetails() {
+    setModeUI('municipality');
+    selectMunicipality(null, true);
+  }
+  function setupModal() {
+    const tabs = [...document.querySelectorAll('#panel .tab')];
+    tabs.forEach((b, i) => {
+      b.addEventListener('click', () => setTab(b.dataset.tab));
+      b.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+        setTab(next.dataset.tab); next.focus(); e.preventDefault();
+      });
+    });
+    setTab('summary');
+    // backdrop click / Esc in the full view go back to the docked panel; Esc in the docked panel closes it
+    $('panel').addEventListener('click', (e) => { if (e.target && e.target.dataset && e.target.dataset.close) setPanelMode(false); });
+    $('p-expand').addEventListener('click', () => setPanelMode(!isModalMode()));
+    setPanelMode(false);
+    document.addEventListener('keydown', (e) => {
+      if ($('panel').hidden) return;
+      if (e.key === 'Escape') {
+        if (e.target && e.target.closest && e.target.closest('input, select, .period__pop')) return;
+        e.preventDefault();
+        if (isModalMode()) setPanelMode(false); else dismissDetails();
+        return;
+      }
+      if (e.key !== 'Tab' || !isModalMode()) return;
+      // keep focus inside the dialog (full view only; the docked panel is part of the page)
+      const f = [...$('panel-body').querySelectorAll('button, [href], select, input, [tabindex]:not([tabindex="-1"])')]
+        .filter((n) => !n.disabled && n.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === $('panel-body'))) { last.focus(); e.preventDefault(); }
+      else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+    });
   }
 
   /* ---------- Panel: Single Municipality & Sphere Aggregation ---------- */
@@ -353,7 +555,7 @@
     }
     writeHash();
     clearDetail();
-    if (!state.selected) { $('panel-body').hidden = true; $('panel-empty').hidden = false; return; }
+    if (!state.selected) { closeModal(); return; }
     openPanel(state.selected);
   }
 
@@ -390,8 +592,7 @@
 
   async function openPanel(id) {
     const seq = ++state.panelSeq;
-    $('panel-empty').hidden = true;
-    $('panel-body').hidden = false;
+    openModal();
     renderHeader(id);
     renderNeighborsList(id);
     if (!state.rows.has(id)) ['k-count', 'k-z'].forEach((k) => { $(k).textContent = '…'; });
@@ -405,6 +606,7 @@
       state.patterns.set(id, pattern);
       renderPanelBody(id);
       loadRange(id, seq);
+      loadHorizons({ ibge: id }, seq);
       loadIntelligence(id, seq);
       loadContext(id, seq);
       const cur = currentRow();
@@ -429,8 +631,7 @@
       state.sphereSelection = null;
       state.sphereRows = null;
       clearDetail();
-      $('panel-body').hidden = true;
-      $('panel-empty').hidden = false;
+      closeModal();
       return;
     }
     state.selected = null;
@@ -458,59 +659,23 @@
     return { months, season: { months: picked.sort((a, b) => a - b), coveredPct: Math.round(acc * 10) / 10, peakMonth: sorted[0].month } };
   }
 
-  /** Fallback: sum whole municipalities touched by the circle; z against the summed 2002–2024 baseline. */
-  async function sumMunicipalities(ids, shares) {
-    const calendars = await Promise.all(ids.map(async (id) => {
-      if (state.rows.has(id)) return state.rows.get(id);
-      const r = await state.source.calendar(id);
-      state.rows.set(id, r);
-      return r;
-    }));
-    const byYm = new Map();
-    for (let ci = 0; ci < calendars.length; ci++) {
-      const cal = calendars[ci];
-      const w = shares && Number.isFinite(shares[ids[ci]]) ? shares[ids[ci]] : 1;
-      for (const r of cal) {
-        const key = r.year * 100 + r.month;
-        let a = byYm.get(key);
-        if (!a) { a = { year: r.year, month: r.month, modis: 0, viirs: 0, viirsN: 0, harmonized: 0, daysMissing: 0 }; byYm.set(key, a); }
-        if (r.modis !== null) a.modis += r.modis * w;
-        if (r.viirs !== null) { a.viirs += r.viirs * w; a.viirsN++; }
-        if (r.harmonized !== null) a.harmonized += r.harmonized * w;
-        if (r.daysMissing) a.daysMissing = Math.max(a.daysMissing, r.daysMissing);
-      }
-    }
-    const r1 = (v) => Math.round(v * 10) / 10;
-    for (const a of byYm.values()) { a.modis = r1(a.modis); a.viirs = r1(a.viirs); a.harmonized = r1(a.harmonized); }
-    const rows = [...byYm.values()].sort((a, b) => (a.year - b.year) || (a.month - b.month));
-    for (let m = 1; m <= 12; m++) {
-      const vals = rows.filter((r) => r.month === m && r.year >= 2002 && r.year <= 2024).map((r) => r.harmonized);
-      const n = vals.length, mean = n ? vals.reduce((x, y) => x + y, 0) / n : 0;
-      const sd = n >= 2 ? Math.sqrt(vals.reduce((x, y) => x + (y - mean) ** 2, 0) / (n - 1)) : 0;
-      for (const r of rows) if (r.month === m) r.anomalyZ = sd > 0 ? Math.round(((r.harmonized - mean) / sd) * 100) / 100 : null;
-    }
-    return rows.map((r) => ({ year: r.year, month: r.month, modis: r.modis, viirs: r.viirsN ? r.viirs : null,
-      harmonized: r.harmonized, anomalyZ: r.anomalyZ, daysMissing: r.daysMissing }));
-  }
-
   function spherePill(id, extraText) {
     const btn = el('button', 'subarea-pill');
     btn.type = 'button';
     btn.append(el('span', 'subarea-pill__name', state.names.get(id) || id));
+    // The municipality's own map value is its whole territory, not the circle: show only the share inside.
     if (extraText) btn.append(el('strong', 'subarea-pill__num', extraText));
-    btn.append(el('em', 'subarea-pill__val', valueText(state.values[id])));
     btn.onclick = () => { setModeUI('municipality'); selectMunicipality(id, true); };
     return btn;
   }
 
   async function renderSpherePanel(sphere) {
     const seq = ++state.panelSeq;
-    $('panel-empty').hidden = true;
-    $('panel-body').hidden = false;
+    openModal();
     const centerName = (sphere.centerId && state.names.get(sphere.centerId)) || CFG.ufName;
     const subBase = t('sphere.sub', { r: sphere.radiusKm, area: I.num(sphere.areaKm2), name: centerName });
-    $('p-name').textContent = t('sphere.title', { n: sphere.ids.length });
-    $('p-sub').textContent = subBase;
+    $('p-name').textContent = t('sphere.titleR', { r: sphere.radiusKm });
+    $('p-sub').textContent = `${subBase} · ${t('sphere.inside')}`;
     ['k-count', 'k-z'].forEach((k) => { $(k).textContent = '…'; });
 
     const block = $('subareas-block'), list = $('subareas-list');
@@ -519,34 +684,28 @@
     $('subareas-small').textContent = t('block.sphereMunisSmall');
 
     try {
-      // 1. Exact circle from the API: only 1 km cells whose centre lies inside the radius.
+      // Only 1 km cells whose centre lies inside the radius (API). No whole-municipality estimate.
       let exact = null;
       if (state.source.areaHistory && Number.isFinite(sphere.lon) && Number.isFinite(sphere.lat)) {
         try { exact = await state.source.areaHistory(sphere.lon, sphere.lat, sphere.radiusKm); } catch (e) { console.warn('area history:', e.message); }
         if (seq !== state.panelSeq) return;
       }
-      let rows;
       clear(list);
-      if (exact && exact.rows.length) {
-        rows = exact.rows;
-        const munis = exact.municipalities.filter((m) => state.names.has(m.ibge));
-        $('p-name').textContent = t('sphere.title', { n: munis.length });
-        $('p-sub').textContent = `${subBase} · ${t('sphere.exact', { pct: fmt1(exact.pctInState) })}`;
-        for (const m of munis) list.append(spherePill(m.ibge, t('sphere.pctMuni', { pct: fmt1(m.pctOfMunicipality) })));
-      } else {
-        // 2. DEMO or history not built: each municipality weighted by the share of its area inside the circle.
-        const shares = sphere.shares || {};
-        const ids = sphere.ids.filter((id) => (shares[id] ?? 1) > 0.001)
-          .sort((a, b) => (shares[b] ?? 0) - (shares[a] ?? 0));
-        rows = await sumMunicipalities(ids, shares);
-        if (seq !== state.panelSeq) return;
-        $('p-name').textContent = t('sphere.title', { n: ids.length });
-        $('p-sub').textContent = `${subBase} · ${t('sphere.est')}`;
-        for (const id of ids) list.append(spherePill(id, Number.isFinite(shares[id]) ? t('sphere.pctMuni', { pct: fmt1(shares[id] * 100) }) : null));
+      if (!exact || !exact.rows.length) {
+        state.sphereRows = null;
+        for (const id of sphere.ids) list.append(spherePill(id, null));
+        showSphereUnavailable();
+        return;
       }
+      const rows = exact.rows;
+      const munis = exact.municipalities.filter((m) => state.names.has(m.ibge));
+      $('p-sub').textContent = `${subBase} · ${t('sphere.exact', { pct: fmt1(exact.pctInState) })}`;
+      for (const m of munis) list.append(spherePill(m.ibge, t('sphere.pctMuni', { pct: fmt1(m.pctOfMunicipality) })));
       state.sphereRows = rows;
 
       const cur = rows.find((r) => r.year === state.year && r.month === state.month) || null;
+      if (isFuture()) futureKpis(rows);
+      else {
       $('k-period').textContent = period();
       $('k-count').textContent = fmtInt(cur ? cur.harmonized : null);
       const z = cur ? cur.anomalyZ : null;
@@ -554,6 +713,7 @@
       kz.textContent = fmtZ(z);
       kz.className = z === null ? '' : z >= 1 ? 'z-up' : z <= -1 ? 'z-down' : '';
       $('k-z-text').textContent = zText(z);
+      }
 
       renderPattern(patternFromRows(rows));
       renderCalendar(rows);
@@ -563,17 +723,13 @@
         method: 'all', range: global.FireData.rangeFromRows(rows, state.year, state.month), analog: null,
         observed: cur ? cur.harmonized : null, hindcast: null,
       }, true);
-      const sphereIntel = global.FireData.computeClientIntelligence(
-        rows,
-        state.year,
-        state.month,
-        `sphere:${sphere.centerId || 'go'}:${sphere.radiusKm}`
-      );
-      renderResourcesBox(sphereIntel.resources);
-      renderRootFiresBox(sphereIntel.rootFires);
-      renderPredictabilityBox(sphereIntel.predictability);
-      renderAgroB2BBox(sphereIntel.agroB2B);
-      if (sphere.centerId) loadContext(sphere.centerId, seq);
+      setIntelVisible(false); // blocks A–D only come from the API, per municipality
+      if (sphere.radiusKm >= 5) loadHorizons({ lon: sphere.lon, lat: sphere.lat, radiusKm: sphere.radiusKm }, seq);
+      else renderHorizonsMessage('proj.unavailable');
+      if (sphere.centerId) {
+        loadContext(sphere.centerId, seq);
+        $('ctx-year').textContent = `${state.year} · ${t('sphere.ctxCenter', { name: state.names.get(sphere.centerId) || sphere.centerId })}`;
+      }
       if (Number.isFinite(sphere.lon) && sphere.radiusKm >= 5) {
         loadDetail({ kind: 'circle', lon: sphere.lon, lat: sphere.lat, radiusKm: sphere.radiusKm }, cur ? cur.harmonized : 0, seq);
       } else {
@@ -586,11 +742,35 @@
     }
   }
 
+  /** Circle without the FIRMS history: say so instead of estimating from whole municipalities. */
+  function showSphereUnavailable() {
+    $('k-period').textContent = period();
+    $('k-count').textContent = '–';
+    $('k-z').textContent = '–'; $('k-z').className = '';
+    $('k-z-text').textContent = '';
+    $('season-text').textContent = t('sphere.needHistory');
+    clear($('pattern')); clear($('compare')); renderCalendar(null);
+    clear($('range-box')); $('range-box').append(el('p', 'muted', t('sphere.needHistory')));
+    renderHorizonsMessage('proj.unavailable');
+    clearDetail();
+  }
+
   function currentRow() {
     const rows = state.rows.get(state.selected) || [];
     return rows.find((r) => r.year === state.year && r.month === state.month) || null;
   }
+  /** KPI boxes for a future month: the historical band of that calendar month (P10–P90 of earlier years). */
+  function futureKpis(rows) {
+    const rg = rows ? global.FireData.rangeFromRows(rows, state.year, state.month) : null;
+    $('k-period').textContent = `${period()} · ${t('period.tagProj')}`;
+    $('k-count').textContent = rg ? `${fmtInt(rg.p10)}–${fmtInt(rg.p90)}` : '–';
+    const kz = $('k-z');
+    kz.textContent = rg ? fmtInt(rg.p50) : '–';
+    kz.className = '';
+    $('k-z-text').textContent = rg ? t('kpi.futureTypical', { n: rg.nYears }) : t('kpi.futureNone');
+  }
   function updateKpis() {
+    if (isFuture()) { futureKpis(state.rows.get(state.selected)); return; }
     const r = currentRow();
     $('k-period').textContent = period();
     $('k-count').textContent = fmtInt(r ? r.harmonized : null);
@@ -598,7 +778,7 @@
     const kz = $('k-z');
     kz.textContent = fmtZ(z);
     kz.className = z === null ? '' : z >= 1 ? 'z-up' : z <= -1 ? 'z-down' : '';
-    $('k-z-text').textContent = zText(z) + (r && r.daysMissing ? ` · ${t('z.missing', { n: r.daysMissing })}` : '');
+    $('k-z-text').textContent = zText(z) + (r && r.partialDays ? ` · ${t('z.partial', { d: r.partialDays })}` : '') + (r && r.daysMissing ? ` · ${t('z.missing', { n: r.daysMissing })}` : '');
   }
 
   function renderPattern(p) {
@@ -628,7 +808,7 @@
     const box = $('calendar');
     clear(box);
     state.calRows = rows || null;
-    if (!rows) return;
+    if (!rows) { renderCalView(); return; }
     // Same rule as the map: no hotspots in the month = white; otherwise the colour of the active metric
     // (anomaly scale for "anomaly", the municipality's own count scale for the other metrics).
     const seq = { type: 'sequential', min: 0, max: Math.max(1, ...rows.map((r) => (Number.isFinite(r.harmonized) ? r.harmonized : 0))) };
@@ -642,6 +822,8 @@
     box.append(el('span', 'cal-h', ''));
     I.months().forEach((m) => box.append(el('span', 'cal-h', m[0])));
     const byKey = new Map(rows.map((r) => [`${r.year}-${r.month}`, r]));
+    // Months after the last one the API returned have not happened yet (the API omits them).
+    const lastKey = rows.length ? Math.max(...rows.map((r) => r.year * 100 + r.month)) : null;
     const frag = document.createDocumentFragment();
     for (let y = state.source.lastYear; y >= state.source.firstYear; y--) {
       frag.append(el('span', 'cal-y', String(y)));
@@ -653,7 +835,15 @@
         const bg = cellColor(r);
         if (bg) b.style.background = bg;
         if (r && r.daysMissing) b.classList.add('is-missing');
-        const label = r ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) }) : t('cal.empty', { m: monthName(m), y });
+        const future = !r && lastKey !== null && y * 100 + m > lastKey;
+        if (future) b.classList.add('is-future');
+        if (r && (r.provisional || r.partial)) b.classList.add('is-provisional');
+        const label = future
+          ? t('cal.future', { m: monthName(m), y })
+          : r
+            ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) })
+              + (r.provisional ? t('cal.provisional') : '') + (r.partial ? t('cal.partial') : '')
+            : t('cal.empty', { m: monthName(m), y });
         b.title = label; b.setAttribute('aria-label', label);
         frag.append(b);
       }
@@ -666,6 +856,168 @@
     for (const c of box.querySelectorAll('.cal-cell.is-current')) c.classList.remove('is-current');
     const cur = box.querySelector(`.cal-cell[data-y="${state.year}"][data-m="${state.month}"]`);
     if (cur) cur.classList.add('is-current');
+    state.calYear = state.year;
+    renderCalView();
+  }
+
+
+
+  /* ---------- Projection ribbon (a highlight, not an alert): from this point on it is projection ---------- */
+  let stateHorizons = null;
+  async function renderRibbon(seq) {
+    const rib = $('proj-ribbon'), txt = $('proj-ribbon-text');
+    const e = edge();
+    rib.hidden = false;
+    txt.textContent = t('ribbon.base', { d: e ? fmtDay(e.date) : '–', m: `${monthName(state.month)} ${state.year}` });
+    if (!state.source.horizons) return;
+    try {
+      if (!stateHorizons) stateHorizons = await state.source.horizons({ ibge: CFG.uf });
+    } catch (err) { console.warn('horizons:', err.message); return; }
+    if (seq !== state.reqSeq || !stateHorizons) return;
+    const h = stateHorizons, hc = h.hindcast || {};
+    const mo = h.months.find((x) => x.year === state.year && x.month === state.month);
+    const parts = [t('ribbon.base', { d: fmtDay(h.asOf), m: `${monthName(state.month)} ${state.year}` })];
+    // The model band only where the hindcast validated it (sums up to ~30 days ahead); further out, the historical pattern.
+    const monthEnd = Date.UTC(state.year, state.month, 0) / 86400000;
+    const ahead = monthEnd - Date.parse(`${h.asOf}T00:00:00Z`) / 86400000;
+    if (mo && hc.month && hc.month.published && ahead <= 31) parts.push(t('ribbon.model', { p10: fmtInt(mo.p10), p90: fmtInt(mo.p90) }));
+    else if (mo && mo.climatology) parts.push(t('ribbon.clim', { p10: fmtInt(mo.climatology.p10), p90: fmtInt(mo.climatology.p90) }));
+    if (h.fortnight && hc.fortnight && hc.fortnight.published) parts.push(t('ribbon.fortnight', { p10: fmtInt(h.fortnight.p10), p90: fmtInt(h.fortnight.p90) }));
+    txt.textContent = parts.join(' · ');
+  }
+
+  /* ---------- History tab: a real calendar (year → months → days) ---------- */
+  const dailyCache = new Map();
+  let calSeq = 0;
+  const SENSOR_LABEL = { MODIS: 'MODIS', SNPP: 'S-NPP', NOAA20: 'NOAA-20', NOAA21: 'NOAA-21' };
+  function calArea() {
+    const s = state.sphereSelection;
+    if (s && Number.isFinite(s.lon) && s.radiusKm >= 5) return { key: `c${s.lon.toFixed(3)},${s.lat.toFixed(3)},${s.radiusKm}`, area: { lon: s.lon, lat: s.lat, radiusKm: s.radiusKm } };
+    if (state.selected) return { key: state.selected, area: { ibge: state.selected } };
+    return null;
+  }
+  function renderCalView() {
+    const rows = state.calRows;
+    const tiles = $('cal-months'), detail = $('cal-month');
+    clear(tiles);
+    if (!rows || !rows.length) { clear(detail); $('cal-year').textContent = ''; return; }
+    const first = state.source.firstYear, last = lastPickYear();
+    if (!Number.isInteger(state.calYear) || state.calYear < first || state.calYear > last) state.calYear = state.year;
+    const y = state.calYear;
+    $('cal-year').textContent = String(y);
+    $('cal-prev').disabled = y <= first;
+    $('cal-next').disabled = y >= last;
+    const byKey = new Map(rows.map((r) => [r.year * 100 + r.month, r]));
+    const lastKey = Math.max(...rows.map((r) => r.year * 100 + r.month));
+    const seq = { type: 'sequential', min: 0, max: Math.max(1, ...rows.map((r) => (Number.isFinite(r.harmonized) ? r.harmonized : 0))) };
+    for (let m = 1; m <= 12; m++) {
+      const r = byKey.get(y * 100 + m);
+      const b = el('button', 'cal-tile');
+      b.type = 'button';
+      const future = !r && y * 100 + m > lastKey;
+      const proj = future && periodKind(y, m) === 'proj';
+      if (future) { b.classList.add(proj ? 'is-proj' : 'is-future'); b.disabled = !proj; }
+      if (y === state.year && m === state.month) b.classList.add('is-current');
+      if (r && (r.provisional || r.partial)) b.classList.add('is-provisional');
+      const bar = el('i', 'cal-tile__bar');
+      if (r && Number.isFinite(r.harmonized)) {
+        bar.style.background = r.harmonized > 0 ? map.colorFor(r.harmonized, seq) : map.colorFor(0, seq);
+        bar.style.width = `${Math.max(4, Math.round((Math.sqrt(r.harmonized) / Math.sqrt(seq.max)) * 100))}%`;
+      }
+      const z = r ? r.anomalyZ : null;
+      const zEl = el('small', z === null || z === undefined ? 'cal-tile__z' : z >= 1 ? 'cal-tile__z z-up' : z <= -1 ? 'cal-tile__z z-down' : 'cal-tile__z', future ? '' : fmtZ(z));
+      b.append(el('span', 'cal-tile__m', monthName(m)), el('strong', 'cal-tile__v', proj ? t('period.tagProj') : future ? '–' : r ? fmtInt(r.harmonized) : '–'), bar, zEl);
+      const label = proj ? t('cal.proj', { m: monthName(m), y }) : future ? t('cal.future', { m: monthName(m), y }) : r
+        ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) }) + (r.provisional ? t('cal.provisional') : '') + (r.partial ? t('cal.partial') : '')
+        : t('cal.empty', { m: monthName(m), y });
+      b.title = label; b.setAttribute('aria-label', label);
+      b.addEventListener('click', () => { state.year = y; state.month = m; onPeriodChange(); });
+      tiles.append(b);
+    }
+    renderMonthDetail(rows);
+  }
+  async function renderMonthDetail(rows) {
+    const box = $('cal-month');
+    const y = state.year, m = state.month;
+    const a = calArea();
+    clear(box);
+    const r = rows.find((x) => x.year === y && x.month === m) || null;
+    box.append(el('h4', 'cal-month__title', `${monthName(m)} ${y}`));
+    // month summary from the monthly row (same numbers as the map and the KPIs)
+    const base = rows.filter((x) => x.month === m && x.year >= 2002 && x.year <= 2024 && Number.isFinite(x.harmonized)).map((x) => x.harmonized);
+    const typical = base.length ? base.reduce((s, v) => s + v, 0) / base.length : null;
+    const sum = el('p', 'range-line');
+    if (periodKind(y, m) === 'proj') {
+      box.classList.add('is-proj');
+      const rg = global.FireData.rangeFromRows(rows, y, m);
+      sum.textContent = rg ? t('day.futureTypical', { p10: fmtInt(rg.p10), p50: fmtInt(rg.p50), p90: fmtInt(rg.p90), n: rg.nYears }) : t('kpi.futureNone');
+      box.append(sum, el('p', 'cal-month__facts', t('day.futureNote')));
+      return;
+    }
+    box.classList.remove('is-proj');
+    sum.textContent = r
+      ? t('day.summary', { n: fmtInt(r.harmonized), z: zText(r.anomalyZ), typ: typical === null ? '–' : fmtInt(typical) })
+      : t('cal.empty', { m: monthName(m), y });
+    box.append(sum);
+    if (!a || !state.source.daily) return;
+    const key = `${a.key}|${y}|${m}`;
+    const seq = ++calSeq; // own token: a period change also bumps panelSeq while this request is in flight
+    let days = dailyCache.get(key);
+    if (!days) {
+      const wait = el('p', 'muted', t('day.loading'));
+      box.append(wait);
+      try { days = await state.source.daily(a.area, y, m); } catch (e) { console.warn('daily:', e.message); days = null; }
+      if (seq !== calSeq) return;
+      wait.remove();
+      if (!days) { box.append(el('p', 'muted', t('day.unavailable'))); return; }
+      if (dailyCache.size > 200) dailyCache.clear();
+      dailyCache.set(key, days);
+    }
+    if (!days.length) { box.append(el('p', 'muted', t('cal.future', { m: monthName(m), y }))); return; }
+    const withFire = days.filter((d) => (d.harmonized || 0) > 0);
+    const peak = withFire.slice().sort((p, q) => q.harmonized - p.harmonized)[0] || null;
+    const sensors = [...new Set(days.map((d) => d.sensor).filter(Boolean))].map((s) => SENSOR_LABEL[s]);
+    const facts = el('p', 'cal-month__facts');
+    facts.textContent = [
+      t('day.fire', { n: withFire.length, total: days.length }),
+      peak ? t('day.peak', { d: Number(peak.date.slice(8, 10)), v: fmt1(peak.harmonized) }) : null,
+      sensors.length ? t('day.sat', { s: sensors.join(', ') }) : null,
+      days.some((d) => d.provisional) ? t('day.prov') : null,
+    ].filter(Boolean).join(' · ');
+    box.append(facts);
+
+    const grid = el('div', 'cal-days');
+    I.weekdays().forEach((w) => grid.append(el('span', 'cal-days__h', w)));
+    const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    for (let i = 0; i < lead; i++) grid.append(el('span', 'cal-days__pad'));
+    const max = Math.max(1, ...days.map((d) => d.harmonized || 0));
+    const dseq = { type: 'sequential', min: 0, max };
+    const info = el('p', 'cal-month__day muted', t('day.hint'));
+    for (const d of days) {
+      const b = el('button', 'cal-day');
+      b.type = 'button';
+      const dn = Number(d.date.slice(8, 10));
+      b.append(el('span', 'cal-day__n', String(dn)));
+      if (d.harmonized === null) b.classList.add('is-nodata');
+      else {
+        b.style.background = map.colorFor(d.harmonized, dseq);
+        if (d.harmonized > 0) b.append(el('small', 'cal-day__v', fmt1(d.harmonized)));
+        if (d.harmonized > max * 0.12) b.classList.add('is-dark'); // the red ramp darkens fast: light ink early
+      }
+      if (d.provisional) b.classList.add('is-provisional');
+      const text = d.harmonized === null
+        ? t('day.noSat', { d: dn, m: monthName(m), y })
+        : t('day.title', { d: dn, m: monthName(m), y, v: fmt1(d.harmonized), c: I.num(d.cells), s: SENSOR_LABEL[d.sensor] || '–' }) + (d.provisional ? ` · ${t('day.prov')}` : '');
+      b.title = text; b.setAttribute('aria-label', text);
+      b.addEventListener('click', () => {
+        for (const o of grid.querySelectorAll('.cal-day.is-picked')) o.classList.remove('is-picked');
+        b.classList.add('is-picked');
+        info.textContent = text;
+        info.classList.remove('muted');
+      });
+      grid.append(b);
+    }
+    box.append(grid, info);
   }
 
   function renderCompare(rows) {
@@ -675,15 +1027,17 @@
     const years = [];
     for (let y = state.source.firstYear; y <= state.source.lastYear; y++) years.push(y);
     const sum = (y, k) => {
-      const rs = rows.filter((r) => r.year === y && r[k] !== null);
+      const rs = rows.filter((r) => r.year === y && r[k] !== null && r[k] !== undefined);
       return rs.length ? rs.reduce((a, r) => a + r[k], 0) : null;
     };
     const css = getComputedStyle(document.documentElement);
     const series = [
       { k: 'modis', color: css.getPropertyValue('--muted').trim() || '#9e9e9e', label: t('cmp.modis') },
       { k: 'viirs', color: css.getPropertyValue('--accent-2').trim() || '#f26d6d', label: t('cmp.viirs') },
+      { k: 'noaa20', color: css.getPropertyValue('--text').trim() || '#f5f5f5', label: t('cmp.noaa20'), dash: '3 3' },
       { k: 'harmonized', color: css.getPropertyValue('--accent').trim() || '#c62828', label: t('cmp.harm') },
-    ].map((s) => ({ ...s, pts: years.map((y) => [y, sum(y, s.k)]) }));
+    ].map((s) => ({ ...s, pts: years.map((y) => [y, sum(y, s.k)]) }))
+      .filter((s) => s.k !== 'noaa20' || s.pts.some((p) => p[1] !== null && p[1] > 0));
     const max = Math.max(1, ...series.flatMap((s) => s.pts.map((p) => p[1] || 0)));
     const W = 360, H = 150, L = 38, R = 8, T = 8, B = 20;
     const x = (y) => L + ((y - years[0]) / Math.max(1, years.length - 1)) * (W - L - R);
@@ -700,7 +1054,11 @@
         if (v === null) { pen = false; continue; }
         d += `${pen ? 'L' : 'M'}${x(y).toFixed(1)},${yv(v).toFixed(1)}`; pen = true;
       }
-      if (d) root.append(svg('path', { d, fill: 'none', stroke: s.color, 'stroke-width': s.k === 'harmonized' ? 2.4 : 1.6, 'stroke-linejoin': 'round' }));
+      if (d) {
+        const attrs = { d, fill: 'none', stroke: s.color, 'stroke-width': s.k === 'harmonized' ? 2.4 : 1.6, 'stroke-linejoin': 'round' };
+        if (s.dash) attrs['stroke-dasharray'] = s.dash;
+        root.append(svg('path', attrs));
+      }
     }
     const legend = el('div', 'legend-row');
     for (const s of series) {
@@ -726,6 +1084,8 @@
     if (map) map.setPointLayer(null, 'detail');
     const b = $('detail-block');
     if (b) b.hidden = true;
+    const pb = $('places-block');
+    if (pb) pb.hidden = true;
   }
   /**
    * area: { kind: 'muni', id } | { kind: 'circle', lon, lat, radiusKm }
@@ -738,26 +1098,12 @@
     clear(box);
     box.append(el('p', 'muted', t('detail.loading')));
     const res = area.kind === 'muni' ? 1000 : area.radiusKm <= 40 ? 1000 : area.radiusKm <= 120 ? 2000 : 5000;
-    let spec = null;
-    if (state.source.kind === 'demo') {
-      if (area.kind === 'muni') {
-        spec = { seed: area.id, bbox: map.bboxLonLat(area.id), inside: (lon, lat) => map.contains(area.id, lon, lat), total };
-      } else {
-        const dLat = area.radiusKm / 111, dLon = dLat / Math.cos((area.lat * Math.PI) / 180);
-        spec = {
-          seed: `c${area.lon.toFixed(2)}:${area.lat.toFixed(2)}:${area.radiusKm}`,
-          bbox: [area.lon - dLon, area.lat - dLat, area.lon + dLon, area.lat + dLat],
-          inside: (lon, lat) => Math.hypot((lon - area.lon) / dLon, (lat - area.lat) / dLat) <= 1,
-          total,
-        };
-      }
-    }
     let d = null;
-    try { d = await state.source.cells(area, state.year, state.month, res, spec); } catch (e) { console.warn('cells:', e.message); }
+    try { d = await state.source.cells(area, state.year, state.month, res); } catch (e) { console.warn('cells:', e.message); }
     if (seq !== state.panelSeq) return;
     clear(box);
     if (!d) { map.setPointLayer(null, 'detail'); box.append(el('p', 'muted', t('detail.unavailable'))); return; }
-    state.detail = { res: d.res, yearsObserved: d.yearsObserved };
+    state.detail = { res: d.res, yearsObserved: d.yearsObserved, cells: d.cells };
     const classes = DETAIL_CLASSES.map((c) => ({ color: c.color, cells: [] }));
     let withFire = 0;
     for (const c of d.cells) {
@@ -769,8 +1115,8 @@
       cellKm: d.res / 1000, classes, hover: true, grid: true, alpha: 1,
       clip: area.kind === 'muni' ? { kind: 'feature', id: area.id } : { kind: 'sphere' },
     }, 'detail');
+    renderPlacesBlock();
 
-    if (d.demo) box.append(el('p', 'detail-demo', t('detail.demo')));
     if (!d.cells.length) { box.append(el('p', 'muted', t('detail.none'))); return; }
     box.append(el('p', 'range-line', t('detail.summary', {
       n: I.num(withFire), res: I.num(d.res / 1000), period: period(), m: I.num(d.cells.length),
@@ -796,9 +1142,225 @@
     const c = h.cell;
     $('tt-name').textContent = t('tt.cell', { res: I.num(state.detail.res / 1000), v: fmt1(c[2]), period: period() });
     $('tt-value').textContent = t('tt.cellYears', { y: c[3], n: state.detail.yearsObserved ?? '–', ly: c[4] ?? '–' });
+    const extra = $('tt-extra');
+    clear(extra);
+    extra.append(el('span', '', t('places.center')), el('b', '', `${fmtCoord(c[1])}, ${fmtCoord(c[0])}`));
+    extra.hidden = false;
+    const near = state.places && state.places.length ? nearestPlaces(c[0], c[1], 2) : [];
+    $('tt-hint').textContent = near.length ? near.map(placeText).join(' · ') : '';
+    $('tt-hint').hidden = !near.length;
     tip.hidden = false;
     const x = Math.min(h.x + 14, $('map').clientWidth - 280);
     tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, h.y - 38)}px)`;
+  }
+
+
+  /* ---------- IBGE localities: map reference (zoom), nearest locality to a fire cell ---------- */
+  const PLACE_RANK = { vila: 1, povoado: 2, quilombola: 2, indigena: 2, lugarejo: 3, agrovila: 3, rural: 4, urbano: 4, outra: 5 };
+  const toRad = Math.PI / 180;
+  /** Great-circle distance in km (the straight line between the two points, not a road distance). */
+  function kmBetween(lat1, lon1, lat2, lon2) {
+    const dp = (lat2 - lat1) * toRad, dl = (lon2 - lon1) * toRad;
+    const a = Math.sin(dp / 2) ** 2 + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dl / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.sqrt(a));
+  }
+  /** The n localities nearest to a point, from all of Goiás (a fire near a border can be closest to the neighbour's). */
+  function nearestPlaces(lon, lat, n = 2) {
+    const list = state.places || [];
+    const best = [];
+    for (const p of list) {
+      const d = kmBetween(lat, lon, p.lat, p.lon);
+      if (best.length < n || d < best[best.length - 1].d) {
+        best.push({ p, d });
+        best.sort((a, b) => a.d - b.d);
+        if (best.length > n) best.pop();
+      }
+    }
+    return best;
+  }
+  const fmtCoord = (v) => (Number.isFinite(v) ? I.num(v, 4) : '–');
+  const placeText = (x) => t('places.near', { name: x.p.name, kind: t(`kind.${x.p.kind}`), muni: state.names.get(x.p.ibge) || x.p.ibge, km: fmt1(x.d) });
+  async function loadPlaces() {
+    if (!state.source.localities) return;
+    let list = null;
+    try { list = await state.source.localities(); } catch (e) { console.warn('localities:', e.message); }
+    if (!list) { setTimeout(loadPlaces, 30000); return; } // the API downloads them in the background on first start
+    state.places = list;
+    // sedes are already the municipality labels: they count for "nearest" but are not drawn again
+    map.setPlaces(list.filter((p) => p.kind !== 'sede').map((p) => ({ lon: p.lon, lat: p.lat, name: p.name, rank: PLACE_RANK[p.kind] || 5, id: p.id })));
+    if (state.selected || state.sphereSelection) renderPlacesBlock();
+  }
+  function onPlaceHover(h) {
+    const tip = $('tooltip');
+    if (!h) return; // the municipality hover takes the tooltip back
+    const p = (state.places || []).find((x) => x.id === h.place.id);
+    if (!p) return;
+    $('tt-name').textContent = p.name;
+    $('tt-value').textContent = `${t(`kind.${p.kind}`)} · ${state.names.get(p.ibge) || p.ibge}`;
+    const extra = $('tt-extra');
+    clear(extra);
+    extra.append(el('span', '', 'lat, lon'), el('b', '', `${fmtCoord(p.lat)}, ${fmtCoord(p.lon)}`));
+    extra.hidden = false;
+    $('tt-hint').textContent = t('places.source');
+    $('tt-hint').hidden = false;
+    tip.hidden = false;
+    const x = Math.min(h.x + 14, $('map').clientWidth - 290);
+    tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, h.y - 38)}px)`;
+  }
+  /** Área tab: fire cells of the month with their nearest localities; each opens the real detection days. */
+  function renderPlacesBlock() {
+    const block = $('places-block'), box = $('places-box');
+    if (!block) return;
+    const cells = state.detail && state.detail.cells ? state.detail.cells.filter((c) => c[2] > 0) : [];
+    block.hidden = !(state.places && state.places.length);
+    clear(box);
+    if (block.hidden) return;
+    if (!cells.length) { box.append(el('p', 'muted', t('places.noFire', { period: period() }))); return; }
+    const top = cells.slice().sort((a, b) => b[2] - a[2]).slice(0, 12);
+    box.append(el('p', 'muted', t('places.howto', { n: I.num(cells.length), shown: top.length })));
+    const list = el('ul', 'places-list');
+    for (const c of top) {
+      const near = nearestPlaces(c[0], c[1], 2);
+      const li = el('li', 'places-item');
+      const head = el('button', 'places-item__head');
+      head.type = 'button';
+      head.append(el('strong', '', `${fmt1(c[2])} ${t('places.cellDays')}`), el('span', 'muted', `${fmtCoord(c[1])}, ${fmtCoord(c[0])}`));
+      const nearEl = el('p', 'places-item__near', near.map(placeText).join(' · '));
+      const days = el('div', 'places-item__days');
+      head.setAttribute('aria-expanded', 'false');
+      head.addEventListener('click', async () => {
+        const open = head.getAttribute('aria-expanded') === 'true';
+        head.setAttribute('aria-expanded', open ? 'false' : 'true');
+        clear(days);
+        if (open) return;
+        days.append(el('span', 'muted', t('day.loading')));
+        let r = null;
+        try { r = await state.source.cellDetections(c[0], c[1], state.detail.res, state.year, state.month); } catch (e) { console.warn('cell detections:', e.message); }
+        clear(days);
+        if (!r || !r.days.length) { days.append(el('span', 'muted', t('places.noDays'))); return; }
+        for (const d of r.days) {
+          const chip = el('span', d.provisional ? 'day-chip is-prov' : 'day-chip', `${d.date.slice(8, 10)}/${d.date.slice(5, 7)} · ${SENSOR_LABEL[d.sensor]}`);
+          chip.title = d.provisional ? t('day.prov') : '';
+          days.append(chip);
+        }
+      });
+      li.append(head, nearEl, days);
+      list.append(li);
+    }
+    box.append(list);
+  }
+
+  /* ---------- Projection with a validated uncertainty band (daily model, hindcast 2015–2025) ---------- */
+  const horizonCache = new Map();
+  const bandNum = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : v >= 10 ? fmtInt(v) : fmt1(v));
+  const shortDate = (iso) => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(I.lang() === 'en' ? 'en-US' : 'pt-BR', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+  };
+  function renderHorizonsMessage(key) {
+    state.horizonsShown = null;
+    clear($('horizons-box')); $('horizons-box').append(el('p', 'muted', t(key)));
+    clear($('next-box')); $('next-box').append(el('p', 'muted', t(key)));
+  }
+  async function loadHorizons(area, seq) {
+    if (!state.source.horizons) { renderHorizonsMessage('proj.unavailable'); return; }
+    const key = area.ibge || `${area.lon.toFixed(3)},${area.lat.toFixed(3)},${area.radiusKm}`;
+    if (horizonCache.has(key)) { renderHorizons(horizonCache.get(key)); return; }
+    renderHorizonsMessage('proj.loading');
+    let h = null;
+    try { h = await state.source.horizons(area); } catch (e) { console.warn('horizons:', e.message); }
+    if (seq !== state.panelSeq) return;
+    if (!h) { renderHorizonsMessage('proj.unavailable'); return; }
+    if (horizonCache.size > 60) horizonCache.clear();
+    horizonCache.set(key, h);
+    renderHorizons(h);
+  }
+  function skillBadge(sk) {
+    if (!sk || sk.skillPct === null) return el('span', 'proj-badge', t('proj.skillNa'));
+    return sk.published
+      ? el('span', 'proj-badge proj-badge--ok', t('proj.skillOk', { s: fmt1(sk.skillPct), c: fmt1(sk.coveragePct), p: state.horizonsShown && state.horizonsShown.hindcast ? state.horizonsShown.hindcast.testPeriod : '' }))
+      : el('span', 'proj-badge proj-badge--off', t('proj.skillOff'));
+  }
+  /** One horizon card: the model band only when the hindcast beat climatology; otherwise the climatology band. */
+  function horizonCard(title, windowText, band, clim, sk) {
+    const card = el('div', 'proj-card');
+    card.append(el('h4', '', title));
+    if (windowText) card.append(el('small', '', windowText));
+    const show = sk && sk.published ? band : clim;
+    card.append(el('strong', '', show ? t('proj.band', { p10: bandNum(show.p10), p90: bandNum(show.p90) }) : '–'));
+    if (show) card.append(el('small', '', sk && sk.published ? t('proj.bandSmall', { p50: bandNum(show.p50) }) : t('proj.climSmall')));
+    card.append(skillBadge(sk));
+    return card;
+  }
+  function renderHorizons(h) {
+    state.horizonsShown = h;
+    const hc = h.hindcast || {};
+    // Summary tab: next 15 days in one line.
+    const next = $('next-box');
+    clear(next);
+    const f = h.fortnight;
+    if (f && hc.fortnight && hc.fortnight.published) next.append(el('p', 'range-line', t('next.line', { p10: bandNum(f.p10), p50: bandNum(f.p50), p90: bandNum(f.p90) })));
+    else if (f && f.climatology) next.append(el('p', 'range-line', t('next.clim', { p10: bandNum(f.climatology.p10), p90: bandNum(f.climatology.p90) })));
+    else next.append(el('p', 'muted', t('proj.skillNa')));
+    next.append(el('small', 'range-meta muted', `${t('proj.asOf', { d: shortDate(h.asOf) })} ${t('next.more')}`));
+
+    // Projection tab.
+    const box = $('horizons-box');
+    clear(box);
+    box.append(el('p', 'proj-note', t('proj.asOf', { d: shortDate(h.asOf) })));
+
+    const daysBlock = el('section', 'block');
+    daysBlock.append(el('h3', '', t('proj.days')));
+    const d1 = hc.day1;
+    // The daily chance is shown only when it beat the climatological frequency in the test years.
+    if (!(d1 && d1.published)) {
+      daysBlock.append(el('p', 'proj-note proj-note--warn', t('proj.day1Off')));
+      box.append(daysBlock);
+    }
+    const days = el('div', 'proj-days');
+    for (const d of h.daily) {
+      const col = el('div', 'proj-day');
+      const bar = el('i');
+      bar.style.height = `${Math.max(2, Math.round(d.pAnyPct * 0.8))}%`;
+      bar.style.opacity = String(0.35 + 0.65 * (d.pAnyPct / 100));
+      col.title = t('proj.dayTitle', { d: shortDate(d.date), p: fmtInt(d.pAnyPct), p50: bandNum(d.p50), p90: bandNum(d.p90) });
+      col.setAttribute('aria-label', col.title);
+      col.append(bar, el('span', '', d.date.slice(8, 10)));
+      days.append(col);
+    }
+    if (d1 && d1.published) {
+      daysBlock.append(days);
+      daysBlock.append(el('p', 'proj-note', t('proj.day1Ok', { s: fmt1(d1.skillPct) })));
+      box.append(daysBlock);
+    }
+
+    const cards = el('div', 'proj-cards');
+    if (h.fortnight) cards.append(horizonCard(t('proj.fortnight'), t('proj.window', { from: shortDate(h.fortnight.from), to: shortDate(h.fortnight.to) }), h.fortnight, h.fortnight.climatology, hc.fortnight));
+    const m0 = h.months[0];
+    if (m0) cards.append(horizonCard(`${t('proj.month')} · ${monthName(m0.month)} ${m0.year}`, m0.partial ? t('proj.inProgress') : '', m0, null, hc.month));
+    if (h.semester) cards.append(horizonCard(t('proj.semester'), t('proj.window', { from: shortDate(h.semester.from), to: shortDate(h.semester.to) }), h.semester, h.semester.climatology, hc.semester));
+    box.append(cards);
+
+    if (hc.month && hc.month.published && h.months.length) {
+      const sec = el('section', 'block');
+      sec.append(el('h3', '', t('proj.monthsTitle')));
+      const table = el('table', 'proj-months');
+      const head = el('tr');
+      ['proj.colMonth', 'proj.colBand', 'proj.colMedian', 'proj.colObserved'].forEach((k) => head.append(el('th', '', t(k))));
+      table.append(head);
+      for (const m of h.months) {
+        const tr = el('tr');
+        tr.append(el('td', '', `${monthName(m.month)} ${m.year}${m.partial ? ` (${t('proj.inProgress')})` : ''}`),
+          el('td', 'num', t('proj.band', { p10: bandNum(m.p10), p90: bandNum(m.p90) })),
+          el('td', 'num', bandNum(m.p50)),
+          el('td', 'num', m.partial ? bandNum(m.observedSoFar) : '–'));
+        table.append(tr);
+      }
+      sec.append(table);
+      box.append(sec);
+    }
+    if (hc.calibrationPeriod) box.append(el('p', 'proj-note', t('proj.calib', { c: hc.calibrationPeriod, t: hc.testPeriod })));
+    box.append(el('p', 'proj-note', t('proj.method')));
   }
 
   /* ---------- Expected range from history (P10–P90 of the same month in earlier years) ---------- */
@@ -808,7 +1370,7 @@
     try {
       const p = state.source.projection ? await state.source.projection(id, state.year, state.month) : null;
       if (seq !== state.panelSeq) return;
-      if (p && p.range) { renderRangeBox(p, state.source.kind === 'demo'); return; }
+      if (p && p.range) { renderRangeBox(p, false); return; }
     } catch (e) {
       if (seq !== state.panelSeq) return;
       console.warn('projection:', e.message);
@@ -882,7 +1444,6 @@
     btn.classList.toggle('is-active', r.on);
     btn.setAttribute('aria-pressed', String(r.on));
     if (!r.on) { map.setPointLayer(null); $('roots-legend').hidden = true; return; }
-    if (state.source.kind === 'demo') { showRootsMessage('roots.demo'); return; }
     if (!r.data) {
       r.loading = true;
       showRootsMessage('roots.loading');
@@ -957,32 +1518,28 @@
     return () => clearInterval(intervalId);
   }
 
+  const INTEL_BOXES = ['resources-box', 'root-fires-box', 'predictability-box', 'agro-b2b-box'];
+  /** Blocks A–D are shown only when the API serves them (it disables them while their inputs are not real). */
+  function setIntelVisible(on) {
+    for (const id of INTEL_BOXES) {
+      const sec = $(id) && $(id).closest('section');
+      if (sec) sec.hidden = !on;
+    }
+  }
+
   async function loadIntelligence(id, seq) {
-    const stopLoading = renderIntelLoading(['resources-box', 'root-fires-box', 'predictability-box', 'agro-b2b-box']);
+    setIntelVisible(false);
+    if (!state.source.intelligence) return;
     try {
-      const fetchPromise = state.source.intelligence
-        ? state.source.intelligence(id, state.year, state.month)
-        : Promise.resolve(global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id));
-
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Satellite query exceeded 20s timeout')), 20000);
-      });
-
-      const intel = await Promise.race([fetchPromise, timeoutPromise]);
-      stopLoading();
+      const intel = await state.source.intelligence(id, state.year, state.month);
       if (seq !== state.panelSeq || !intel) return;
+      setIntelVisible(true);
       if (intel.resources) renderResourcesBox(intel.resources);
       if (intel.rootFires) renderRootFiresBox(intel.rootFires);
       if (intel.predictability) renderPredictabilityBox(intel.predictability);
       if (intel.agroB2B) renderAgroB2BBox(intel.agroB2B, intel.telemetryMode || 'live_satellite');
     } catch (err) {
-      stopLoading();
-      if (seq !== state.panelSeq) return;
-      const fallback = global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id);
-      renderResourcesBox(fallback.resources);
-      renderRootFiresBox(fallback.rootFires);
-      renderPredictabilityBox(fallback.predictability);
-      renderAgroB2BBox(fallback.agroB2B, 'fallback_mock');
+      // 503 "Not available" or offline: the blocks stay hidden; nothing is computed in the browser.
     }
   }
 
@@ -1411,6 +1968,7 @@
   /* ---------- language & theme ---------- */
   function applyLanguage() {
     I.apply();
+    labelExpand();
     setBadge();
     map.setAriaLabel(t('map.aria'));
     if (state.lastView) updateLateralScale(state.lastView);
@@ -1424,11 +1982,14 @@
       renderPanelBody(state.selected);
       const seq = ++state.panelSeq;
       loadRange(state.selected, seq);
+      loadHorizons({ ibge: state.selected }, seq);
       loadIntelligence(state.selected, seq);
       loadContext(state.selected, seq);
       const cur = currentRow();
       loadDetail({ kind: 'muni', id: state.selected }, cur ? cur.harmonized : 0, seq);
     }
+    if (state.horizonsShown) renderHorizons(state.horizonsShown);
+    if (isFuture()) renderRibbon(state.reqSeq);
     if (state.roots.on && state.roots.data) drawRoots();
   }
   function setupLanguage() {
@@ -1478,6 +2039,7 @@
     map.on('sphere', onSphereSelect);
     map.on('view', updateLateralScale);
     map.on('cell', onCellHover);
+    map.on('place', onPlaceHover);
 
     // Mode switcher (Município vs Esfera/Área 2D)
     let radiusTimer = 0;
@@ -1504,10 +2066,10 @@
       $('toggle-numbers').classList.toggle('is-active', on);
     });
 
-    $('p-close').addEventListener('click', () => {
-      setModeUI('municipality');
-      selectMunicipality(null, true);
-    });
+    $('p-close').addEventListener('click', dismissDetails);
+    $('cal-prev').addEventListener('click', () => { state.calYear -= 1; renderCalView(); });
+    $('cal-next').addEventListener('click', () => { state.calYear += 1; renderCalView(); });
+    setupModal();
     $('csv').addEventListener('click', downloadCsv);
     $('calendar').addEventListener('click', (e) => {
       const b = e.target.closest('.cal-cell');
@@ -1534,7 +2096,9 @@
       readHash();
       fillControls();
       setupSearch();
-      await refreshMap();
+      const ready = state.source.dataKind === 'firms_db' || state.source.dataKind === 'firms_index';
+      if (ready) await refreshMap(); else watchHistory();
+      loadPlaces();
 
       // Cinematic flight in motion from Brazil overview into Goiás (or selected municipality)
       setTimeout(() => {
@@ -1547,6 +2111,24 @@
       console.error(e);
       setStatus('status.mapErr', { msg: e.message }, true, () => location.reload());
     }
+  }
+
+  /** While the API downloads the FIRMS history, show its progress and reload once it is ready. */
+  function watchHistory() {
+    const k = state.source.dataKind;
+    if (state.source.kind === 'offline') { setStatus('status.apiOffline', null, true, () => location.reload()); return; }
+    if (k !== 'loading' && k !== 'none') return;
+    const h = state.source.historyLoad;
+    setStatus(k === 'loading' ? 'status.historyLoading' : 'status.historyNone', { done: h ? h.done : 0, total: h ? h.total : 0 }, k === 'none');
+    setTimeout(async () => {
+      try {
+        const src = await global.FireData.createSource(() => state.ids, (id) => map.areaKm2(id));
+        if (src.dataKind === 'firms_db' || src.dataKind === 'firms_index') { location.reload(); return; }
+        state.source = src;
+        setBadge();
+      } catch (_) { /* keep polling */ }
+      watchHistory();
+    }, 15000);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();

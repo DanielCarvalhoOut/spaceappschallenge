@@ -7,7 +7,7 @@ Mapa interativo de Goiás por município, escrito do zero pela equipe. Não reap
 Dê dois cliques em `index.html`. Não precisa de build nem de servidor:
 - os scripts são clássicos (sem módulos ES), por isso funcionam via `file://`;
 - a malha e os nomes dos municípios vêm em tempo de execução da API pública do IBGE (precisa de internet);
-- se o backend do Monitor Cinder (`http://localhost:8787`) não responder, a tela entra em **DEMO** com valores sintéticos. A faixa amarela no topo deixa isso explícito.
+- se o backend do Monitor Cinder (`http://localhost:8787`) não responder, a tela mostra só os contornos do IBGE e avisa que a API está desligada. Enquanto a API baixa o histórico do FIRMS, o selo mostra o progresso e a página recarrega sozinha. **Não há modo DEMO nem valor gerado no navegador.**
 
 ## Arquivos
 
@@ -18,7 +18,7 @@ Dê dois cliques em `index.html`. Não precisa de build nem de servidor:
 | `config.js` | `window.CINDER_CONFIG`: endereço da API, URLs do IBGE, período. **Sem chaves.** |
 | `i18n.js` | Textos em português (padrão) e inglês (botão `EN`/`PT`). Expõe `window.FireI18n`. |
 | `mapa-engine.js` | Motor do mapa: projeção policônica (parâmetros do EPSG:5880), `Path2D` por município, câmera (roda suave ancorada no cursor, arraste com inércia, pinça no celular, voo de zoom ótimo de van Wijk & Nuij), hit-test, rótulos com contraste WCAG, rampas de cor em OKLab. Expõe `window.FireMap`. |
-| `cinder-data.js` | Camada de dados: IBGE (malha e nomes), cliente da API do Monitor Cinder, fonte DEMO. Valida toda resposta. Expõe `window.FireData`. |
+| `cinder-data.js` | Camada de dados: IBGE (malha e nomes), cliente da API do Monitor Cinder (sem fonte sintética). Valida toda resposta. Expõe `window.FireData`. |
 | `cinder-ui.js` | Controlador da tela: filtros, legenda, tooltip, busca, painel com padrão histórico, calendário, comparação MODIS × VIIRS × harmonizado, contexto (INPE/Embrapa/POWER) e CSV. |
 
 ## API do motor (`FireMap`)
@@ -41,15 +41,20 @@ Todas as rotas são `GET`, JSON e públicas (sem chave no front). Código de mun
 
 | Rota | Resposta |
 | --- | --- |
-| `/api/meta` | `{ service: "monitor-cinder", dataKind: "firms_db"\|"synthetic", period: { firstYear, lastYear }, sources: [{ id, name, url, role }], validation: { mapePct, wapePct, pearsonR, biasPct } \| null }` |
+| `/api/meta` | `{ service: "monitor-cinder", dataKind: "firms_db"\|"firms_index"\|"loading"\|"none", period: { firstYear, lastYear }, chain: { lastObservedDay, provisionalFrom, links }, sources: [{ id, name, url, role }], validation: { mapePct, wapePct, pearsonR, biasPct } \| null }` |
 | `/api/geo/municipalities?uf=52` | GeoJSON do IBGE em cache (opcional; se falhar, o front busca direto no IBGE) |
 | `/api/map?year=2024&month=9&metric=anomaly\|count\|density` | `{ values: { "5208707": 2.1, ... } }` (`null` = sem dado) |
-| `/api/municipalities/{ibge}/calendar` | `{ rows: [{ year, month, modis, viirs, harmonized, anomalyZ, daysMissing }] }` |
+| `/api/municipalities/{ibge}/calendar` | `{ rows: [{ year, month, modis, viirs, noaa20, harmonized\|null, anomalyZ, daysMissing, provisional, partial }] }` (meses futuros não vêm; `provisional` = NRT; `partial` = mês em andamento) |
 | `/api/municipalities/{ibge}/pattern` | `{ months: [{ month, mean, sharePct }], season: { months: [8,9,10], coveredPct, peakMonth } }` |
 | `/api/municipalities/{ibge}/context?year=2024` | `{ items: [{ key, label, value, unit, source }] }` com `key` = `fonte.métrica` (ex.: `inpe_prodes.deforestation_km2`); o front traduz pela `key` e usa `label` como reserva |
 | `/api/municipalities/{ibge}/calendar.csv` | CSV com proteção contra injeção de fórmula |
 | `/api/projection?ibge=52\|52xxxxx&year&month` | `{ method, range: { p10, p50, p90, nYears }, analog: { p10, p50, p90, years } \| null, observed, hindcast }`; 503 sem histórico → o front calcula a mesma faixa com a série que já tem e avisa "sem retroteste" |
-| `/api/area/history?lon&lat&radiusKm&source` | só as células dentro do círculo: `{ areaKm2, pctInState, rows, municipalities: [{ ibge, pctOfMunicipality }] }`; 503 → soma aproximada dos municípios tocados, com aviso |
+| `/api/area/history?lon&lat&radiusKm&source` | só as células dentro do círculo: `{ areaKm2, pctInState, rows, municipalities: [{ ibge, pctOfMunicipality }] }`; 503 → o front avisa que precisa do histórico (não estima por município inteiro) |
+| `/api/map?…&metric=typical` | meses futuros: padrão histórico do mês por município (mediana do mesmo mês nos anos anteriores) |
+| `/api/localities[?ibge=52xxxxx]` | localidades do IBGE (Censo 2022), só referência geográfica: `{ localities: [[id, ibge, nome, tipo, lon, lat]] }`; 503 enquanto a API baixa o arquivo na primeira vez |
+| `/api/cell/detections?lon&lat&res&year&month` | dias e satélite que viram fogo numa célula do mapa no mês: `{ days: [{ date, sensor, provisional }], cells1km }` |
+| `/api/daily?ibge=52xxxxx\|lon&lat&radiusKm&year&month` | o mês dia a dia: `{ days: [{ date, harmonized\|null, sensor, provisional, cells }] }` (calendário da aba Histórico) |
+| `/api/projection/horizons?ibge=52\|52xxxxx \| lon&lat&radiusKm(5–300)` | projeção com faixa de incerteza validada a partir do último dia observado: `{ asOf, daily[15]: { date, pAnyPct, p50, p90 }, fortnight, months[≤6], semester: { from, to, p10, p50, p90, climatology }, hindcast: { period, horizons: { day1, fortnight, month, semester: { n, skillPct, coveragePct, published } } } }`; o front só mostra a faixa do modelo quando `published` (skill > 0), senão a climatologia |
 | `/api/layers/cells?ibge=52xxxxx\|lon&lat&radiusKm&year&month&res=1000\|2000\|5000` | células da grade dentro do município ou do círculo: `{ res, total, yearsObserved, cells: [[lon, lat, célulasDiaNoMês, anosComFogo, últimoAno]] }`; a soma é o valor harmonizado da área no mês |
 | `/api/layers/recurrence?west&south&east&north&from&to&res=1000` | `{ yearsObserved, columns, cells: [[lon, lat, anosComVizinhas, anos, últimoAno, mêsPico]], hitRate }` → camada FR (focos-raiz) |
 

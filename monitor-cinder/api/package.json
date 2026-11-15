@@ -1,7 +1,7 @@
 {
   "name": "monitor-cinder-api",
   "version": "1.0.0",
-  "description": "Monitor Cinder Backend — MODIS & VIIRS Harmonization, Root Fire Calendar & NASA POWER Predictability",
+  "description": "Monitor Cinder Backend \u2014 MODIS & VIIRS Harmonization, Root Fire Calendar & NASA POWER Predictability",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,7 +21,8 @@
     "job:ingest-firms-history": "tsx src/jobs/ingest-firms-history.ts",
     "job:build-history": "tsx src/jobs/build-history.ts",
     "job:build-cell-index": "tsx src/jobs/build-cell-index.ts",
-    "test:db": "vitest run src/tests/history.db.test.ts"
+    "test:db": "vitest run src/tests/history.db.test.ts",
+    "job:validate": "tsx src/jobs/validate.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

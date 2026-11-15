@@ -57,6 +57,7 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
       .safeParse(req.query);
     if (!q.success) return problem(reply, 400, 'Invalid projection query', q.error.message);
     if (!(await hasHistory())) {
+      if (store.getCalendarKind() !== 'firms_index') return problem(reply, 503, 'History not loaded', 'NASA FIRMS history not loaded yet.');
       const muni = q.data.ibge === '52' ? { name: 'Goiás' } : store.getMunicipality(q.data.ibge);
       if (!muni) return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
       const p = store.getProjection(q.data.ibge, q.data.year, q.data.month);
@@ -85,7 +86,8 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
       .safeParse(req.query);
     if (!q.success) return problem(reply, 400, 'Invalid area query', q.error.message);
     if (!(await hasHistory())) {
-      return store.getCircleHistory(q.data.lon, q.data.lat, q.data.radiusKm, q.data.source);
+      const out = store.getCircleHistory(q.data.lon, q.data.lat, q.data.radiusKm, q.data.source);
+      return out ?? problem(reply, 503, 'History not loaded', 'NASA FIRMS history not loaded yet.');
     }
     try {
       return await circle(q.data.lon, q.data.lat, q.data.radiusKm, q.data.source);
@@ -169,6 +171,77 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
     }
   });
 
+  // Projection with a validated uncertainty band: next days, 15 days, months and 6 months from the last observed day.
+  app.get('/api/projection/horizons', async (req, reply) => {
+    const q = z
+      .object({
+        ibge: z.string().regex(/^(52|52\d{5})$/).optional(),
+        lon: lon.optional(),
+        lat: lat.optional(),
+        radiusKm: z.coerce.number().min(5).max(300).optional(),
+      })
+      .refine((v) => (v.ibge !== undefined) !== (v.lon !== undefined && v.lat !== undefined && v.radiusKm !== undefined), {
+        message: 'give either ibge or lon+lat+radiusKm',
+      })
+      .safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid projection query', q.error.message);
+    if (q.data.ibge && q.data.ibge !== '52' && !store.getMunicipality(q.data.ibge)) return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
+    const area = q.data.ibge ? { ibge: q.data.ibge } : { lon: q.data.lon!, lat: q.data.lat!, radiusKm: q.data.radiusKm! };
+    const out = store.getHorizons(area);
+    if (!out) return problem(reply, 503, 'History not loaded', 'The daily projection needs the FIRMS index (job:build-cell-index).');
+    reply.header('Cache-Control', 'public, max-age=1800');
+    return { ...out.projection, hindcast: out.hindcast };
+  });
+
+  // IBGE localities (Censo 2022): vilas, povoados, comunidades — geographic reference for the map, never a fire input.
+  app.get('/api/localities', async (req, reply) => {
+    const q = z.object({ ibge: z.string().regex(/^52\d{5}$/).optional() }).safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid localities query', q.error.message);
+    const list = store.getLocalities(q.data.ibge);
+    if (!list) return problem(reply, 503, 'Localities not loaded', 'The IBGE localities are downloaded in the background on first start.');
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return { source: 'IBGE, Base de Localidades, Censo 2022', count: list.length, localities: list.map((l) => [l.id, l.ibge, l.name, l.kind, l.lon, l.lat]) };
+  });
+
+  // Detections behind one map cell: which days and which satellite saw fire there in the month.
+  app.get('/api/cell/detections', async (req, reply) => {
+    const q = z.object({
+      lon, lat,
+      res: z.coerce.number().refine((v): v is 1000 | 2000 | 5000 => v === 1000 || v === 2000 || v === 5000).default(1000),
+      year: z.coerce.number().int().min(2001).max(2100),
+      month: z.coerce.number().int().min(1).max(12),
+    }).safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid cell query', q.error.message);
+    const r = store.getCellDetections(q.data.lon, q.data.lat, q.data.res as 1000 | 2000 | 5000, q.data.year, q.data.month);
+    if (!r) return problem(reply, 503, 'History not loaded', 'Cell detections need the FIRMS index.');
+    reply.header('Cache-Control', 'public, max-age=600');
+    return r;
+  });
+
+  // One month day by day (calendar of the History tab): municipality, state or circle.
+  app.get('/api/daily', async (req, reply) => {
+    const q = z
+      .object({
+        ibge: z.string().regex(/^(52|52\d{5})$/).optional(),
+        lon: lon.optional(),
+        lat: lat.optional(),
+        radiusKm: z.coerce.number().min(5).max(300).optional(),
+        year: z.coerce.number().int().min(2001).max(2100),
+        month: z.coerce.number().int().min(1).max(12),
+      })
+      .refine((v) => (v.ibge !== undefined) !== (v.lon !== undefined && v.lat !== undefined && v.radiusKm !== undefined), {
+        message: 'give either ibge or lon+lat+radiusKm',
+      })
+      .safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid daily query', q.error.message);
+    if (q.data.ibge && q.data.ibge !== '52' && !store.getMunicipality(q.data.ibge)) return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
+    const area = q.data.ibge ? { ibge: q.data.ibge } : { lon: q.data.lon!, lat: q.data.lat!, radiusKm: q.data.radiusKm! };
+    const days = store.getDaily(area, q.data.year, q.data.month);
+    if (!days) return problem(reply, 503, 'History not loaded', 'The daily calendar needs the FIRMS index (job:build-cell-index).');
+    reply.header('Cache-Control', 'public, max-age=600');
+    return { year: q.data.year, month: q.data.month, unit: 'cell-days (VIIRS S-NPP scale)', days };
+  });
+
   // Focos-raiz overlay: recurrence per cell inside the visible box, aggregated to the requested resolution.
   app.get('/api/layers/recurrence', async (req, reply) => {
     const q = z
@@ -190,23 +263,22 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
       .safeParse(req.query);
     if (!q.success) return problem(reply, 400, 'Invalid layer query', q.error.message);
     if (!(await hasHistory())) {
+      // Without PostGIS: 1 km harmonized cells from the FIRMS index, whole year (the only grid the index has).
+      if (q.data.source !== 'harmonized1k' || q.data.res !== 1000 || q.data.month !== undefined) {
+        return problem(reply, 400, 'Invalid layer query', 'Without PostGIS only res=1000, source=harmonized1k and no month are available');
+      }
       const out = store.getRecurrenceCells(q.data);
+      if (!out) return problem(reply, 503, 'History not loaded', 'NASA FIRMS history not loaded yet.');
+      reply.header('Cache-Control', 'public, max-age=3600');
       return {
         res: q.data.res,
         source: q.data.source,
         from: q.data.from,
         to: q.data.to,
-        month: q.data.month ?? null,
+        month: null,
         columns: ['lon', 'lat', 'yearsBurnedWithNeighbours', 'yearsBurned', 'lastYear', 'peakMonth'],
         ...out,
-        hitRate: {
-          testYear: 2025,
-          windowYears: 10,
-          minYears: 4,
-          hitPct: 78.4,
-          areaSharePct: 5.2,
-          lift: 15.1,
-        },
+        hitRate: null, // computed only by job:build-history (PostGIS); never a fixed number
       };
     }
     try {

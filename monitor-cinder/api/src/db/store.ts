@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import type { Locality } from '../connectors/ibge-localities.js';
 import { computeMod13q1BiomassProfile, embrapaSatVegConnector } from '../connectors/embrapa-satveg.js';
 import { firmsConnector } from '../connectors/firms.js';
 import { ibgeConnector, pointInMunicipality, type IbgeMunicipalityRecord } from '../connectors/ibge.js';
@@ -14,7 +15,9 @@ import {
   estimateResourcesByFrp,
 } from '../core/analytics.js';
 import { logger } from '../core/logger.js';
-import { loadCellIndex, monthlyCountsByMunicipality, type CellIndex } from '../core/cell-index.js';
+import { buildChain, cellDetections, dailyOfMonth, partialWindow, withPartialAnomaly, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
+import { computeIndexValidation } from '../core/index-validation.js';
+import { hindcast, projectFrom, type Hindcast, type Projection } from '../core/projection-model.js';
 import {
   predictFirePropensity,
   trainPropensityModel,
@@ -39,12 +42,16 @@ export interface CalendarRow {
   year: number;
   month: number;
   modis: number | null;
-  viirs: number | null;
-  harmonized: number;
+  viirs: number | null;     // VIIRS S-NPP
+  noaa20?: number | null;   // VIIRS NOAA-20 (raw, for the comparison chart)
+  harmonized: number | null; // cell-days on the S-NPP scale; null when > 10 days had no sensor
   anomalyZ: number | null;
   daysMissing: number;
-  meanFrpMw: number;
-  maxFrpMw: number;
+  provisional?: boolean;    // near-real-time days in the month
+  partial?: boolean;        // current month, not finished
+  partialDays?: number;     // month in progress: anomaly of days 1..N vs the same days of earlier years
+  meanFrpMw?: number;
+  maxFrpMw?: number;
 }
 
 export interface ValidationMetrics {
@@ -101,23 +108,22 @@ class CinderDataStore {
   private mcd12q1Cache = new Map<string, Mcd12q1LandCoverProfile>();
   private rootCache = new Map<string, RootFireSummary>();
   private mlModel: TrainedMlPropensityModel | null = null;
+  private index: CellIndex | null = null;
   private initialized = false;
 
   public async init(): Promise<void> {
     if (this.initialized) return;
     this.municipalities = await ibgeConnector.loadMunicipalities('52');
-    this.ensureValidationArtifacts();
     await this.loadLiveFirmsSnapshot();
     this.loadCachedSatelliteProfilesFromDisk();
     this.buildAllCalendars();
-    this.trainOrLoadMlModel(false);
     this.initialized = true;
     logger.info(
       {
         municipalities: this.municipalities.size,
         liveHotspots: this.liveHotspots.length,
         deduplicatedClusters: this.liveClusters.length,
-        mlRocAuc: this.mlModel?.metrics.rocAuc,
+        history: this.calendarKind,
       },
       'Monitor Cinder data store initialized'
     );
@@ -226,7 +232,7 @@ class CinderDataStore {
 
         const features: MlFeatureVector = {
           rootRecurrencePct: recByMonth.get(cur.month) ?? rootSummary.persistenceScorePct,
-          lag1HarmonizedLog: Math.log1p(Math.max(0, prev.harmonized)),
+          lag1HarmonizedLog: Math.log1p(Math.max(0, prev.harmonized ?? 0)),
           spatialGradient,
           t2mMaxC,
           vpdHpa,
@@ -236,7 +242,7 @@ class CinderDataStore {
         };
 
         const isOutbreak: 0 | 1 =
-          cur.harmonized >= 20 || (cur.anomalyZ !== null && cur.anomalyZ >= 0.75 && cur.harmonized >= 8)
+          (cur.harmonized ?? 0) >= 20 || (cur.anomalyZ !== null && cur.anomalyZ >= 0.75 && (cur.harmonized ?? 0) >= 8)
             ? 1
             : 0;
 
@@ -261,32 +267,9 @@ class CinderDataStore {
     return this.municipalities.get(ibge);
   }
 
-  public ensureValidationArtifacts(): { validation: ValidationMetrics; inpeCheck: InpeCheckSummary } {
-    const valFile = path.join(config.outDir, 'validation.json');
-    const inpeFile = path.join(config.outDir, 'inpe_check.json');
-
-    const validation: ValidationMetrics = {
-      calibrationPeriod: '2012-2019',
-      testPeriod: '2020-2025',
-      method: 'monthly_ratio + dbscan_1km_grid',
-      mapePct: 11.4,
-      pearsonR: 0.942,
-      biasPct: -1.8,
-      monthlyRatioFactors: MONTHLY_HARMONIZATION_FACTORS,
-    };
-
-    const inpeCheck: InpeCheckSummary = {
-      period: '2012-2025',
-      meanRatioInpeToFirmsModis: 0.486,
-      pearsonR: 0.968,
-      yearsChecked: 14,
-    };
-
-    // Placeholders for the synthetic demo only. They are NOT written to out/: the real numbers come from
-    // job:build-history (out/validation.json with source=firms_db). /api/meta hides these when no history exists.
-    void valFile;
-    void inpeFile;
-    return { validation, inpeCheck };
+  /** Harmonization error computed from the real FIRMS index (2012–2019 calibration, 2020–2025 test), or null. */
+  public ensureValidationArtifacts(): ReturnType<typeof computeIndexValidation> | null {
+    return this.index ? computeIndexValidation(this.index) : null;
   }
 
   /**
@@ -303,9 +286,12 @@ class CinderDataStore {
       try {
         const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as {
           fetchedAt: string;
+          source?: string;
           hotspots: FirmsHotspotRecord[];
         };
-        if (cached && Array.isArray(cached.hotspots) && cached.hotspots.length > 0) {
+        const ageH = (Date.now() - Date.parse(cached.fetchedAt)) / 3_600_000;
+        // Only a real FIRMS NRT download younger than 6 h (older cache files may hold seeded points: ignored).
+        if (cached && cached.source === 'firms_area_api_nrt' && ageH < 6 && Array.isArray(cached.hotspots)) {
           this.liveHotspots = cached.hotspots;
           this.indexLiveHotspots();
           return { rawHotspots: this.liveHotspots, clusters: this.liveClusters };
@@ -322,7 +308,6 @@ class CinderDataStore {
           'VIIRS_SNPP_NRT',
           'VIIRS_NOAA20_NRT',
           'VIIRS_NOAA21_NRT',
-          'LANDSAT_NRT',
         ];
         const fetched = await firmsConnector.fetchMultiSensorArea(config.bbox, 5, sensors);
         if (fetched.length > 0) {
@@ -330,7 +315,7 @@ class CinderDataStore {
           this.indexLiveHotspots();
           fs.writeFileSync(
             cacheFile,
-            JSON.stringify({ fetchedAt: new Date().toISOString(), hotspots: fetched }),
+            JSON.stringify({ fetchedAt: new Date().toISOString(), source: 'firms_area_api_nrt', hotspots: fetched }),
             'utf8'
           );
           return { rawHotspots: this.liveHotspots, clusters: this.liveClusters };
@@ -340,19 +325,9 @@ class CinderDataStore {
       }
     }
 
-    // Seed representative multi-sensor hotspots (MODIS 1km + VIIRS 375m) across Goiás municipalities if offline/low season
-    const seeded = this.generateRepresentativeMultiSensorHotspots();
-    this.liveHotspots = seeded;
+    // No key or FIRMS unreachable: no recent hotspots (never seeded).
+    this.liveHotspots = [];
     this.indexLiveHotspots();
-    try {
-      fs.writeFileSync(
-        cacheFile,
-        JSON.stringify({ fetchedAt: new Date().toISOString(), hotspots: seeded }),
-        'utf8'
-      );
-    } catch {
-      // ignore
-    }
     return { rawHotspots: this.liveHotspots, clusters: this.liveClusters };
   }
 
@@ -372,92 +347,10 @@ class CinderDataStore {
     }
   }
 
-  private generateRepresentativeMultiSensorHotspots(): FirmsHotspotRecord[] {
-    const out: FirmsHotspotRecord[] = [];
-    const munis = [...this.municipalities.values()];
-    const r = createRng(20261114);
-    for (const m of munis) {
-      const fireCount = r() < 0.45 ? 1 + Math.floor(r() * 4) : 1;
-      for (let f = 0; f < fireCount; f++) {
-        const baseLat = m.centroidLat + (r() - 0.5) * 0.06;
-        const baseLon = m.centroidLon + (r() - 0.5) * 0.06;
-        const day = `2024-09-${String(10 + (f % 15)).padStart(2, '0')}`;
-        const baseFrp = Math.round((14 + r() * 85) * 10) / 10;
+  private calendarKind: 'firms_index' | 'none' = 'none';
 
-        // 1. MODIS 1 km pixel (Aqua/Terra)
-        out.push({
-          sensor: 'MODIS_SP',
-          instrument: 'MODIS',
-          pixelM: 1000,
-          latitude: Number(baseLat.toFixed(5)),
-          longitude: Number(baseLon.toFixed(5)),
-          brightnessK: Number((325 + r() * 35).toFixed(1)),
-          brightness2K: Number((298 + r() * 12).toFixed(1)),
-          scan: 1.1,
-          track: 1.0,
-          acqDate: day,
-          acqTime: '1645',
-          acqIsoUtc: `${day}T16:45:00Z`,
-          satellite: 'Aqua',
-          confidenceRaw: '84',
-          confidenceNorm: 2,
-          frpMw: baseFrp,
-          daynight: 'D',
-          processing: 'SP',
-        });
-
-        // 2. VIIRS NOAA-20 375 m pixel (within ~250 m of MODIS pixel -> same fire front!)
-        out.push({
-          sensor: 'VIIRS_NOAA20_NRT',
-          instrument: 'VIIRS',
-          pixelM: 375,
-          latitude: Number((baseLat + 0.0014).toFixed(5)),
-          longitude: Number((baseLon - 0.0012).toFixed(5)),
-          brightnessK: Number((338 + r() * 30).toFixed(1)),
-          brightness2K: Number((296 + r() * 10).toFixed(1)),
-          scan: 0.38,
-          track: 0.38,
-          acqDate: day,
-          acqTime: '1705',
-          acqIsoUtc: `${day}T17:05:00Z`,
-          satellite: 'N20',
-          confidenceRaw: 'h',
-          confidenceNorm: 2,
-          frpMw: Number((baseFrp * 0.62).toFixed(1)),
-          daynight: 'D',
-          processing: 'NRT',
-        });
-
-        // 3. VIIRS NOAA-21 375 m adjacent pixel (within ~420 m -> also merged by DBSCAN 1000m!)
-        out.push({
-          sensor: 'VIIRS_NOAA21_NRT',
-          instrument: 'VIIRS',
-          pixelM: 375,
-          latitude: Number((baseLat - 0.0018).toFixed(5)),
-          longitude: Number((baseLon + 0.0015).toFixed(5)),
-          brightnessK: Number((334 + r() * 28).toFixed(1)),
-          brightness2K: Number((295 + r() * 10).toFixed(1)),
-          scan: 0.39,
-          track: 0.38,
-          acqDate: day,
-          acqTime: '1720',
-          acqIsoUtc: `${day}T17:20:00Z`,
-          satellite: 'N21',
-          confidenceRaw: 'n',
-          confidenceNorm: 1,
-          frpMw: Number((baseFrp * 0.48).toFixed(1)),
-          daynight: 'D',
-          processing: 'NRT',
-        });
-      }
-    }
-    return out;
-  }
-
-  private calendarKind: 'firms_index' | 'synthetic' = 'synthetic';
-
-  /** 'firms_index' when the calendars come from the real FIRMS cell index (job:build-cell-index), else 'synthetic'. */
-  public getCalendarKind(): 'firms_index' | 'synthetic' {
+  /** 'firms_index' when the calendars come from the real FIRMS cell index (job:build-cell-index), else 'none'. */
+  public getCalendarKind(): 'firms_index' | 'none' {
     return this.calendarKind;
   }
 
@@ -467,111 +360,44 @@ class CinderDataStore {
    * The index carries no FRP, so meanFrpMw/maxFrpMw are 0 here.
    */
   private buildCalendarsFromIndex(index: CellIndex): void {
-    const counts = monthlyCountsByMunicipality(index);
-    const years = [...index.yearsLoaded.MODIS, ...index.yearsLoaded.VIIRS];
-    const firstYear = Math.min(...years);
-    const lastYear = Math.max(...years);
+    const byMuni = monthlyRowsByMunicipality(index);
+    const empty = emptyRows(index);
+    // month in progress: days 1..D against the same days of earlier years (one pass for all municipalities)
+    const pw = partialWindow(index, (c) => c[2]);
     for (const ibge of this.municipalities.keys()) {
-      const byMonth = counts.get(ibge);
-      const rows: CalendarRow[] = [];
-      for (let y = firstYear; y <= lastYear; y++) {
-        for (let m = 1; m <= 12; m++) {
-          const c = byMonth?.get(`${y}-${m}`) ?? { modis: 0, viirs: 0 };
-          const factor = index.monthlyFactors[m - 1] ?? 1;
-          const viirs = y >= 2012 ? c.viirs : null;
-          const harmonized = viirs !== null ? viirs : Math.round(c.modis * factor * 10) / 10;
-          rows.push({ year: y, month: m, modis: c.modis, viirs, harmonized, anomalyZ: null, daysMissing: 0, meanFrpMw: 0, maxFrpMw: 0 });
-        }
-      }
-      for (let m = 1; m <= 12; m++) {
-        const base = rows.filter((x) => x.month === m && x.year >= 2002 && x.year <= 2024).map((x) => x.harmonized);
-        if (base.length < 2) continue;
-        const mean = base.reduce((a, b) => a + b, 0) / base.length;
-        const sd = Math.sqrt(base.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (base.length - 1));
-        for (const x of rows) {
-          if (x.month === m) x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : null;
-        }
-      }
-      this.calendars.set(ibge, rows);
+      this.calendars.set(ibge, withPartialAnomaly(withAnomaly(byMuni.get(ibge) ?? empty), pw, pw?.sums.get(ibge)));
     }
     this.calendarKind = 'firms_index';
-    logger.info({ municipalities: this.calendars.size, firstYear, lastYear }, 'calendars built from the real FIRMS cell index');
+    const chain = buildChain(index);
+    logger.info({ municipalities: this.calendars.size, links: chain.links.map((l) => `${l.link} WAPE ${l.wapePct}%`) }, 'calendars built from the real FIRMS cell index (satellite chain)');
   }
 
+  /** Calendars only from the real FIRMS cell index; without it there are none (data routes answer 503). */
   private buildAllCalendars(): void {
-    const index = loadCellIndex();
-    if (index) {
-      this.buildCalendarsFromIndex(index);
+    this.calendars.clear();
+    this.rootCache.clear();
+    this.index = loadCellIndex();
+    if (!this.index) {
+      this.calendarKind = 'none';
       return;
     }
-    const firstYear = 2000;
-    const lastYear = 2025;
-    for (const [ibge, muni] of this.municipalities.entries()) {
-      const r = createRng(hashSeed(ibge));
-      // North/Northeast Goiás (Chapada dos Veadeiros, Vão do Paranã, Araguaia) has higher historical fire density
-      const latFactor = Math.max(0.45, Math.min(2.4, 1 + (-15.5 - muni.centroidLat) * -0.18));
-      const baseLevel = Math.exp(2.6 + r() * 3.2) * latFactor;
-      let drift = 1.0;
-      const rows: CalendarRow[] = [];
-
-      for (let y = firstYear; y <= lastYear; y++) {
-        drift = Math.max(0.4, Math.min(2.1, drift * (0.86 + r() * 0.28)));
-        // Known severe drought/El Niño years in Cerrado (2007, 2010, 2017, 2020, 2024)
-        const climateBoost =
-          y === 2007 || y === 2010 || y === 2017 || y === 2020 || y === 2024
-            ? 1.35 + r() * 0.55
-            : 1.0;
-
-        for (let m = 1; m <= 12; m++) {
-          // MODIS C6.1 starts Nov/2000
-          if (y === 2000 && m < 11) continue;
-
-          const seasonWeight = CERRADO_SEASON[m - 1]!;
-          const ratio = MONTHLY_HARMONIZATION_FACTORS[m - 1]!;
-          const truth = baseLevel * drift * seasonWeight * climateBoost * (0.72 + r() * 0.56);
-          const modis = Math.max(0, Math.round((truth / ratio) * (0.88 + r() * 0.24)));
-          const viirs = y >= 2012 ? Math.max(0, Math.round(truth * (0.91 + r() * 0.18))) : null;
-          const harmonized = viirs !== null ? viirs : Math.round(modis * ratio);
-          const meanFrpMw =
-            harmonized > 0 ? Math.round((12 + seasonWeight * 110 + r() * 26) * 10) / 10 : 0;
-          const maxFrpMw =
-            harmonized > 0
-              ? Math.round(meanFrpMw * (1.8 + Math.min(3.5, Math.log1p(harmonized) * 0.65)) * 10) / 10
-              : 0;
-
-          rows.push({
-            year: y,
-            month: m,
-            modis,
-            viirs,
-            harmonized,
-            anomalyZ: null,
-            daysMissing: r() < 0.025 ? 1 + Math.floor(r() * 3) : 0,
-            meanFrpMw,
-            maxFrpMw,
-          });
-        }
-      }
-
-      // Compute baseline 2002–2024 per calendar month -> z-score
-      for (let m = 1; m <= 12; m++) {
-        const base = rows
-          .filter((x) => x.month === m && x.year >= 2002 && x.year <= 2024)
-          .map((x) => x.harmonized);
-        if (base.length < 2) continue;
-        const mean = base.reduce((a, b) => a + b, 0) / base.length;
-        const sd = Math.sqrt(
-          base.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (base.length - 1)
-        );
-        for (const x of rows) {
-          if (x.month === m) {
-            x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : null; // no variation (e.g. never any fire that month): anomaly undefined
-          }
-        }
-      }
-
-      this.calendars.set(ibge, rows);
+    this.buildCalendarsFromIndex(this.index);
+    const v = computeIndexValidation(this.index);
+    try {
+      fs.mkdirSync(config.outDir, { recursive: true });
+      fs.writeFileSync(path.join(config.outDir, 'validation.json'), JSON.stringify(v, null, 2));
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'could not write out/validation.json');
     }
+  }
+
+  /** Called after the background FIRMS load finishes. */
+  public reloadFromIndex(): void {
+    this.buildAllCalendars();
+  }
+
+  public getIndex(): CellIndex | null {
+    return this.index;
   }
 
   public getCalendar(ibge: string): CalendarRow[] {
@@ -581,10 +407,18 @@ class CinderDataStore {
   public getMapValues(
     year: number,
     month: number,
-    metric: 'anomaly' | 'count' | 'density' | 'propensity' | 'agro_score'
+    metric: 'anomaly' | 'count' | 'density' | 'typical'
   ): Record<string, number | null> {
     const out: Record<string, number | null> = {};
-    const model = this.getMlModel();
+    if (metric === 'typical') {
+      // Historical pattern of the calendar month: median of the same month in every complete earlier year (2002+).
+      for (const [ibge, rows] of this.calendars.entries()) {
+        const xs = rows.filter((r) => r.month === month && r.year >= 2002 && r.year < year && !r.partial && r.harmonized !== null)
+          .map((r) => r.harmonized as number).sort((a, b) => a - b);
+        out[ibge] = xs.length >= 5 ? Math.round((xs.length % 2 ? xs[(xs.length - 1) / 2]! : (xs[xs.length / 2 - 1]! + xs[xs.length / 2]!) / 2) * 10) / 10 : null;
+      }
+      return out;
+    }
     for (const [ibge, rows] of this.calendars.entries()) {
       const idx = rows.findIndex((r) => r.year === year && r.month === month);
       const row = idx >= 0 ? rows[idx]! : undefined;
@@ -598,37 +432,7 @@ class CinderDataStore {
         out[ibge] = row.anomalyZ;
       } else if (metric === 'density') {
         const areaKm2 = this.getMunicipalityAreaKm2(ibge);
-        out[ibge] = areaKm2 > 0 ? Math.round(((1000 * row.harmonized) / areaKm2) * 10) / 10 : null;
-      } else if (metric === 'agro_score') {
-        const report = this.getAgroB2BRiskReportSync(ibge, year, month);
-        out[ibge] = report.insurance.agroInsuranceScore;
-      } else {
-        const prev = idx > 0 ? rows[idx - 1]! : row;
-        const muni = this.municipalities.get(ibge);
-        const rootSummary = this.getRootFireAnalysis(ibge);
-        const mProf = rootSummary.months.find((m) => m.month === month);
-        const lat = muni?.centroidLat ?? -16.0;
-        const spatialGradient = Math.max(0.45, Math.min(2.4, 1 + (-15.5 - lat) * -0.18));
-        const isPeakDry = month === 8 || month === 9;
-        const isDry = month >= 5 && month <= 10;
-        const isDroughtYear =
-          year === 2007 || year === 2010 || year === 2017 || year === 2020 || year === 2024;
-        const droughtBoost = isDroughtYear ? 2.2 : 0.0;
-        const t2mMaxC = (isPeakDry ? 34.8 : isDry ? 31.8 : 28.8) + droughtBoost + (-15.5 - lat) * -0.35;
-        const rh2mPct = Math.max(14, Math.min(90, (isPeakDry ? 25.0 : isDry ? 38.0 : 70.0) - droughtBoost * 3.5));
-        const esatHpa = 6.1078 * Math.exp((17.27 * t2mMaxC) / (t2mMaxC + 237.3));
-        const vpdHpa = esatHpa * (1 - rh2mPct / 100);
-        const pred = predictFirePropensity(model, {
-          rootRecurrencePct: mProf?.recurrencePct ?? rootSummary.persistenceScorePct,
-          lag1HarmonizedLog: Math.log1p(Math.max(0, prev.harmonized)),
-          spatialGradient,
-          t2mMaxC,
-          vpdHpa,
-          rh2mDeficit: 100 - rh2mPct,
-          droughtIndex: isPeakDry ? 20 + droughtBoost * 4 : isDry ? 11 + droughtBoost * 2 : 2,
-          ws10mMs: isPeakDry ? 4.1 : 2.8,
-        });
-        out[ibge] = pred.propensityScore;
+        out[ibge] = areaKm2 > 0 && row.harmonized !== null ? Math.round(((1000 * row.harmonized) / areaKm2) * 10) / 10 : null;
       }
     }
     return out;
@@ -640,7 +444,7 @@ class CinderDataStore {
   } {
     const rows = (this.calendars.get(ibge) ?? []).filter((x) => x.year >= 2002 && x.year <= 2024);
     const sums = new Array<number>(12).fill(0);
-    for (const r of rows) sums[r.month - 1]! += r.harmonized;
+    for (const r of rows) if (r.harmonized !== null && !r.partial) sums[r.month - 1]! += r.harmonized;
     const total = sums.reduce((a, b) => a + b, 0) || 1;
     const years = 2024 - 2002 + 1;
     const months = sums.map((s, i) => ({
@@ -686,7 +490,7 @@ class CinderDataStore {
     const muniHotspots = this.liveByMuni.get(ibge) ?? [];
     const clusters = clusterHotspotsDbscan(muniHotspots, 1000);
 
-    const activeClusters = row ? Math.max(clusters.length, Math.round(row.harmonized)) : clusters.length;
+    const activeClusters = row ? Math.max(clusters.length, Math.round(row.harmonized ?? 0)) : clusters.length;
     const rawDetections = Math.round(activeClusters * 2.45);
     const meanFrp = row?.meanFrpMw ?? 24.5;
     const maxFrp = row?.maxFrpMw ?? 78.0;
@@ -772,14 +576,13 @@ class CinderDataStore {
       } catch (err) {
         logger.debug(
           { ibge, err: err instanceof Error ? err.message : String(err) },
-          'NASA POWER live call timed out or offline; using climatological daily series'
+          'NASA POWER live call timed out or offline'
         );
       }
     }
 
     if (!dailySeries || dailySeries.length === 0) {
-      dailySeries = this.buildClimatologicalDailySeries(ibge, clampedYear, month, lastDay);
-      this.powerCache.set(cacheKey, dailySeries);
+      throw new Error('NASA POWER unavailable for this month');
     }
 
     const rootSummary = this.getRootFireAnalysis(ibge);
@@ -1069,7 +872,7 @@ class CinderDataStore {
       ]);
     }
 
-    return this.buildMod13q1AndMcd12q1Profiles(ibge, year, month, consecutiveDryDays);
+    throw new Error('MODIS MOD13Q1/MCD12Q1 unavailable for this municipality and month');
   }
 
   public hasLiveSatelliteData(ibge: string, year: number, month: number): boolean {
@@ -1102,8 +905,7 @@ class CinderDataStore {
     const cacheKey = `${ibge}:${clampedYear}-${mm}`;
     let dailySeries = this.powerCache.get(cacheKey);
     if (!dailySeries) {
-      dailySeries = this.buildClimatologicalDailySeries(ibge, clampedYear, month, lastDay);
-      this.powerCache.set(cacheKey, dailySeries);
+      throw new Error('NASA POWER data not loaded for this month');
     }
 
     const meanFrpMw = calRow?.meanFrpMw ?? 24.0;
@@ -1189,93 +991,48 @@ class CinderDataStore {
     return Promise.race([liveTask, fallbackTimeout]);
   }
 
+  /**
+   * Context of the year from the official APIs only: NASA POWER (dry season Jun–Sep), MODIS NDVI (MOD13Q1, September)
+   * and land cover (MCD12Q1) through the ORNL DAAC service. A source that does not answer is left out; nothing is filled in.
+   */
   public async getContextItems(
     ibge: string,
     year: number
   ): Promise<Array<{ key: string; label: string; value: number | null; unit: string; source: string }>> {
-    const r = createRng(hashSeed(`${ibge}:${year}`));
-    const cal = this.getCalendar(ibge).filter((x) => x.year === year);
-    const modisYear = cal.reduce((acc, row) => acc + (row.modis ?? 0), 0);
-    const pred = await this.getPredictabilityAndWeather(ibge, year, 9);
-    const { mod13q1, mcd12q1 } = await this.fetchLiveMod13q1AndMcd12q1Profiles(
-      ibge,
-      year,
-      9,
-      pred.consecutiveDryDays
-    );
+    const muni = this.municipalities.get(ibge);
+    if (!muni) return [];
+    const lat = muni.centroidLat, lon = muni.centroidLon;
+    const y = Math.min(2025, Math.max(2001, year));
+    const items: Array<{ key: string; label: string; value: number | null; unit: string; source: string }> = [];
+    const r1 = (v: number): number => Math.round(v * 10) / 10;
+    const mean = (xs: Array<number | null>): number | null => {
+      const v = xs.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    };
 
-    return [
-      {
-        key: 'inpe_queimadas.reference_hotspots',
-        label: 'INPE reference-satellite hotspots (year)',
-        value: Math.round(modisYear * (0.46 + r() * 0.06)),
-        unit: '',
-        source: 'INPE · Programa Queimadas (Aqua M-T)',
-      },
-      {
-        key: 'inpe_prodes.deforestation_km2',
-        label: 'PRODES Cerrado deforestation (year)',
-        value: mcd12q1.prodesDeforestationKm2,
-        unit: 'km²',
-        source: 'INPE · PRODES/TerraBrasilis',
-      },
-      {
-        key: 'embrapa_satveg.ndvi_dry_mean',
-        label: 'Mean NDVI, dry season (Jun–Sep)',
-        value: mod13q1.ndviMean,
-        unit: '',
-        source: 'Embrapa · SATVeg (MOD13Q1 250 m)',
-      },
-      {
-        key: 'embrapa_satveg.fuel_load_tons_ha',
-        label: 'Dry combustible biomass load (MOD13Q1)',
-        value: mod13q1.fuelLoadTonsHa,
-        unit: 't/ha',
-        source: 'NASA LP DAAC · MOD13Q1 + SATVeg',
-      },
-      {
-        key: 'modis_mcd12q1.cropland_pct',
-        label: 'Agricultural cropland share (MCD12Q1 IGBP)',
-        value: mcd12q1.croplandPct,
-        unit: '%',
-        source: 'NASA LP DAAC · MODIS MCD12Q1 v6.1 (500 m)',
-      },
-      {
-        key: 'modis_mcd12q1.interface_risk',
-        label: 'Agro-Wildland interface risk index (MCD12Q1)',
-        value: mcd12q1.interfaceRiskIndex,
-        unit: '/100',
-        source: 'NASA LP DAAC · MODIS MCD12Q1 v6.1 (500 m)',
-      },
-      {
-        key: 'nasa_power.t2m_max_dry_c',
-        label: 'Max temperature (T2M_MAX)',
-        value: pred.weatherSummary.t2mMaxC,
-        unit: '°C',
-        source: 'NASA POWER · Daily Point (MERRA-2)',
-      },
-      {
-        key: 'nasa_power.rh2m_dry_pct',
-        label: 'Relative humidity (RH2M)',
-        value: pred.weatherSummary.rh2mPct,
-        unit: '%',
-        source: 'NASA POWER · Daily Point (MERRA-2)',
-      },
-      {
-        key: 'nasa_power.precip_dry_mm',
-        label: 'Corrected precipitation (PRECTOTCORR)',
-        value: pred.weatherSummary.prectotcorrMm,
-        unit: 'mm',
-        source: 'NASA POWER · Daily Point (MERRA-2)',
-      },
-      {
-        key: 'nasa_power.ws10m_dry_mean',
-        label: 'Wind speed at 10m (WS10M)',
-        value: pred.weatherSummary.ws10mMs,
-        unit: 'm/s',
-        source: 'NASA POWER · Daily Point (MERRA-2)',
-      },
-    ];
+    const [power, ndvi, land] = await Promise.allSettled([
+      nasaPowerConnector.fetchRange(lat, lon, `${y}0601`, `${y}0930`, 15000),
+      embrapaSatVegConnector.fetchLiveMod13q1Observations(lat, lon, y, 9, undefined, 15000),
+      modisLandCoverConnector.fetchLiveMcd12q1LandCover(lat, lon, y, muni.bbox, 0, undefined, 15000),
+    ]);
+
+    if (power.status === 'fulfilled' && power.value.length) {
+      const d = power.value;
+      const t = mean(d.map((x) => x.t2mMaxC)), rh = mean(d.map((x) => x.rh2mPct)), ws = mean(d.map((x) => x.ws10mMs));
+      const rain = d.reduce((a, x) => a + (typeof x.prectotcorrMm === 'number' && x.prectotcorrMm >= 0 ? x.prectotcorrMm : 0), 0);
+      const src = 'NASA POWER · Daily Point (MERRA-2), Jun–Sep';
+      if (t !== null) items.push({ key: 'nasa_power.t2m_max_dry_c', label: 'Max temperature (T2M_MAX)', value: r1(t), unit: '°C', source: src });
+      if (rh !== null) items.push({ key: 'nasa_power.rh2m_dry_pct', label: 'Relative humidity (RH2M)', value: r1(rh), unit: '%', source: src });
+      items.push({ key: 'nasa_power.precip_dry_mm', label: 'Precipitation (PRECTOTCORR)', value: r1(rain), unit: 'mm', source: src });
+      if (ws !== null) items.push({ key: 'nasa_power.ws10m_dry_mean', label: 'Wind speed at 10 m (WS10M)', value: r1(ws), unit: 'm/s', source: src });
+    }
+    if (ndvi.status === 'fulfilled' && ndvi.value) {
+      items.push({ key: 'embrapa_satveg.ndvi_dry_mean', label: 'NDVI, September (MOD13Q1)', value: Math.round(ndvi.value.ndviMean * 1000) / 1000, unit: '', source: 'NASA ORNL DAAC · MOD13Q1 250 m' });
+    }
+    if (land.status === 'fulfilled' && land.value) {
+      items.push({ key: 'modis_mcd12q1.cropland_pct', label: 'Cropland share (MCD12Q1 IGBP)', value: r1(land.value.croplandPct), unit: '%', source: 'NASA ORNL DAAC · MCD12Q1 500 m' });
+    }
+    return items;
   }
 
   public getMunicipalityAreaKm2(ibge: string): number {
@@ -1288,142 +1045,92 @@ class CinderDataStore {
     return Math.max(25, Math.round(widthKm * heightKm * 0.56 * 10) / 10);
   }
 
+  /**
+   * Expected range for a month from the region's own FIRMS history: P10/P50/P90 of the same month in every earlier
+   * year (≥ 5 years). The hindcast is computed here too (2015–2025, one rolling origin per month): coverage of
+   * P10–P90 and the median's error against repeating last year's value. No fixed numbers.
+   */
   public getProjection(ibge: string, year: number, month: number): {
     year: number;
     month: number;
-    method: 'all' | 'recent10';
-    range: { p10: number; p50: number; p90: number; nYears: number; shrinkWeight: number };
-    analog: { p10: number; p50: number; p90: number; years: number[] } | null;
+    method: 'all';
+    range: { p10: number; p50: number; p90: number; nYears: number; shrinkWeight: number } | null;
+    analog: null;
     observed: number | null;
     hindcast: {
       computedAt: string;
       period: string;
       chosenMethod: 'all';
-      analogBeatsRange: boolean;
+      analogBeatsRange: false;
       methods: Array<{
-        method: 'all' | 'recent10' | 'analog5';
+        method: 'all';
         nMonths: number;
-        coveragePct: number;
-        meanWidth: number;
-        maeP50: number;
-        maePersistence: number;
-        skillPct: number;
+        coveragePct: number | null;
+        meanWidth: number | null;
+        maeP50: number | null;
+        maePersistence: number | null;
+        skillPct: number | null;
       }>;
-      recurrence: {
-        testYear: number;
-        windowYears: number;
-        minYears: number;
-        hitPct: number;
-        areaSharePct: number;
-        lift: number;
-      };
-    };
+    } | null;
   } {
-    const rows =
-      ibge === '52'
-        ? this.getStateRows()
-        : this.getCalendar(ibge);
-    const past = rows
-      .filter((r) => r.month === month && r.year < year)
-      .map((r) => r.harmonized)
-      .sort((a, b) => a - b);
-
+    const rows = ibge === '52' ? this.getStateRows() : this.getCalendar(ibge);
+    const val = new Map(rows.filter((r) => r.harmonized !== null && !r.partial).map((r) => [r.year * 100 + r.month, r.harmonized as number]));
     const pct = (arr: number[], p: number): number => {
-      if (!arr.length) return 0;
-      const pos = (arr.length - 1) * p;
-      const lo = Math.floor(pos);
-      const hi = Math.ceil(pos);
-      const val = arr[lo]! + (arr[hi]! - arr[lo]!) * (pos - lo);
-      return Math.round(val * 10) / 10;
+      const pos = (arr.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos);
+      return Math.round((arr[lo]! + (arr[hi]! - arr[lo]!) * (pos - lo)) * 10) / 10;
     };
+    const pastOf = (y: number, m: number): number[] =>
+      rows.filter((r) => r.month === m && r.year < y && r.harmonized !== null && !r.partial).map((r) => r.harmonized as number).sort((a, b) => a - b);
 
-    const p10 = pct(past, 0.1);
-    const p50 = pct(past, 0.5);
-    const p90 = pct(past, 0.9);
-    const cur = rows.find((r) => r.year === year && r.month === month);
+    const past = pastOf(year, month);
+    const range = past.length >= 5
+      ? { p10: pct(past, 0.1), p50: pct(past, 0.5), p90: pct(past, 0.9), nYears: past.length, shrinkWeight: 1 }
+      : null;
 
-    // Find 5 analog years with closest cumulative activity up to month-1
-    const sumBefore = (y: number): number =>
-      rows
-        .filter((r) => r.year === y && r.month < month)
-        .reduce((a, b) => a + b.harmonized, 0);
-    const targetBefore = sumBefore(year);
-    const candidateYears = [...new Set(rows.filter((r) => r.year < year && r.year >= 2001).map((r) => r.year))];
-    const pickedAnalogYears = candidateYears
-      .map((y) => ({ y, diff: Math.abs(sumBefore(y) - targetBefore) }))
-      .sort((a, b) => a.diff - b.diff)
-      .slice(0, 5)
-      .map((x) => x.y)
-      .sort((a, b) => a - b);
-    const analogVals = rows
-      .filter((r) => r.month === month && pickedAnalogYears.includes(r.year))
-      .map((r) => r.harmonized)
-      .sort((a, b) => a - b);
-
+    let n = 0, inside = 0, width = 0, maeP50 = 0, maePers = 0, nPers = 0;
+    for (let y = 2015; y <= 2025; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const actual = val.get(y * 100 + m);
+        if (actual === undefined) continue;
+        const p = pastOf(y, m);
+        if (p.length < 5) continue;
+        const lo = pct(p, 0.1), mid = pct(p, 0.5), hi = pct(p, 0.9);
+        n++;
+        if (actual >= lo && actual <= hi) inside++;
+        width += hi - lo;
+        maeP50 += Math.abs(actual - mid);
+        const prev = val.get((y - 1) * 100 + m);
+        if (prev !== undefined) { maePers += Math.abs(actual - prev); nPers++; }
+      }
+    }
+    const r1 = (v: number): number => Math.round(v * 10) / 10;
+    const mae = n ? maeP50 / n : null;
+    const persistence = nPers ? maePers / nPers : null;
+    const cur = val.get(year * 100 + month);
     return {
       year,
       month,
       method: 'all',
-      range: {
-        p10,
-        p50,
-        p90,
-        nYears: past.length,
-        shrinkWeight: ibge === '52' ? 1 : 0.82,
-      },
-      analog:
-        analogVals.length >= 3
-          ? {
-              p10: pct(analogVals, 0.1),
-              p50: pct(analogVals, 0.5),
-              p90: pct(analogVals, 0.9),
-              years: pickedAnalogYears,
-            }
-          : null,
-      observed: cur ? cur.harmonized : null,
-      hindcast: {
-        computedAt: new Date().toISOString(),
-        period: '2015–2025',
-        chosenMethod: 'all',
-        analogBeatsRange: true,
-        methods: [
-          {
-            method: 'all',
-            nMonths: 132,
-            coveragePct: 81.8,
-            meanWidth: Math.round((p90 - p10) * 10) / 10,
-            maeP50: 4.2,
-            maePersistence: 5.6,
-            skillPct: 24.8,
-          },
-          {
-            method: 'recent10',
-            nMonths: 132,
-            coveragePct: 79.5,
-            meanWidth: Math.round((p90 - p10) * 0.95 * 10) / 10,
-            maeP50: 4.5,
-            maePersistence: 5.6,
-            skillPct: 19.6,
-          },
-          {
-            method: 'analog5',
-            nMonths: 132,
-            coveragePct: 77.2,
-            meanWidth: Math.round((p90 - p10) * 0.88 * 10) / 10,
-            maeP50: 4.1,
-            maePersistence: 5.6,
-            skillPct: 26.8,
-          },
-        ],
-        recurrence: {
-          testYear: 2025,
-          windowYears: 10,
-          minYears: 4,
-          hitPct: 78.4,
-          areaSharePct: 5.2,
-          lift: 15.1,
-        },
-      },
+      range,
+      analog: null,
+      observed: cur === undefined ? null : cur,
+      hindcast: n
+        ? {
+            computedAt: new Date().toISOString(),
+            period: '2015–2025',
+            chosenMethod: 'all',
+            analogBeatsRange: false,
+            methods: [{
+              method: 'all',
+              nMonths: n,
+              coveragePct: r1((inside / n) * 100),
+              meanWidth: r1(width / n),
+              maeP50: mae === null ? null : r1(mae),
+              maePersistence: persistence === null ? null : r1(persistence),
+              skillPct: mae !== null && persistence ? r1((1 - mae / persistence) * 100) : null,
+            }],
+          }
+        : null,
     };
   }
 
@@ -1438,13 +1145,17 @@ class CinderDataStore {
         } else {
           ex.modis = (ex.modis ?? 0) + (r.modis ?? 0);
           ex.viirs = r.viirs !== null ? (ex.viirs ?? 0) + r.viirs : ex.viirs;
-          ex.harmonized += r.harmonized;
+          ex.harmonized = ex.harmonized === null || r.harmonized === null ? null : ex.harmonized + r.harmonized;
         }
       }
     }
     return [...byYm.values()].sort((a, b) => a.year - b.year || a.month - b.month);
   }
 
+  /**
+   * Exact circle from the FIRMS index: only 1 km cells whose centre lies inside the radius. Municipality shares and
+   * the area inside Goiás come from sampling the circle on a grid against the IBGE outlines. Null without the index.
+   */
   public getCircleHistory(
     lon: number,
     lat: number,
@@ -1458,126 +1169,120 @@ class CinderDataStore {
     areaKm2: number;
     areaInStateKm2: number;
     pctInState: number;
-    rows: Array<{
-      year: number;
-      month: number;
-      modis: number | null;
-      viirs: number | null;
-      harmonized: number;
-      anomalyZ: number | null;
-      daysMissing: number;
-    }>;
-    municipalities: Array<{
-      ibge: string;
-      name: string;
-      pctOfMunicipality: number;
-      pctOfCircle: number;
-    }>;
-  } {
-    const circleAreaKm2 = Math.round(Math.PI * radiusKm * radiusKm * 10) / 10;
-    const touched: Array<{
-      ibge: string;
-      name: string;
-      weight: number;
-      pctOfMunicipality: number;
-      pctOfCircle: number;
-    }> = [];
+    rows: Array<{ year: number; month: number; modis: number | null; viirs: number | null; harmonized: number | null; anomalyZ: number | null; daysMissing: number }>;
+    municipalities: Array<{ ibge: string; name: string; pctOfMunicipality: number; pctOfCircle: number }>;
+  } | null {
+    if (!this.index) return null;
+    const keepCircle = inCircle(lon, lat, radiusKm);
+    const pwc = partialWindow(this.index, (c) => (keepCircle(c) ? 'c' : null));
+    const rows = withPartialAnomaly(withAnomaly(monthlyRows(this.index, keepCircle)), pwc, pwc?.sums.get('c'))
+      .filter((r) => source === 'harmonized1k' || r.year >= 2012);
 
-    let areaInStateKm2 = 0;
-    for (const [ibge, muni] of this.municipalities.entries()) {
-      const dLatKm = (muni.centroidLat - lat) * 110.57;
-      const dLonKm = (muni.centroidLon - lon) * 111.32 * Math.cos((lat * Math.PI) / 180);
-      const distKm = Math.hypot(dLatKm, dLonKm);
-      const muniArea = this.getMunicipalityAreaKm2(ibge);
-      const muniEqRadius = Math.sqrt(muniArea / Math.PI);
-      if (distKm <= radiusKm + muniEqRadius * 0.85) {
-        const overlap =
-          distKm <= Math.max(0, radiusKm - muniEqRadius * 0.5)
-            ? 1
-            : Math.max(0.05, Math.min(1, (radiusKm + muniEqRadius - distKm) / (2 * muniEqRadius)));
-        const interArea = muniArea * overlap;
-        areaInStateKm2 += interArea;
-        touched.push({
+    // Area shares: sample the circle (≤ ~40 000 points) and test each point against the municipalities.
+    const circleAreaKm2 = Math.PI * radiusKm * radiusKm;
+    const stepKm = Math.max(0.5, radiusKm / 110);
+    const [cx, cy] = toPolyconic(lon, lat);
+    const munis = [...this.municipalities.values()];
+    const hits = new Map<string, number>();
+    let inState = 0, total = 0;
+    for (let dx = -radiusKm + stepKm / 2; dx < radiusKm; dx += stepKm) {
+      for (let dy = -radiusKm + stepKm / 2; dy < radiusKm; dy += stepKm) {
+        if (dx * dx + dy * dy > radiusKm * radiusKm) continue;
+        total++;
+        const [plon, plat] = fromPolyconic(cx + dx * 1000, cy + dy * 1000);
+        for (const m of munis) {
+          const [w, s, e, nn] = m.bbox;
+          if (plon < w || plon > e || plat < s || plat > nn) continue;
+          if (pointInMunicipality(plat, plon, m)) { hits.set(m.ibgeCode, (hits.get(m.ibgeCode) ?? 0) + 1); inState++; break; }
+        }
+      }
+    }
+    const cellKm2 = total ? circleAreaKm2 / total : 0;
+    const r1 = (v: number): number => Math.round(v * 10) / 10;
+    const municipalities = [...hits.entries()]
+      .map(([ibge, k]) => {
+        const area = this.getMunicipalityAreaKm2(ibge);
+        return {
           ibge,
-          name: muni.name,
-          weight: overlap,
-          pctOfMunicipality: Math.round(overlap * 1000) / 10,
-          pctOfCircle: Math.min(100, Math.round(((interArea / circleAreaKm2) * 100) * 10) / 10),
-        });
-      }
-    }
-
-    touched.sort((a, b) => b.pctOfCircle - a.pctOfCircle);
-    areaInStateKm2 = Math.min(circleAreaKm2, Math.round(areaInStateKm2 * 10) / 10);
-    const pctInState = Math.min(100, Math.round(((areaInStateKm2 / circleAreaKm2) * 100) * 10) / 10);
-
-    const byYm = new Map<
-      number,
-      { year: number; month: number; modis: number; viirs: number; hasViirs: boolean; harmonized: number }
-    >();
-    for (const t of touched) {
-      const cal = this.getCalendar(t.ibge);
-      for (const r of cal) {
-        if (source === 'viirs500' && r.year < 2012) continue;
-        const k = r.year * 100 + r.month;
-        let acc = byYm.get(k);
-        if (!acc) {
-          acc = { year: r.year, month: r.month, modis: 0, viirs: 0, hasViirs: false, harmonized: 0 };
-          byYm.set(k, acc);
-        }
-        acc.modis += (r.modis ?? 0) * t.weight;
-        if (r.viirs !== null) {
-          acc.viirs += r.viirs * t.weight;
-          acc.hasViirs = true;
-        }
-        acc.harmonized += r.harmonized * t.weight;
-      }
-    }
-
-    const rawRows = [...byYm.values()]
-      .sort((a, b) => a.year - b.year || a.month - b.month)
-      .map((r) => ({
-        year: r.year,
-        month: r.month,
-        modis: Math.round(r.modis * 10) / 10,
-        viirs: r.hasViirs ? Math.round(r.viirs * 10) / 10 : null,
-        harmonized: Math.round(r.harmonized * 10) / 10,
-        anomalyZ: null as number | null,
-        daysMissing: 0,
-      }));
-
-    for (let m = 1; m <= 12; m++) {
-      const base = rawRows
-        .filter((r) => r.month === m && r.year >= 2002 && r.year <= 2024)
-        .map((r) => r.harmonized);
-      if (base.length < 2) continue;
-      const mean = base.reduce((a, b) => a + b, 0) / base.length;
-      const sd = Math.sqrt(base.reduce((a, b) => a + (b - mean) ** 2, 0) / (base.length - 1));
-      for (const r of rawRows) {
-        if (r.month === m) {
-          r.anomalyZ = sd > 0 ? Math.round(((r.harmonized - mean) / sd) * 100) / 100 : null;
-        }
-      }
-    }
-
+          name: this.municipalities.get(ibge)?.name ?? ibge,
+          pctOfMunicipality: area > 0 ? Math.min(100, r1(((k * cellKm2) / area) * 100)) : 0,
+          pctOfCircle: total ? r1((k / total) * 100) : 0,
+        };
+      })
+      .sort((a, b) => b.pctOfCircle - a.pctOfCircle);
     return {
       lon,
       lat,
       radiusKm,
       source,
-      areaKm2: circleAreaKm2,
-      areaInStateKm2,
-      pctInState,
-      rows: rawRows,
-      municipalities: touched.map(({ ibge, name, pctOfMunicipality, pctOfCircle }) => ({
-        ibge,
-        name,
-        pctOfMunicipality,
-        pctOfCircle,
-      })),
+      areaKm2: r1(circleAreaKm2),
+      areaInStateKm2: r1(inState * cellKm2),
+      pctInState: total ? r1((inState / total) * 100) : 0,
+      rows,
+      municipalities,
     };
   }
 
+  private horizonCache = new Map<string, { projection: Projection; hindcast: Hindcast | null }>();
+
+  /**
+   * Projection with a validated uncertainty band for an area (state '52', a municipality or a circle): one daily
+   * model, simulated forward; each horizon carries its own hindcast skill and is flagged published only when it beats
+   * the climatological reference. Cached per index build. Null without the FIRMS index.
+   */
+  public getHorizons(area: { ibge: string } | { lon: number; lat: number; radiusKm: number }): { projection: Projection; hindcast: Hindcast | null } | null {
+    if (!this.index) return null;
+    const key = `${this.index.builtAt}|${'ibge' in area ? area.ibge : `${area.lon},${area.lat},${area.radiusKm}`}`;
+    const hit = this.horizonCache.get(key);
+    if (hit) return hit;
+    const keep = 'ibge' in area
+      ? (area.ibge === '52' ? () => true : (c: { 2: string }) => c[2] === area.ibge)
+      : inCircle(area.lon, area.lat, area.radiusKm);
+    const input = dailySeries(this.index, keep as Parameters<typeof dailySeries>[1]);
+    const hc = hindcast(input, { paths: 'ibge' in area && area.ibge === '52' ? 200 : 120, twicePerMonth: 'ibge' in area && area.ibge === '52' });
+    const widen = hc ? { fortnight: hc.horizons.fortnight.widen, month: hc.horizons.month.widen, semester: hc.horizons.semester.widen } : undefined;
+    const projection = projectFrom(input, 500, widen);
+    if (!projection) return null;
+    const out = { projection, hindcast: hc };
+    if (this.horizonCache.size > 300) this.horizonCache.clear();
+    this.horizonCache.set(key, out);
+    if ('ibge' in area && area.ibge === '52' && hc) {
+      try {
+        fs.mkdirSync(config.outDir, { recursive: true });
+        fs.writeFileSync(path.join(config.outDir, 'projection_validation.json'), JSON.stringify({
+          computedAt: new Date().toISOString(), source: 'firms_index', region: 'Goiás (UF 52)',
+          model: projection.model, hindcast: hc,
+        }, null, 2));
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'could not write out/projection_validation.json');
+      }
+    }
+    return out;
+  }
+
+  /** FIRMS detection days of one map cell in a month (null without the FIRMS index). */
+  public getCellDetections(lon: number, lat: number, resM: 1000 | 2000 | 5000, year: number, month: number): ReturnType<typeof cellDetections> | null {
+    return this.index ? cellDetections(this.index, lon, lat, resM, year, month) : null;
+  }
+
+  private localities: Locality[] | null = null;
+  public setLocalities(list: Locality[]): void { this.localities = list; }
+  /** IBGE localities (map reference only); null while not loaded. Optionally only one municipality. */
+  public getLocalities(ibge?: string): Locality[] | null {
+    if (!this.localities) return null;
+    return ibge ? this.localities.filter((l) => l.ibge === ibge) : this.localities;
+  }
+
+  /** One month, day by day, for a municipality, the state ('52') or a circle (null without the FIRMS index). */
+  public getDaily(area: { ibge: string } | { lon: number; lat: number; radiusKm: number }, year: number, month: number): DayRow[] | null {
+    if (!this.index) return null;
+    const keep = 'ibge' in area
+      ? (area.ibge === '52' ? () => true : (c: { 2: string }) => c[2] === area.ibge)
+      : inCircle(area.lon, area.lat, area.radiusKm);
+    return dailyOfMonth(this.index, keep as Parameters<typeof dailyOfMonth>[1], year, month);
+  }
+
+  /** Focos-raiz from the FIRMS index (null without it). */
   public getRecurrenceCells(q: {
     west: number;
     south: number;
@@ -1586,42 +1291,8 @@ class CinderDataStore {
     from: number;
     to: number;
     limit: number;
-  }): { yearsObserved: number; cells: number[][] } {
-    const yearsObserved = Math.max(1, q.to - q.from + 1);
-    const out: number[][] = [];
-    for (const [ibge, muni] of this.municipalities.entries()) {
-      if (
-        muni.centroidLon < q.west ||
-        muni.centroidLon > q.east ||
-        muni.centroidLat < q.south ||
-        muni.centroidLat > q.north
-      ) {
-        continue;
-      }
-      const r = createRng(hashSeed(`roots:${ibge}`));
-      const rootSummary = this.getRootFireAnalysis(ibge);
-      const count = Math.max(3, Math.min(28, Math.round(rootSummary.persistenceScorePct / 4.2)));
-      const [w, s, e, n] = muni.bbox;
-      for (let i = 0; i < count * 5 && out.length < q.limit; i++) {
-        const lon = w + r() * (e - w);
-        const lat = s + r() * (n - s);
-        if (!pointInMunicipality(lat, lon, muni)) continue;
-        const frac = 0.26 + Math.pow(r(), 1.35) * 0.66;
-        const yearsBurnedNb = Math.min(yearsObserved, Math.max(Math.ceil(0.25 * yearsObserved), Math.round(frac * yearsObserved)));
-        const yearsBurned = Math.max(1, yearsBurnedNb - Math.floor(r() * 2));
-        out.push([
-          Math.round(lon * 1e5) / 1e5,
-          Math.round(lat * 1e5) / 1e5,
-          yearsBurnedNb,
-          yearsBurned,
-          2025 - Math.floor(r() * 2),
-          r() < 0.65 ? 9 : 8,
-        ]);
-        if (i >= count) break;
-      }
-    }
-    out.sort((a, b) => (b[2] ?? 0) - (a[2] ?? 0));
-    return { yearsObserved, cells: out.slice(0, q.limit) };
+  }): { yearsObserved: number; cells: number[][] } | null {
+    return this.index ? recurrenceFromIndex(this.index, q) : null;
   }
 }
 
