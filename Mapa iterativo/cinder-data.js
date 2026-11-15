@@ -331,7 +331,7 @@
             const c = a.context || {};
             return {
               id: a.id, lon: a.lon, lat: a.lat, firstSeen: a.firstSeen.slice(0, 25), lastSeen: a.lastSeen.slice(0, 25),
-              scansSeen: intIn(a.scansSeen, 1, 1000) ? a.scansSeen : 1, frpMw: num(a.frpMw), status: a.status,
+              scansSeen: intIn(a.scansSeen, 1, 1000) ? a.scansSeen : 1, frpMw: num(a.frpMw), status: a.status, demo: a.demo === true,
               context: {
                 municipality: typeof c.municipality === 'string' ? c.municipality.slice(0, 80) : null,
                 yearsWithFire: intIn(c.yearsWithFire, 0, 100) ? c.yearsWithFire : null,
@@ -341,6 +341,10 @@
             };
           });
         return { feed: cleanFeed(j && j.feed), alerts };
+      },
+      async watchDemo(id) {
+        if (!WATCH_ID.test(id)) throw new Error('Invalid watch id');
+        await sendJson('POST', `${base}/api/watch/${id}/demo`, {});
       },
       async goesRun() {
         const j = await sendJson('POST', `${base}/api/goes/run`, {});
@@ -479,7 +483,7 @@
       kind: 'offline', dataKind: 'none', historyLoad: null, lastObservedDay: null, provisionalFrom: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
       mapValues: fail, calendar: fail, pattern: fail, context: fail,
-      projection: fail, horizons: fail, daily: fail, alerts: fail, firesCsv: fail, watchCreate: fail, watchDelete: fail, watchAlerts: fail, goesRun: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
+      projection: fail, horizons: fail, daily: fail, alerts: fail, firesCsv: fail, watchCreate: fail, watchDelete: fail, watchAlerts: fail, watchDemo: fail, goesRun: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
       csvUrl() { return null; },
     };
   }

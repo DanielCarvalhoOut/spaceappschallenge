@@ -52,6 +52,7 @@ const AlertSchema = z.object({
   status: z.enum(['persistent', 'confirmed', 'not_confirmed']),
   checkedAt: z.string().nullable(),
   context: ContextSchema,
+  demo: z.boolean().optional(), // simulated notice for a demonstration: not from GOES-19, never confirmed by VIIRS
 });
 export type Alert = z.infer<typeof AlertSchema>;
 
@@ -137,7 +138,7 @@ export function updateAlerts(state: WatchState, deps: WatchDeps): Alert[] {
     for (const p of pix) {
       if (!deps.inArea(w.area, p.lon, p.lat)) continue;
       // the same fire keeps its alert while it persists: same watch, same pixel (≤ MATCH_KM), seen in the last hour
-      const cur = state.alerts.find((a) => a.watchId === w.id && kmBetween(a.lon, a.lat, p.lon, p.lat) <= MATCH_KM
+      const cur = state.alerts.find((a) => !a.demo && a.watchId === w.id && kmBetween(a.lon, a.lat, p.lon, p.lat) <= MATCH_KM
         && Date.parse(p.lastSeen) - Date.parse(a.lastSeen) <= 3_600_000);
       const id = `${w.id}:${pixelKey(p)}:${p.firstSeen}`;
       if (cur) {
@@ -169,7 +170,7 @@ export function updateAlerts(state: WatchState, deps: WatchDeps): Alert[] {
 export function confirmAlerts(state: WatchState, viirs: Array<{ lon: number; lat: number; date: string }>, now = new Date(), minAgeH = 3): number {
   let changed = 0;
   for (const a of state.alerts) {
-    if (a.status !== 'persistent') continue;
+    if (a.status !== 'persistent' || a.demo) continue;
     const ageH = (now.getTime() - Date.parse(a.firstSeen)) / 3_600_000;
     if (ageH < minAgeH) continue;
     const day0 = a.firstSeen.slice(0, 10);

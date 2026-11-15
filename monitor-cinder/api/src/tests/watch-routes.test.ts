@@ -46,6 +46,15 @@ describe('watch routes (opt-in GOES-19 notices)', () => {
     await a;
   });
 
+  it('demo notice is flagged demo and listed with the watch', async () => {
+    const a = await app();
+    const { watch } = (await a.inject({ method: 'POST', url: '/api/watch', payload: { ibge: '52', label: 'Goiás' } })).json() as { watch: { id: string } };
+    expect((await a.inject({ method: 'POST', url: `/api/watch/${watch.id}/demo` })).statusCode).toBe(201);
+    const { alerts } = (await a.inject({ method: 'GET', url: `/api/watch/${watch.id}/alerts` })).json() as { alerts: Array<{ demo?: boolean }> };
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.demo).toBe(true);
+  });
+
   it('refuses areas outside Goiás, unknown fields and malformed ids', async () => {
     const a = await app();
     expect((await a.inject({ method: 'POST', url: '/api/watch', payload: { lon: -46.6, lat: -23.5, radiusKm: 20 } })).statusCode).toBe(400);

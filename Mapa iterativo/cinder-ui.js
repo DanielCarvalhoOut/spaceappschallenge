@@ -1644,12 +1644,12 @@
   function alertText(a, label) {
     const near = state.places && state.places.length ? nearestPlaces(a.lon, a.lat, 1)[0] : null;
     const place = near ? t('watch.near', { name: near.p.name, km: I.num(near.d, 1) }) : label;
-    const parts = [t('watch.msgHead', { place, lat: I.num(a.lat, 4), lon: I.num(a.lon, 4), time: fmtTime(a.firstSeen), n: a.scansSeen })];
+    const parts = [t(a.demo ? 'watch.msgHeadDemo' : 'watch.msgHead', { place, lat: I.num(a.lat, 4), lon: I.num(a.lon, 4), time: fmtTime(a.firstSeen), n: a.scansSeen })];
     const c = a.context;
     if (c.yearsObserved) parts.push(t('watch.msgHistory', { k: c.yearsWithFire, n: c.yearsObserved }));
     if (c.municipality && c.anomalyZ !== null) parts.push(t('watch.msgMuni', { name: c.municipality, z: zText(c.anomalyZ).toLowerCase(), zv: fmtZ(c.anomalyZ) }));
     if (a.frpMw !== null) parts.push(t('watch.msgFrp', { v: I.num(a.frpMw, 1) }));
-    parts.push(t(`watch.status.${a.status}`));
+    parts.push(a.demo ? t('watch.demoStatus') : t(`watch.status.${a.status}`));
     return parts.join(' ');
   }
   function toast(title, body) {
@@ -1778,6 +1778,8 @@
     btn.classList.toggle('btn--primary', !own);
     const w = own || sw; // without a watch for this area, show the whole-state notices
     $('watch-run').hidden = !w;
+    $('watch-demo').hidden = !w;
+    $('watch-demo').dataset.id = w ? w.id : '';
     if (!w) { renderWatchFeed(null); return; }
     try {
       const r = await state.source.watchAlerts(w.id);
@@ -2124,6 +2126,14 @@
     $('csv-fires').addEventListener('click', downloadFiresCsv);
     $('watch-toggle').addEventListener('click', () => toggleWatch('area'));
     $('watch-state').addEventListener('click', () => toggleWatch('state'));
+    $('watch-demo').addEventListener('click', async () => {
+      const id = $('watch-demo').dataset.id;
+      if (!id) return;
+      unlockAudio();
+      $('watch-demo').disabled = true;
+      try { await state.source.watchDemo(id); await pollWatches(); } catch (_) { toast(t('watch.title'), t('watch.apiErr')); }
+      finally { $('watch-demo').disabled = false; }
+    });
     $('watch-run').addEventListener('click', async () => {
       $('watch-run').disabled = true;
       try { renderWatchFeed(await state.source.goesRun()); await pollWatches(); } catch (_) { renderWatchFeed({ lastError: t('watch.apiErr') }); }

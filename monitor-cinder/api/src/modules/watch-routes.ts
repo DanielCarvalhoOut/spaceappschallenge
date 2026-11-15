@@ -10,7 +10,7 @@ import { config } from '../config.js';
 import { pointInMunicipality } from '../connectors/ibge.js';
 import { firmsConnector } from '../connectors/firms.js';
 import { fetchScan, latestKeys } from '../connectors/goes-fdc.js';
-import {
+import { type Alert,
   MAX_WATCHES, confirmAlerts, kmBetween, loadState, newWatch, persistentPixels, saveState, updateAlerts,
   type WatchArea, type WatchState,
 } from '../core/goes-watch.js';
@@ -135,6 +135,31 @@ export async function registerWatchRoutes(app: FastifyInstance): Promise<void> {
     if (s.watches.length === before) return problem(reply, 404, 'Watch not found', 'Unknown watch id');
     saveState(STATE_FILE(), s);
     return reply.code(204).send();
+  });
+
+  // Demonstration: one simulated notice for this watch, flagged demo: true (not from GOES-19, never confirmed).
+  // Placed at the centre of the area (state: Goiânia) with the real historical context of that point.
+  app.post('/api/watch/:id/demo', strict, async (req, reply) => {
+    const p = IdParam.safeParse(req.params);
+    if (!p.success) return problem(reply, 400, 'Invalid id', p.error.message);
+    const s = st();
+    const w = s.watches.find((x) => x.id === p.data.id);
+    if (!w) return problem(reply, 404, 'Watch not found', 'Unknown watch id');
+    let lon = -49.2643, lat = -16.6864; // Goiânia
+    if ('lon' in w.area) { lon = w.area.lon; lat = w.area.lat; } else if (w.area.ibge !== '52') {
+      const m = store.getMunicipality(w.area.ibge);
+      if (m) { lon = m.centroidLon; lat = m.centroidLat; }
+    }
+    const now = new Date();
+    const first = new Date(now.getTime() - 20 * 60_000).toISOString();
+    const a: Alert = {
+      id: `${w.id}:demo:${now.getTime()}`, watchId: w.id, lon, lat, firstSeen: first, lastSeen: now.toISOString(),
+      scansSeen: 3, frpMw: null, status: 'persistent', checkedAt: null, demo: true,
+      context: store.alertContext(lon, lat, now.getUTCMonth() + 1),
+    };
+    s.alerts.push(a);
+    saveState(STATE_FILE(), s);
+    return reply.code(201).send({ alert: a });
   });
 
   app.get('/api/watch/:id/alerts', async (req, reply) => {
