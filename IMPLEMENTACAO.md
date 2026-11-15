@@ -61,7 +61,6 @@ SpaceApps2026/
 ├─ CLAUDE.md                     regras curtas para o Claude Code (lido automaticamente)
 ├─ IMPLEMENTACAO.md              este documento
 ├─ README.md                     índice da pasta (o README final do app vai em inglês)
-├─ 00_Geral/                     PDFs de apoio (regras de entrega, vencedores)
 ├─ Tema_08_MODIS_VIIRS/          pesquisa: dados, APIs, contrato, banco testado
 │  ├─ db/schema.sql              núcleo: sensores, lotes, focos particionados, grade 1 km, fatores, calendário
 │  ├─ db/schema_cinder.sql      padrão sazonal, época de fogo, anomalia, alertas, vegetação (MCD12Q1)

@@ -177,8 +177,10 @@ Optional PostGIS schema in `Tema_08_MODIS_VIIRS/db/`.
 
 ## Use of AI
 
-Code in this repository was written with the help of an AI coding assistant (Claude, by Anthropic), reviewed and directed by the team.
-The idea, the questions and the decisions are the team's. No AI-generated images or video are used in the interface.
+- **Code:** written with the help of an AI coding assistant (Claude, by Anthropic), reviewed and directed by the team; commits made with it carry a `Co-Authored-By: Claude` trailer. The idea, the questions and the decisions are the team's.
+- **Logo:** the Monitor Cinder logo (satellite over the globe) is an AI-generated image. Every copy carries a visible watermark (`AI-GENERATED` on the large versions, an `AI` badge on the small icons), and the app footer says so. It contains no NASA branding.
+- **In the app:** the optional chat assistant may call an LLM (Google Gemini by default; OpenAI or Anthropic as fallbacks) to classify a question and word some answers. Only the question and the small data aggregates of that answer are sent. Every number it writes is checked by code against the tool results; without a key it runs with templates only.
+- **Not AI:** the harmonization, the anomaly, the validation, the projection and the monthly forecast are deterministic code and statistical models (negative binomial, ridge regression), tested on years they never saw.
 
 ## Acknowledgements and licenses
 
@@ -186,9 +188,11 @@ The idea, the questions and the decisions are the team's. No AI-generated images
 - Weather context: NASA Langley Research Center (LaRC) POWER Project (https://power.larc.nasa.gov/).
 - Vegetation and land-cover context: MODIS MOD13Q1 and MCD12Q1 through the NASA ORNL DAAC MODIS web service (https://modis.ornl.gov/).
 - Municipal boundaries, names and 2022 Census localities: IBGE (https://www.ibge.gov.br/), public data.
-- External validation: INPE Programa Queimadas state statistics (https://terrabrasilis.dpi.inpe.br/queimadas/portal/), public data.
+- External validation: INPE Programa Queimadas state statistics (https://data.inpe.br/queimadas/estatisticas/), public data.
+- ENSO context and forecast feature: NOAA Climate Prediction Center, Oceanic Niño Index (https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt).
 - Early notice: NOAA GOES-19 ABI L2+ Fire/Hot Spot Characterization (https://noaa-goes19.s3.amazonaws.com/), NOAA open data.
 - Libraries: Fastify, @fastify/cors, @fastify/rate-limit, pg, pino, zod, tsx, vitest (MIT); TypeScript (Apache-2.0); h5wasm (NIST license, reads the GOES NetCDF-4 files). The map engine and interface are the team's own code; no third-party map assets or fonts are bundled.
+- License: MIT (see `LICENSE` at the repository root). Data keep the terms of their providers.
 
 ## Team
 

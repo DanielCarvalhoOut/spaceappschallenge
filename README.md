@@ -12,7 +12,6 @@ Prazo de submissão: **domingo, 15/11/2026, 23h59 no horário do evento local** 
 | `monitor-cinder/` | **App do Monitor Cinder.** [`README.md`](monitor-cinder/README.md) em inglês para o júri (o que faz, como harmoniza, provas, como rodar). `api/` é o back (Node 22 + TypeScript); `api/out/` guarda as provas geradas por código (`npm run job:validate`) |
 | `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás com painel lateral de detalhes (abas Resumo, Projeção, Histórico, Área, Contexto; tela cheia pelo rodapé), hover com resumo e análise por círculo que conta só o que está dentro dele. Todos os números vêm da API (histórico real do NASA FIRMS, 2001 até ontem); sem API mostra só os contornos |
 | `IMPLEMENTACAO.md` / `CLAUDE.md` | Guia de implementação (back em TypeScript, conectores NASA/IBGE/INPE) e regras para o Claude Code |
-| `00_Geral/` | Kit de decisão, regras de entrega e recursos dos desafios, vencedores globais de 2025 (PDFs) |
 
 ## Números do pitch (todos saem de `monitor-cinder/api/out/`)
 

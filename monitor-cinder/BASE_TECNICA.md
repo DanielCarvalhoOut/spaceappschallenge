@@ -270,7 +270,7 @@ Desde 1/8/2026 são NRT (quase em tempo real), marcados como provisórios na tel
 Nada quebra: o MODIS já só é usado para 2001–2011. A série atual vem dos VIIRS, e o NOAA-21 segue até a próxima geração JPSS.
 
 **"Usaram IA?"**
-O código foi escrito com ajuda de um assistente de IA (Claude, da Anthropic), dirigido e revisado pela equipe. A ideia, as perguntas e as decisões são da equipe. *Pendente:* se o logo foi gerado por IA, ajustar a frase do README, que hoje diz que nenhuma imagem gerada por IA é usada.
+O código foi escrito com ajuda de um assistente de IA (Claude, da Anthropic), dirigido e revisado pela equipe. A ideia, as perguntas e as decisões são da equipe. O **logo foi gerado por IA** e leva marca d'água visível (`AI-GENERATED` nas versões grandes, selo `AI` nos ícones), como o Space Apps exige; o rodapé do app também avisa. O assistente de chat pode usar um LLM (opcional), e todo número que ele escreve é conferido por código. Harmonização, anomalia, validação, projeção e previsão não usam IA.
 
 ---
 
