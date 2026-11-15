@@ -410,6 +410,49 @@
       }))
       .sort((a, b) => b.sharePct - a.sharePct);
 
+    const ndviWetPeak = Math.round((0.74 + r() * 0.1) * 1000) / 1000;
+    const ndviMean = Math.round((isPeakDry ? 0.37 + r() * 0.1 : isDry ? 0.46 + r() * 0.12 : 0.68 + r() * 0.12) * 1000) / 1000;
+    const eviMean = Math.round(ndviMean * 0.71 * 1000) / 1000;
+    const ndviAnomalyPct = Math.round(((ndviMean - (isPeakDry ? 0.42 : 0.52)) / 0.45) * 1000) / 10;
+    const curingRatePct = Math.round(Math.min(96, Math.max(12, ((ndviWetPeak - ndviMean) / ndviWetPeak) * 88 + consecutiveDryDays * 0.7)) * 10) / 10;
+    const fuelLoadTonsHa = Math.round((4.2 + ndviWetPeak * 14.5) * (0.25 + (curingRatePct / 100) * 0.75) * 10) / 10;
+    const croplandPct = Math.round((24 + r() * 34) * 10) / 10;
+    const pastureGrasslandPct = Math.round((22 + r() * 18) * 10) / 10;
+    const savannaCerradoPct = Math.round((22 + r() * 20) * 10) / 10;
+    const forestRlAppPct = Math.round(Math.max(8, 97 - croplandPct - pastureGrasslandPct - savannaCerradoPct) * 10) / 10;
+    const interfaceRiskIndex = Math.round(Math.min(96, Math.max(18, croplandPct * 0.8 + pastureGrasslandPct * 0.9)) * 10) / 10;
+
+    const firmsFireScore = Math.round(Math.min(100, Math.max(6, curRecurrence * 0.42 + Math.log1p(activeClusters) * 7.5)) * 10) / 10;
+    const powerClimateScore = Math.round(Math.min(100, Math.max(8, ignitionRiskScore * 0.88 + spreadRateKmh * 5)) * 10) / 10;
+    const mod13q1BiomassScore = Math.round(Math.min(100, Math.max(10, curingRatePct * 0.55 + fuelLoadTonsHa * 2.3)) * 10) / 10;
+    const mcd12q1LandUseScore = Math.round(Math.min(100, Math.max(12, interfaceRiskIndex * 0.65 + croplandPct * 0.4)) * 10) / 10;
+    const agroInsuranceScore = Math.round((firmsFireScore * 0.3 + powerClimateScore * 0.25 + mod13q1BiomassScore * 0.25 + mcd12q1LandUseScore * 0.2) * 10) / 10;
+    const insurabilityScore = Math.round((100 - agroInsuranceScore) * 10);
+    const underwritingRating =
+      agroInsuranceScore < 20 ? 'AAA'
+      : agroInsuranceScore < 32 ? 'AA'
+      : agroInsuranceScore < 45 ? 'A'
+      : agroInsuranceScore < 58 ? 'BBB'
+      : agroInsuranceScore < 70 ? 'BB'
+      : agroInsuranceScore < 82 ? 'B' : 'CCC';
+    const riskTier = agroInsuranceScore >= 75 ? 'extreme' : agroInsuranceScore >= 55 ? 'high' : agroInsuranceScore >= 35 ? 'moderate' : 'low';
+    const pureRiskRatePct = Math.round((0.55 + Math.pow(agroInsuranceScore / 100, 1.65) * 5.85) * 100) / 100;
+    const recommendedLoadingPct = Math.round((agroInsuranceScore - 42) * 1.45 * 10) / 10;
+    const suggestedDeductiblePct = agroInsuranceScore >= 75 ? 22 : agroInsuranceScore >= 55 ? 15 : agroInsuranceScore >= 35 ? 10 : 8;
+    const underwritingDecision =
+      agroInsuranceScore >= 75 ? 'decline_or_reinsurance'
+      : agroInsuranceScore >= 56 ? 'manual_inspection_required'
+      : agroInsuranceScore >= 35 ? 'approve_with_firebreak_covenant' : 'auto_approve';
+    const expectedAnnualLossPct = Math.round(pureRiskRatePct * 0.84 * 100) / 100;
+    const probableMaximumLossP95Pct = Math.round(Math.min(85, expectedAnnualLossPct * (2.6 + spreadRateKmh * 0.95) + fuelLoadTonsHa * 0.55) * 10) / 10;
+    const valueAtRiskBrlPerHa = Math.round((4200 + croplandPct * 68) * (probableMaximumLossP95Pct / 100));
+    const rowClearingPriorityScore = Math.round((mod13q1BiomassScore * 0.36 + powerClimateScore * 0.32 + firmsFireScore * 0.32) * 10) / 10;
+    const smokeOutageRiskClass = rowClearingPriorityScore >= 75 ? 'extreme' : rowClearingPriorityScore >= 55 ? 'high' : rowClearingPriorityScore >= 35 ? 'moderate' : 'low';
+    const recommendedBufferWidthM = Math.round(Math.min(85, Math.max(30, 28 + fuelLoadTonsHa * 2.4 + spreadRateKmh * 14)));
+    const complianceScore = Math.round(Math.max(12, Math.min(96, 100 - persistenceScorePct * 0.42 - anthropogenicSharePct * 0.25)) * 10) / 10;
+    const creditAuditStatus = complianceScore < 48 ? 'non_compliant_high_recurrence' : complianceScore < 70 ? 'attention_seasonal_burn' : 'compliant';
+    const rlAppExposurePct = Math.round(Math.min(100, Math.max(5, forestRlAppPct * (0.45 + (firmsFireScore / 100) * 0.85))) * 10) / 10;
+
     return {
       resources: {
         scaling: {
@@ -465,6 +508,61 @@
           contributions,
         },
       },
+      agroB2B: {
+        pillars: {
+          firmsFireScore,
+          powerClimateScore,
+          mod13q1BiomassScore,
+          mcd12q1LandUseScore,
+        },
+        mod13q1: {
+          ndviMean,
+          eviMean,
+          ndviWetPeak,
+          ndviAnomalyPct,
+          curingRatePct,
+          fuelLoadTonsHa,
+          cropVigorClass: curingRatePct >= 68 ? 'severe_senescence' : 'water_stress',
+        },
+        mcd12q1: {
+          dominantIgbpCode: 12,
+          dominantIgbpLabel: 'Agricultura / Savana',
+          croplandPct,
+          pastureGrasslandPct,
+          savannaCerradoPct,
+          forestRlAppPct,
+          interfaceRiskIndex,
+          prodesDeforestationKm2: 4.2,
+        },
+        insurance: {
+          agroInsuranceScore,
+          insurabilityScore,
+          underwritingRating,
+          riskTier,
+          pureRiskRatePct,
+          recommendedLoadingPct,
+          suggestedDeductiblePct,
+          underwritingDecision,
+        },
+        financialRisk: {
+          expectedAnnualLossPct,
+          probableMaximumLossP95Pct,
+          valueAtRiskBrlPerHa,
+          burnSeverityPotential: riskTier === 'extreme' ? 'catastrophic' : riskTier,
+        },
+        transmissionLine: {
+          rowClearingPriorityScore,
+          priorityTier: rowClearingPriorityScore >= 76 ? 'immediate_dispatch' : 'urgent_7d',
+          smokeOutageRiskClass,
+          recommendedBufferWidthM,
+        },
+        creditAudit: {
+          complianceScore,
+          creditAuditStatus,
+          anthropogenicBurnFlag: persistenceScorePct >= 68,
+          rlAppExposurePct,
+        },
+      },
     };
   }
 
@@ -517,6 +615,7 @@
           out[id] = !row ? null
             : metric === 'count' ? row.harmonized
             : metric === 'propensity' ? null   // DEMO has no model: the propensity score only comes from the API
+            : metric === 'agro_score' ? computeClientIntelligence(series(id).rows, year, month, id).agroB2B.insurance.agroInsuranceScore
             : metric === 'density' ? (area ? Math.round((1000 * row.harmonized / area) * 10) / 10 : null)
             : row.anomalyZ;
         }

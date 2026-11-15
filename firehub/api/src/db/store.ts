@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import { computeMod13q1BiomassProfile } from '../connectors/embrapa-satveg.js';
 import { firmsConnector } from '../connectors/firms.js';
 import { ibgeConnector, pointInMunicipality, type IbgeMunicipalityRecord } from '../connectors/ibge.js';
+import { computeMcd12q1LandCoverProfile } from '../connectors/modis-landcover.js';
 import { nasaPowerConnector } from '../connectors/nasa-power.js';
 import {
   analyzeRootFires,
   clusterHotspotsDbscan,
+  computeAgroB2BRiskReport,
   computeFirePredictability,
   estimateResourcesByFrp,
 } from '../core/analytics.js';
@@ -19,10 +22,13 @@ import {
   type TrainingRow,
 } from '../core/ml-propensity.js';
 import type {
+  AgroB2BRiskReport,
   ClusteredFireEvent,
   FirePredictabilityReport,
   FirmsHotspotRecord,
   FirmsSensorCode,
+  Mcd12q1LandCoverProfile,
+  Mod13q1BiomassProfile,
   NasaPowerDailyRecord,
   ResourceScalingEstimate,
   RootFireSummary,
@@ -484,7 +490,7 @@ class FireHubDataStore {
   public getMapValues(
     year: number,
     month: number,
-    metric: 'anomaly' | 'count' | 'density' | 'propensity'
+    metric: 'anomaly' | 'count' | 'density' | 'propensity' | 'agro_score'
   ): Record<string, number | null> {
     const out: Record<string, number | null> = {};
     const model = this.getMlModel();
@@ -502,6 +508,9 @@ class FireHubDataStore {
       } else if (metric === 'density') {
         const areaKm2 = this.getMunicipalityAreaKm2(ibge);
         out[ibge] = areaKm2 > 0 ? Math.round(((1000 * row.harmonized) / areaKm2) * 10) / 10 : null;
+      } else if (metric === 'agro_score') {
+        const report = this.getAgroB2BRiskReportSync(ibge, year, month);
+        out[ibge] = report.insurance.agroInsuranceScore;
       } else {
         const prev = idx > 0 ? rows[idx - 1]! : row;
         const muni = this.municipalities.get(ibge);
@@ -750,6 +759,157 @@ class FireHubDataStore {
     return out;
   }
 
+  public buildMod13q1AndMcd12q1Profiles(
+    ibge: string,
+    year: number,
+    month: number,
+    consecutiveDryDays: number
+  ): { mod13q1: Mod13q1BiomassProfile; mcd12q1: Mcd12q1LandCoverProfile } {
+    const muni = this.municipalities.get(ibge);
+    const lat = muni?.centroidLat ?? -16.68;
+    const lon = muni?.centroidLon ?? -49.25;
+    const r = createRng(hashSeed(`agro:${ibge}:${year}:${month}`));
+    const rBase = createRng(hashSeed(`land:${ibge}:${year}`));
+
+    // South/Southwest Goiás (Jataí, Rio Verde, Cristalina, Mineiros) has higher intensive cropland (soy/corn/sugarcane);
+    // North/Northeast Goiás (Cavalcante, São Domingos, Nova Roma, Porangatu) has higher native savanna & pasture.
+    const southAgriFactor = Math.max(0, Math.min(1, (-13.0 - lat) / 5.8));
+    const isPeakDry = month === 8 || month === 9;
+    const isDry = month >= 5 && month <= 10;
+    const isDroughtYear =
+      year === 2007 || year === 2010 || year === 2017 || year === 2020 || year === 2024;
+
+    const ndviWetPeak = 0.72 + southAgriFactor * 0.11 + (rBase() - 0.5) * 0.06;
+    const historicalNdviBaseline = isPeakDry
+      ? 0.41 + southAgriFactor * 0.05
+      : isDry
+        ? 0.49 + southAgriFactor * 0.06
+        : 0.68 + southAgriFactor * 0.08;
+
+    const droughtDrop = isDroughtYear ? 0.055 : 0;
+    const ndviMean =
+      historicalNdviBaseline - droughtDrop + (r() - 0.52) * 0.07;
+    const eviMean = ndviMean * (0.68 + r() * 0.06);
+
+    const mod13q1 = computeMod13q1BiomassProfile({
+      ndviMean,
+      eviMean,
+      ndviWetPeak,
+      historicalNdviBaseline,
+      consecutiveDryDays,
+    });
+
+    const croplandPct = 14 + southAgriFactor * 42 + (rBase() - 0.5) * 14;
+    const pastureGrasslandPct = 22 + (1 - southAgriFactor) * 18 + (rBase() - 0.5) * 12;
+    const savannaCerradoPct = 16 + (1 - southAgriFactor) * 28 + (lon > -48.5 ? 8 : 0) + (rBase() - 0.5) * 10;
+    const forestRlAppPct = 11 + (1 - southAgriFactor) * 9 + (rBase() - 0.5) * 5;
+    const prodesDeforestationKm2 = Math.max(
+      0.3,
+      (1.4 + (1 - southAgriFactor) * 9.5 + rBase() * 11.0) * (isDroughtYear ? 1.18 : 1.0)
+    );
+
+    const mcd12q1 = computeMcd12q1LandCoverProfile({
+      croplandPct,
+      pastureGrasslandPct,
+      savannaCerradoPct,
+      forestRlAppPct,
+      prodesDeforestationKm2,
+    });
+
+    return { mod13q1, mcd12q1 };
+  }
+
+  public getAgroB2BRiskReportSync(ibge: string, year: number, month: number): AgroB2BRiskReport {
+    const rows = this.getCalendar(ibge);
+    const calIdx = rows.findIndex((r) => r.year === year && r.month === month);
+    const calRow = calIdx >= 0 ? rows[calIdx]! : undefined;
+    const prevRow = calIdx > 0 ? rows[calIdx - 1]! : calRow;
+    const rootFires = this.getRootFireAnalysis(ibge);
+    const monthProfile = rootFires.months.find((m) => m.month === month);
+    const rootRecurrencePct = monthProfile?.recurrencePct ?? rootFires.persistenceScorePct;
+
+    const clampedYear = Math.min(2025, Math.max(2001, year));
+    const mm = String(month).padStart(2, '0');
+    const lastDay = new Date(clampedYear, month, 0).getDate();
+    const cacheKey = `${ibge}:${clampedYear}-${mm}`;
+    let dailySeries = this.powerCache.get(cacheKey);
+    if (!dailySeries) {
+      dailySeries = this.buildClimatologicalDailySeries(ibge, clampedYear, month, lastDay);
+      this.powerCache.set(cacheKey, dailySeries);
+    }
+
+    const meanFrpMw = calRow?.meanFrpMw ?? 24.0;
+    const maxFrpMw = calRow?.maxFrpMw ?? 68.0;
+    const basePred = computeFirePredictability(dailySeries, rootRecurrencePct, meanFrpMw);
+    const muni = this.municipalities.get(ibge);
+    const lat = muni?.centroidLat ?? -16.68;
+    const spatialGradient = Math.max(0.45, Math.min(2.4, 1 + (-15.5 - lat) * -0.18));
+    const mlPred = predictFirePropensity(this.getMlModel(), {
+      rootRecurrencePct,
+      lag1HarmonizedLog: Math.log1p(Math.max(0, prevRow?.harmonized ?? 0)),
+      spatialGradient,
+      t2mMaxC: basePred.weatherSummary.t2mMaxC,
+      vpdHpa: basePred.vaporPressureDeficitHpa,
+      rh2mDeficit: 100 - basePred.weatherSummary.rh2mPct,
+      droughtIndex: basePred.consecutiveDryDays,
+      ws10mMs: basePred.weatherSummary.ws10mMs,
+    });
+    const predictability: FirePredictabilityReport = {
+      ...basePred,
+      ignitionRiskScore: mlPred.propensityScore,
+      ignitionRiskClass: mlPred.propensityClass,
+      mlPropensity: mlPred,
+    };
+
+    const { mod13q1, mcd12q1 } = this.buildMod13q1AndMcd12q1Profiles(
+      ibge,
+      year,
+      month,
+      predictability.consecutiveDryDays
+    );
+
+    return computeAgroB2BRiskReport({
+      harmonizedCount: calRow?.harmonized ?? 0,
+      anomalyZ: calRow?.anomalyZ ?? 0,
+      meanFrpMw,
+      maxFrpMw,
+      rootFires,
+      month,
+      predictability,
+      mod13q1,
+      mcd12q1,
+    });
+  }
+
+  public async getAgroB2BRiskReport(
+    ibge: string,
+    year: number,
+    month: number
+  ): Promise<AgroB2BRiskReport> {
+    const rows = this.getCalendar(ibge);
+    const calRow = rows.find((r) => r.year === year && r.month === month);
+    const rootFires = this.getRootFireAnalysis(ibge);
+    const predictability = await this.getPredictabilityAndWeather(ibge, year, month);
+    const { mod13q1, mcd12q1 } = this.buildMod13q1AndMcd12q1Profiles(
+      ibge,
+      year,
+      month,
+      predictability.consecutiveDryDays
+    );
+
+    return computeAgroB2BRiskReport({
+      harmonizedCount: calRow?.harmonized ?? 0,
+      anomalyZ: calRow?.anomalyZ ?? 0,
+      meanFrpMw: calRow?.meanFrpMw ?? 24.0,
+      maxFrpMw: calRow?.maxFrpMw ?? 68.0,
+      rootFires,
+      month,
+      predictability,
+      mod13q1,
+      mcd12q1,
+    });
+  }
+
   public async getContextItems(
     ibge: string,
     year: number
@@ -758,6 +918,12 @@ class FireHubDataStore {
     const cal = this.getCalendar(ibge).filter((x) => x.year === year);
     const modisYear = cal.reduce((acc, row) => acc + (row.modis ?? 0), 0);
     const pred = await this.getPredictabilityAndWeather(ibge, year, 9);
+    const { mod13q1, mcd12q1 } = this.buildMod13q1AndMcd12q1Profiles(
+      ibge,
+      year,
+      9,
+      pred.consecutiveDryDays
+    );
 
     return [
       {
@@ -770,16 +936,37 @@ class FireHubDataStore {
       {
         key: 'inpe_prodes.deforestation_km2',
         label: 'PRODES Cerrado deforestation (year)',
-        value: Math.round((1.2 + r() * 22.5) * 100) / 100,
+        value: mcd12q1.prodesDeforestationKm2,
         unit: 'km²',
         source: 'INPE · PRODES/TerraBrasilis',
       },
       {
         key: 'embrapa_satveg.ndvi_dry_mean',
         label: 'Mean NDVI, dry season (Jun–Sep)',
-        value: Math.round((0.34 + r() * 0.26) * 100) / 100,
+        value: mod13q1.ndviMean,
         unit: '',
-        source: 'Embrapa · SATVeg (MOD13Q1)',
+        source: 'Embrapa · SATVeg (MOD13Q1 250 m)',
+      },
+      {
+        key: 'embrapa_satveg.fuel_load_tons_ha',
+        label: 'Dry combustible biomass load (MOD13Q1)',
+        value: mod13q1.fuelLoadTonsHa,
+        unit: 't/ha',
+        source: 'NASA LP DAAC · MOD13Q1 + SATVeg',
+      },
+      {
+        key: 'modis_mcd12q1.cropland_pct',
+        label: 'Agricultural cropland share (MCD12Q1 IGBP)',
+        value: mcd12q1.croplandPct,
+        unit: '%',
+        source: 'NASA LP DAAC · MODIS MCD12Q1 v6.1 (500 m)',
+      },
+      {
+        key: 'modis_mcd12q1.interface_risk',
+        label: 'Agro-Wildland interface risk index (MCD12Q1)',
+        value: mcd12q1.interfaceRiskIndex,
+        unit: '/100',
+        source: 'NASA LP DAAC · MODIS MCD12Q1 v6.1 (500 m)',
       },
       {
         key: 'nasa_power.t2m_max_dry_c',
@@ -807,13 +994,6 @@ class FireHubDataStore {
         label: 'Wind speed at 10m (WS10M)',
         value: pred.weatherSummary.ws10mMs,
         unit: 'm/s',
-        source: 'NASA POWER · Daily Point (MERRA-2)',
-      },
-      {
-        key: 'nasa_power.wd10m_dry_deg',
-        label: 'Wind direction at 10m (WD10M)',
-        value: pred.weatherSummary.wd10mDeg,
-        unit: `° (${pred.weatherSummary.windFromCardinal})`,
         source: 'NASA POWER · Daily Point (MERRA-2)',
       },
     ];
