@@ -759,7 +759,7 @@
     const kz = $('k-z');
     kz.textContent = fmtZ(z);
     kz.className = z === null ? '' : z >= 1 ? 'z-up' : z <= -1 ? 'z-down' : '';
-    $('k-z-text').textContent = zText(z) + (r && r.daysMissing ? ` · ${t('z.missing', { n: r.daysMissing })}` : '');
+    $('k-z-text').textContent = zText(z) + (r && r.partialDays ? ` · ${t('z.partial', { d: r.partialDays })}` : '') + (r && r.daysMissing ? ` · ${t('z.missing', { n: r.daysMissing })}` : '');
   }
 
   function renderPattern(p) {

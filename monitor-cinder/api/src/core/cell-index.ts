@@ -549,6 +549,51 @@ export function withAnomaly<T extends { year: number; month: number; harmonized:
   return out;
 }
 
+/**
+ * The month in progress compared fairly: days 1..D of the month (D = last observed day) in every year, per group
+ * (municipality, circle…). Returns null when the last observed day closes its month (nothing in progress).
+ */
+export interface PartialWindow { year: number; month: number; lastDom: number; sums: Map<string, Map<number, number>> }
+export function partialWindow(index: CellIndex, groupOf: (c: IndexCell) => string | null): PartialWindow | null {
+  const chain = buildChain(index);
+  const last = new Date(chain.last * DAY);
+  const year = last.getUTCFullYear(), month = last.getUTCMonth() + 1, lastDom = last.getUTCDate();
+  if (new Date((chain.last + 1) * DAY).getUTCMonth() + 1 !== month) return null; // month already complete
+  const sums = new Map<string, Map<number, number>>();
+  for (const c of index.cells) {
+    const g = groupOf(c);
+    if (g === null) continue;
+    let by = sums.get(g);
+    forEachContribution(c, chain, (d, w) => {
+      const dt = new Date(d * DAY);
+      if (dt.getUTCMonth() + 1 !== month || dt.getUTCDate() > lastDom) return;
+      if (!by) { by = new Map(); sums.set(g, by); }
+      const y = dt.getUTCFullYear();
+      by.set(y, (by.get(y) ?? 0) + w);
+    });
+  }
+  return { year, month, lastDom, sums };
+}
+
+/**
+ * Anomaly of the month in progress: days 1..D this year against days 1..D of the same month in 2002–2024
+ * (z-score), instead of leaving it empty or comparing a half month with whole months.
+ */
+export function withPartialAnomaly<T extends { year: number; month: number; partial?: boolean; anomalyZ: number | null }>(
+  rows: T[], pw: PartialWindow | null, byYear: Map<number, number> | undefined,
+): Array<T & { partialDays?: number }> {
+  if (!pw) return rows;
+  return rows.map((r) => {
+    if (!(r.partial && r.year === pw.year && r.month === pw.month)) return r;
+    const base: number[] = [];
+    for (let y = 2002; y <= 2024; y++) base.push(byYear?.get(y) ?? 0);
+    const cur = byYear?.get(pw.year) ?? 0;
+    const mean = base.reduce((a, b) => a + b, 0) / base.length;
+    const sd = Math.sqrt(base.reduce((a, b) => a + (b - mean) ** 2, 0) / (base.length - 1));
+    return { ...r, anomalyZ: sd > 0 ? Math.round(((cur - mean) / sd) * 100) / 100 : null, partialDays: pw.lastDom };
+  });
+}
+
 export const inCircle = (lon: number, lat: number, radiusKm: number): ((c: IndexCell) => boolean) => {
   const [cx, cy] = toPolyconic(lon, lat);
   const r = radiusKm * 1000;

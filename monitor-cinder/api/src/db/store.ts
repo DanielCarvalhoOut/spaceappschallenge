@@ -15,7 +15,7 @@ import {
   estimateResourcesByFrp,
 } from '../core/analytics.js';
 import { logger } from '../core/logger.js';
-import { buildChain, cellDetections, dailyOfMonth, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
+import { buildChain, cellDetections, dailyOfMonth, partialWindow, withPartialAnomaly, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 import { hindcast, projectFrom, type Hindcast, type Projection } from '../core/projection-model.js';
 import {
@@ -49,6 +49,7 @@ export interface CalendarRow {
   daysMissing: number;
   provisional?: boolean;    // near-real-time days in the month
   partial?: boolean;        // current month, not finished
+  partialDays?: number;     // month in progress: anomaly of days 1..N vs the same days of earlier years
   meanFrpMw?: number;
   maxFrpMw?: number;
 }
@@ -361,8 +362,10 @@ class CinderDataStore {
   private buildCalendarsFromIndex(index: CellIndex): void {
     const byMuni = monthlyRowsByMunicipality(index);
     const empty = emptyRows(index);
+    // month in progress: days 1..D against the same days of earlier years (one pass for all municipalities)
+    const pw = partialWindow(index, (c) => c[2]);
     for (const ibge of this.municipalities.keys()) {
-      this.calendars.set(ibge, withAnomaly(byMuni.get(ibge) ?? empty));
+      this.calendars.set(ibge, withPartialAnomaly(withAnomaly(byMuni.get(ibge) ?? empty), pw, pw?.sums.get(ibge)));
     }
     this.calendarKind = 'firms_index';
     const chain = buildChain(index);
@@ -1170,7 +1173,9 @@ class CinderDataStore {
     municipalities: Array<{ ibge: string; name: string; pctOfMunicipality: number; pctOfCircle: number }>;
   } | null {
     if (!this.index) return null;
-    const rows = withAnomaly(monthlyRows(this.index, inCircle(lon, lat, radiusKm)))
+    const keepCircle = inCircle(lon, lat, radiusKm);
+    const pwc = partialWindow(this.index, (c) => (keepCircle(c) ? 'c' : null));
+    const rows = withPartialAnomaly(withAnomaly(monthlyRows(this.index, keepCircle)), pwc, pwc?.sums.get('c'))
       .filter((r) => source === 'harmonized1k' || r.year >= 2012);
 
     // Area shares: sample the circle (≤ ~40 000 points) and test each point against the municipalities.

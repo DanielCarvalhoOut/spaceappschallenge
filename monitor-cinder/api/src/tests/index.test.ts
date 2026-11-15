@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChain, cellDetections, cellOf, dailyOfMonth, fromPolyconic, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
+import { buildChain, partialWindow, withPartialAnomaly, cellDetections, cellOf, dailyOfMonth, fromPolyconic, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 
 /**
@@ -97,5 +97,19 @@ describe('satellite chain (FIRMS index, no PostGIS)', () => {
     const r = cellDetections(idx, lon, lat, 1000, date.getUTCFullYear(), date.getUTCMonth() + 1);
     expect(r.cells1km).toBe(1);
     expect(r.days.some((x) => x.sensor === 'NOAA20' && x.date === date.toISOString().slice(0, 10))).toBe(true);
+  });
+
+  it('judges the month in progress against the same days of earlier years', () => {
+    const idx = fixture();
+    const pw = partialWindow(idx, () => 'all');
+    expect(pw).not.toBeNull();
+    expect(pw!.lastDom).toBe(10); // fixture ends 2026-11-10
+    const rows = withPartialAnomaly(withAnomaly(monthlyRows(idx, () => true)), pw, pw!.sums.get('all'));
+    const nov = rows.find((r) => r.year === 2026 && r.month === 11)!;
+    expect(nov.partial).toBe(true);
+    expect(nov.partialDays).toBe(10);
+    expect(nov.anomalyZ === null || Number.isFinite(nov.anomalyZ)).toBe(true);
+    // a complete month keeps the whole-month anomaly
+    expect(rows.find((r) => r.year === 2015 && r.month === 8)!.partialDays).toBeUndefined();
   });
 });

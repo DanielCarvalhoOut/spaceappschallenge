@@ -57,6 +57,7 @@
       year: r.year, month: r.month, modis: num(r.modis), viirs: num(r.viirs),
       harmonized: num(r.harmonized), anomalyZ: num(r.anomalyZ), daysMissing: num(r.daysMissing),
       noaa20: num(r.noaa20), provisional: r.provisional === true, partial: r.partial === true,
+      partialDays: intIn(r.partialDays, 1, 31) ? r.partialDays : null,
     }));
   }
 
