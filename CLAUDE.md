@@ -12,7 +12,7 @@ Monitor Cinder harmoniza os focos de calor MODIS e VIIRS (NASA FIRMS) de 2001 at
 
 ## Regras
 - Trabalho original: não recriar nem trazer de volta nada dos arquivos antigos de terceiros do mapa (`assets/`, `painel-original.html`).
-- O FIRMS é a única base da harmonização e da anomalia. INPE (validação), NASA POWER e NASA ORNL DAAC (contexto: clima, NDVI e uso do solo) nunca são causa.
+- O FIRMS é a única base da harmonização e da anomalia. O GOES-19 (NOAA) só alimenta o aviso de fogo agora, opcional, e nunca entra na série harmonizada. INPE (validação), NASA POWER e NASA ORNL DAAC (contexto: clima, NDVI e uso do solo) nunca são causa.
 - Projeção só como "projeção com faixa de incerteza validada" (PT) / "projection with a validated uncertainty band" (EN): modelo diário binomial negativo, retroteste 2015–2025 contra a climatologia, e só se publica o horizonte com ganho (skill > 0); sem ganho, mostra-se a climatologia. Use "historical pattern", "anomaly", "typical fire season", "context". Nunca "forecast", "prediction", "risk" ou "cause".
 - Interface **bilíngue**: português por padrão (apresentação local) e inglês no botão `EN` (vídeo, capturas, júri global). Todo texto novo entra nos dois idiomas em `Mapa iterativo/i18n.js`. README do app e página do projeto em **inglês**.
 - Segredos (`FIRMS_MAP_KEY`) só em `monitor-cinder/api/.env`. O front nunca chama FIRMS, POWER nem ORNL DAAC (só a nossa API e, como reserva, o IBGE). Logger com redaction.

@@ -536,6 +536,42 @@ class CinderDataStore {
     });
   }
 
+  /** IBGE code of the Goiás municipality containing the point, or null. */
+  public municipalityAt(lon: number, lat: number): string | null {
+    for (const m of this.municipalities.values()) {
+      const [w, so, e, n] = m.bbox;
+      if (lon < w || lon > e || lat < so || lat > n) continue;
+      if (pointInMunicipality(lat, lon, m)) return m.ibgeCode;
+    }
+    return null;
+  }
+
+  /**
+   * Historical context of a point for a watch alert, from the harmonized FIRMS series only:
+   * years with fire within 3 km in this calendar month (complete years), and the municipality's current month.
+   */
+  public alertContext(lon: number, lat: number, month: number): {
+    municipality: string | null; ibge: string | null; yearsWithFire: number | null; yearsObserved: number | null;
+    anomalyZ: number | null; monthCellDays: number | null;
+  } {
+    const ibge = this.municipalityAt(lon, lat);
+    const out = {
+      municipality: ibge ? this.municipalities.get(ibge)?.name ?? null : null, ibge,
+      yearsWithFire: null as number | null, yearsObserved: null as number | null, anomalyZ: null as number | null, monthCellDays: null as number | null,
+    };
+    if (!this.index) return out;
+    const thisYear = new Date().getUTCFullYear();
+    const rows = monthlyRows(this.index, inCircle(lon, lat, 3)).filter((r) => r.month === month && r.year < thisYear && r.harmonized !== null);
+    out.yearsObserved = rows.length;
+    out.yearsWithFire = rows.filter((r) => (r.harmonized ?? 0) > 0).length;
+    if (ibge) {
+      const cal = this.calendars.get(ibge) ?? [];
+      const last = cal[cal.length - 1];
+      if (last) { out.anomalyZ = last.anomalyZ; out.monthCellDays = last.harmonized; }
+    }
+    return out;
+  }
+
   /** Focos-raiz from the FIRMS index (null without it). */
   public getRecurrenceCells(q: {
     west: number;

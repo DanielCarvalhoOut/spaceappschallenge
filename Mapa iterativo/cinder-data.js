@@ -31,6 +31,33 @@
     }
   }
 
+  const WATCH_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  /** POST/DELETE with a JSON body (only to our API); returns the parsed JSON or null for 204. */
+  async function sendJson(method, url, body) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    try {
+      const res = await fetch(url, {
+        method, signal: ctrl.signal, credentials: 'omit',
+        headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${new URL(url).pathname}`);
+      return res.status === 204 ? null : await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  function cleanFeed(f) {
+    f = f || {};
+    const iso = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? v.slice(0, 25) : null);
+    return {
+      lastRun: iso(f.lastRun), lastScan: iso(f.lastScan),
+      lastError: typeof f.lastError === 'string' ? f.lastError.slice(0, 200) : null,
+      detectionsInGoias: Number.isInteger(f.detectionsInGoias) ? f.detectionsInGoias : null,
+      persistentInGoias: Number.isInteger(f.persistentInGoias) ? f.persistentInGoias : null,
+    };
+  }
   const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
   const numIn = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
@@ -275,6 +302,54 @@
         };
       },
       /** One month day by day: { days: [{ date, harmonized|null, sensor, provisional, cells }] } (null while loading: 503). */
+      /* ---- opt-in GOES-19 watch (early notice) ---- */
+      async watchCreate(area, label) {
+        const body = area && area.ibge
+          ? (IBGE_CODE.test(area.ibge) || area.ibge === CFG.uf ? { ibge: area.ibge, label: String(label || '').slice(0, 80) } : null)
+          : (area && numIn(area.lon, -54, -45) && numIn(area.lat, -20, -12) && numIn(area.radiusKm, 5, 300)
+            ? { lon: area.lon, lat: area.lat, radiusKm: area.radiusKm, label: String(label || '').slice(0, 80) } : null);
+        if (!body) throw new Error('Invalid area');
+        const j = await sendJson('POST', `${base}/api/watch`, body);
+        const w = j && j.watch;
+        if (!w || !WATCH_ID.test(w.id)) throw new Error('Unexpected watch payload');
+        return { id: w.id, feed: cleanFeed(j.feed) };
+      },
+      async watchDelete(id) {
+        if (!WATCH_ID.test(id)) throw new Error('Invalid watch id');
+        await sendJson('DELETE', `${base}/api/watch/${id}`);
+      },
+      /** null when the API no longer knows the watch (404). */
+      async watchAlerts(id) {
+        if (!WATCH_ID.test(id)) throw new Error('Invalid watch id');
+        let j;
+        try { j = await fetchJson(`${base}/api/watch/${id}/alerts`, 15000); } catch (e) { if (/HTTP 404/.test(e.message)) return null; throw e; }
+        const STATUS = ['persistent', 'confirmed', 'not_confirmed'];
+        const alerts = (Array.isArray(j && j.alerts) ? j.alerts : []).slice(0, 50)
+          .filter((a) => a && typeof a.id === 'string' && a.id.length < 120 && numIn(a.lon, -54, -45) && numIn(a.lat, -20, -12)
+            && typeof a.firstSeen === 'string' && typeof a.lastSeen === 'string' && STATUS.includes(a.status))
+          .map((a) => {
+            const c = a.context || {};
+            return {
+              id: a.id, lon: a.lon, lat: a.lat, firstSeen: a.firstSeen.slice(0, 25), lastSeen: a.lastSeen.slice(0, 25),
+              scansSeen: intIn(a.scansSeen, 1, 1000) ? a.scansSeen : 1, frpMw: num(a.frpMw), status: a.status, demo: a.demo === true,
+              context: {
+                municipality: typeof c.municipality === 'string' ? c.municipality.slice(0, 80) : null,
+                yearsWithFire: intIn(c.yearsWithFire, 0, 100) ? c.yearsWithFire : null,
+                yearsObserved: intIn(c.yearsObserved, 0, 100) ? c.yearsObserved : null,
+                anomalyZ: num(c.anomalyZ), monthCellDays: num(c.monthCellDays),
+              },
+            };
+          });
+        return { feed: cleanFeed(j && j.feed), alerts };
+      },
+      async watchDemo(id) {
+        if (!WATCH_ID.test(id)) throw new Error('Invalid watch id');
+        await sendJson('POST', `${base}/api/watch/${id}/demo`, {});
+      },
+      async goesRun() {
+        const j = await sendJson('POST', `${base}/api/goes/run`, {});
+        return cleanFeed(j && j.feed);
+      },
       /** Months with a high anomaly (z ≥ 1.5 and ≥ 10 cell-days), newest first; [] when none. */
       async alerts(id) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
@@ -408,7 +483,7 @@
       kind: 'offline', dataKind: 'none', historyLoad: null, lastObservedDay: null, provisionalFrom: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
       mapValues: fail, calendar: fail, pattern: fail, context: fail,
-      projection: fail, horizons: fail, daily: fail, alerts: fail, firesCsv: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
+      projection: fail, horizons: fail, daily: fail, alerts: fail, firesCsv: fail, watchCreate: fail, watchDelete: fail, watchAlerts: fail, watchDemo: fail, goesRun: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
       csvUrl() { return null; },
     };
   }

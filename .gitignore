@@ -4,7 +4,11 @@
 !monitor-cinder/api/.env
 data/raw/
 monitor-cinder/data/
-monitor-cinder/api/data/
+# api/data: only the harmonized index and the municipal boundaries are versioned (13 MB);
+# the raw yearly FIRMS files stay out (Drive link in monitor-cinder/README.md)
+monitor-cinder/api/data/*
+!monitor-cinder/api/data/firms_goias_cells.json
+!monitor-cinder/api/data/ibge_uf_52.json
 dist/
 *.tsbuildinfo
 __pycache__/

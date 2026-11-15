@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { logger, redactSecrets } from './core/logger.js';
 import { store } from './db/store.js';
 import { registerRoutes } from './modules/routes.js';
+import { registerWatchRoutes, startGoesWatcher } from './modules/watch-routes.js';
 import { isMain } from './core/entry.js';
 import { hasHistory } from './db/history.js';
 import { loadCellIndex } from './core/cell-index.js';
@@ -77,7 +78,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   const allow = corsAllows(config.CORS_ORIGIN);
   await app.register(cors, {
     origin: config.CORS_ORIGIN === '*' ? true : (origin, cb) => { cb(null, !origin || allow(origin)); },
-    methods: ['GET', 'OPTIONS'],
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   });
 
   await app.register(rateLimit, {
@@ -111,6 +112,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await store.init();
   await registerRoutes(app);
+  await registerWatchRoutes(app);
 
   return app;
 }
@@ -122,6 +124,7 @@ if (isMain(import.meta.url)) {
       logger.info({ port: config.PORT, host: config.HOST }, 'Monitor Cinder API listening');
       startHistoryLoadIfMissing();
       startLocalitiesLoad();
+      startGoesWatcher();
     })
     .catch((err) => {
       logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Failed to start server');

@@ -13,6 +13,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 
 - **Map of Goiás** by IBGE municipality: anomaly vs. the historical pattern (z), cell-days or density, for any month since 2001.
 - **Search by name or by coordinate**: typing `-16.68, -49.25` opens a circle there.
+- **Fire notice now (opt-in)**: for a municipality or circle, the API checks NOAA GOES-19 every 10 minutes, keeps fire pixels seen in 2 of 3 consecutive scans (~20–30 min), adds the place's historical context from our series and later marks each notice confirmed or not by VIIRS. Kept apart: GOES never enters the harmonized series.
 - **Unusual months** of a municipality (anomaly ≥ +1.5σ), one click away from the month.
 - **Downloads**: monthly series (CSV), the month's fire cells with detection days, satellite and nearest locality (CSV), the calendar (PNG) and the current map (PNG).
 - **Details in a side panel beside the map** (tabs Summary · Projection · History · Area · Context; a footer button opens the same view full screen): typical fire season, monthly calendar since 2001,
@@ -29,6 +30,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 | IBGE — municipal boundaries and names | Aggregation units |
 | IBGE — Base de Localidades, 2022 Census (vilas, povoados, communities) | Map reference only: shown when zoomed in; nearest locality and straight-line distance to each fire cell |
 | INPE Programa Queimadas — reference satellite (AQUA MODIS afternoon) | External validation only |
+| NOAA GOES-19 ABI L2 Fire/Hot Spot (full disk, every 10 min, public NOAA open data) | Opt-in early notice only; never mixed into the harmonized series |
 | NASA POWER (daily point API); NASA ORNL DAAC MODIS web service (MOD13Q1 NDVI, MCD12Q1 land cover) | Context tab only, never cause |
 
 Data up to the last day FIRMS serves (NRT days are marked *provisional* in the interface).
@@ -86,17 +88,32 @@ Fitted on data up to 2014, band calibrated on 2015–2020, **scored only on 2021
 
 ## Run it
 
-Requirements: Node 22 and a free FIRMS MAP_KEY (https://firms.modaps.eosdis.nasa.gov/api/map_key/).
+Requirements: Node 22. The repository already carries the harmonized FIRMS index of Goiás
+(`api/data/firms_goias_cells.json`, 2001 → 2026-11-14) and the IBGE boundaries (`api/data/ibge_uf_52.json`),
+so the whole app runs without a key and without downloads:
 
 ```bash
 cd monitor-cinder/api
-cp .env.example .env        # put FIRMS_MAP_KEY=... here; never commit it
+cp .env.example .env        # optional settings; never commit .env
 npm install
-npm run dev                 # API on http://localhost:8787; first start downloads 2001 → today (≈30–50 min, cached in data/)
-npm run job:validate        # rewrites the evidence in api/out/
+npm start                   # API on http://localhost:8787
 ```
 
-Open `Mapa iterativo/index.html` through a static server on the origin allowed by `CORS_ORIGIN` (default `.env.example`: `npx serve -l 8080 "Mapa iterativo"`, then http://localhost:8080). The front never calls FIRMS; it only talks to the API.
+In another terminal: `npx serve -l 8080 "Mapa iterativo"`, then http://localhost:8080
+(the origin allowed by `CORS_ORIGIN` in `.env.example`). The front never calls FIRMS; it only talks to the API.
+
+The same two files are in [this Google Drive folder](https://drive.google.com/drive/folders/1Jy69Rer6oaGyRSVgmKDhrblkDlWFEyAP)
+as `monitor-cinder-data.zip` (unzip into `monitor-cinder/api/`).
+
+**Optional, needs a free FIRMS MAP_KEY** (https://firms.modaps.eosdis.nasa.gov/api/map_key/) in `.env`:
+
+```bash
+npm run job:ingest-firms-history   # raw yearly FIRMS files into data/firms_years/ (~100 MB, 30–50 min)
+npm run job:build-cell-index       # rebuilds data/firms_goias_cells.json from them
+npm run job:validate               # rewrites the evidence in api/out/
+```
+
+The key is also used for the VIIRS confirmation of the opt-in fire notices; GOES-19 needs no key.
 
 ## Stack
 
@@ -115,7 +132,8 @@ The idea, the questions and the decisions are the team's. No AI-generated images
 - Vegetation and land-cover context: MODIS MOD13Q1 and MCD12Q1 through the NASA ORNL DAAC MODIS web service (https://modis.ornl.gov/).
 - Municipal boundaries, names and 2022 Census localities: IBGE (https://www.ibge.gov.br/), public data.
 - External validation: INPE Programa Queimadas state statistics (https://terrabrasilis.dpi.inpe.br/queimadas/portal/), public data.
-- Libraries: Fastify, @fastify/cors, @fastify/rate-limit, pg, pino, zod, tsx, vitest (MIT); TypeScript (Apache-2.0). The map engine and interface are the team's own code; no third-party map assets or fonts are bundled.
+- Early notice: NOAA GOES-19 ABI L2+ Fire/Hot Spot Characterization (https://noaa-goes19.s3.amazonaws.com/), NOAA open data.
+- Libraries: Fastify, @fastify/cors, @fastify/rate-limit, pg, pino, zod, tsx, vitest (MIT); TypeScript (Apache-2.0); h5wasm (NIST license, reads the GOES NetCDF-4 files). The map engine and interface are the team's own code; no third-party map assets or fonts are bundled.
 
 ## Team
 

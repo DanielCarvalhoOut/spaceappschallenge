@@ -19,7 +19,7 @@
     info: new Map(),
     year: CFG.defaultYear,
     month: CFG.defaultMonth,
-    metric: 'anomaly',
+    metric: 'count', // default view: harmonized hotspots (cell-days)
     selected: null,
     sphereSelection: null, // { radiusKm, areaKm2, ids, centerId }
     sphereRows: null,
@@ -167,7 +167,7 @@
         : `1 : ${I.num(d)}`;
     ratioEl.textContent = ratioStr;
 
-    const trackPx = 108;
+    const trackPx = 160;
     const maxKmInTrack = trackPx * v.kmPerPx;
     const steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000];
     let niceKm = steps[0];
@@ -175,7 +175,9 @@
       if (s <= maxKmInTrack) niceKm = s;
     }
     const barPx = Math.max(18, Math.min(trackPx, Math.round(niceKm * v.pxPerKm)));
-    fillEl.style.height = `${barPx}px`;
+    fillEl.style.width = `${barPx}px`;
+    const ticksEl = $('scale-ticks');
+    if (ticksEl) ticksEl.style.width = `${barPx}px`;
 
     topEl.textContent = '0';
     midEl.textContent = `${I.num(niceKm / 2, niceKm < 5 ? 1 : 0)} km`;
@@ -580,7 +582,6 @@
   }
   function openModal() {
     const wasOpen = !$('panel').hidden;
-    $('panel-empty').hidden = true;
     $('panel').hidden = false;
     $('panel-body').hidden = false;
     if (!wasOpen) setTab('summary'); // a new selection starts at the summary
@@ -592,7 +593,6 @@
     $('panel-body').hidden = true;
     if (wasModal) setPanelMode(false); // next selection opens docked again
     syncLayout();
-    $('panel-empty').hidden = !!(state.selected || state.sphereSelection);
   }
   function setTab(name) {
     for (const b of document.querySelectorAll('#panel .tab')) {
@@ -707,6 +707,7 @@
       loadRange(id, seq);
       loadHorizons({ ibge: id }, seq);
       loadAlerts(id, seq);
+      renderWatchBlock();
       loadContext(id, seq);
       const cur = currentRow();
       loadDetail({ kind: 'muni', id }, cur ? cur.harmonized : 0, seq);
@@ -773,6 +774,7 @@
     openModal();
     dlStatus('');
     loadAlerts(null, seq);
+    renderWatchBlock();
     const centerName = (sphere.centerId && state.names.get(sphere.centerId)) || CFG.ufName;
     const subBase = t('sphere.sub', { r: sphere.radiusKm, area: I.num(sphere.areaKm2), name: centerName });
     $('p-name').textContent = t('sphere.titleR', { r: sphere.radiusKm });
@@ -1365,10 +1367,17 @@
     const next = $('next-box');
     clear(next);
     const f = h.fortnight;
-    if (f && hc.fortnight && hc.fortnight.published) next.append(el('p', 'range-line', t('next.line', { p10: bandNum(f.p10), p50: bandNum(f.p50), p90: bandNum(f.p90) })));
-    else if (f && f.climatology) next.append(el('p', 'range-line', t('next.clim', { p10: bandNum(f.climatology.p10), p90: bandNum(f.climatology.p90) })));
+    const nextCards = el('div', 'info-cards');
+    if (f && hc.fortnight && hc.fortnight.published) {
+      nextCards.append(infoCard(t('rc.nextExpected'), bandNum(f.p50), t('rc.nextBand', { p10: bandNum(f.p10), p90: bandNum(f.p90) })));
+    } else if (f && f.climatology) {
+      nextCards.append(infoCard(t('rc.nextClim'), `${bandNum(f.climatology.p10)} – ${bandNum(f.climatology.p90)}`, t('rc.nextClimSmall')));
+    }
+    if (nextCards.childElementCount) next.append(nextCards);
     else next.append(el('p', 'muted', t('proj.skillNa')));
-    next.append(el('small', 'range-meta muted', `${t('proj.asOf', { d: shortDate(h.asOf) })} ${t('next.more')}`));
+    const nextNotes = el('ul', 'info-notes');
+    nextNotes.append(el('li', '', `${t('proj.asOf', { d: shortDate(h.asOf) })} ${t('next.more')}`));
+    next.append(nextNotes);
 
     // Projection tab.
     const box = $('horizons-box');
@@ -1387,11 +1396,13 @@
     for (const d of h.daily) {
       const col = el('div', 'proj-day');
       const bar = el('i');
-      bar.style.height = `${Math.max(2, Math.round(d.pAnyPct * 0.8))}%`;
+      bar.style.height = `${Math.max(2, Math.round(d.pAnyPct * 0.62))}%`;
       bar.style.opacity = String(0.35 + 0.65 * (d.pAnyPct / 100));
       col.title = t('proj.dayTitle', { d: shortDate(d.date), p: fmtInt(d.pAnyPct), p50: bandNum(d.p50), p90: bandNum(d.p90) });
       col.setAttribute('aria-label', col.title);
-      col.append(bar, el('span', '', d.date.slice(8, 10)));
+      // the chance written on top of the column, so nobody needs the tooltip (only where there is a chance)
+      const pct = Math.round(d.pAnyPct);
+      col.append(el('b', 'proj-day__pct', pct >= 1 ? `${pct}%` : ''), bar, el('span', '', d.date.slice(8, 10)));
       days.append(col);
     }
     if (d1 && d1.published) {
@@ -1474,17 +1485,18 @@
     }
     box.append(bar);
 
-    box.append(el('p', 'range-line', t('range.p', { p10: fmt1(p10), p50: fmt1(p50), p90: fmt1(p90) })));
+    const cards = el('div', 'info-cards');
+    cards.append(infoCard(t('rc.typical'), `${fmt1(p10)} – ${fmt1(p90)}`, t('rc.median', { p50: fmt1(p50) })));
     if (obs !== null) {
       const where = obs > p90 ? 'range.above' : obs < p10 ? 'range.below' : 'range.within';
-      box.append(el('p', 'range-line ' + (obs > p90 ? 'z-up' : obs < p10 ? 'z-down' : ''),
-        `${t('range.obs', { period: period(), v: fmtInt(obs) })} · ${t(where)}`));
+      cards.append(infoCard(t('rc.observed', { period: period() }), fmtInt(obs), t(where), obs > p90 ? 'z-up' : obs < p10 ? 'z-down' : ''));
     } else {
-      box.append(el('p', 'range-line muted', t('range.obsNone', { period: period() })));
+      cards.append(infoCard(t('rc.observed', { period: period() }), '–', t('range.obsNone', { period: period() })));
     }
     if (p.analog) {
-      box.append(el('p', 'range-line', t('range.analog', { years: p.analog.years.join(', '), p10: fmt1(p.analog.p10), p90: fmt1(p.analog.p90) })));
+      cards.append(infoCard(t('rc.analog'), `${fmt1(p.analog.p10)} – ${fmt1(p.analog.p90)}`, p.analog.years.join(', ')));
     }
+    box.append(cards);
     const meta = [];
     if (Number.isFinite(p.range.nYears)) meta.push(t('range.years', { n: p.range.nYears, method: t(`range.method.${p.method}`) }));
     if (p.hindcast && Number.isFinite(p.hindcast.coveragePct)) {
@@ -1493,7 +1505,16 @@
       meta.push(t('range.noHindcast'));
     }
     meta.push(t('range.note'));
-    for (const m of meta) box.append(el('small', 'range-meta muted', m));
+    const notes = el('ul', 'info-notes');
+    for (const m of meta) notes.append(el('li', '', m));
+    box.append(notes);
+  }
+  /** Card like the KPIs above it: label, value in large type, a short line under it (tone: 'z-up' | 'z-down' | ''). */
+  function infoCard(label, value, small, tone) {
+    const c = el('div', 'kpi info-card');
+    c.append(el('span', 'kpi__label', label), el('strong', tone || '', value));
+    if (small) c.append(el('small', tone || '', small));
+    return c;
   }
 
   /* ---------- Focos-raiz layer (cells that burned in many years; computed in PostGIS) ---------- */
@@ -1595,6 +1616,228 @@
         ul.append(el('li', '', t('ctx.err')));
       }
     }
+  }
+
+  /* ---------- Opt-in GOES-19 watch: early notice for the selected area ---------- */
+  const WATCH_KEY = 'cinder.watches', SEEN_KEY = 'cinder.seenAlerts';
+  const store = {
+    get(k, d) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v === null ? d : v; } catch (_) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) { /* storage blocked: watch lasts this session */ } },
+  };
+  const memWatches = { list: null };
+  const watches = () => memWatches.list || (memWatches.list = (store.get(WATCH_KEY, []) || []).filter((w) => w && typeof w.id === 'string' && typeof w.key === 'string').slice(0, 20));
+  const saveWatches = (list) => { memWatches.list = list; store.set(WATCH_KEY, list); };
+  function currentWatchArea() {
+    if (state.selected) return { key: `ibge:${state.selected}`, area: { ibge: state.selected }, label: state.names.get(state.selected) || state.selected };
+    const s = state.sphereSelection;
+    if (s && Number.isFinite(s.lon) && Number.isFinite(s.lat)) {
+      const lat = Math.round(s.lat * 1e4) / 1e4, lon = Math.round(s.lon * 1e4) / 1e4;
+      return { key: `c:${lat},${lon},${s.radiusKm}`, area: { lon, lat, radiusKm: s.radiusKm }, label: t('watch.circleLabel', { r: s.radiusKm, lat: I.num(lat, 3), lon: I.num(lon, 3) }) };
+    }
+    return null;
+  }
+  const fmtTime = (iso) => {
+    const d = new Date(iso);
+    return Number.isFinite(d.getTime()) ? d.toLocaleString(I.lang() === 'en' ? 'en-GB' : 'pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–';
+  };
+  /** The notice text ("agent" message), built only from the API's structured fields. */
+  function alertText(a, label) {
+    const near = state.places && state.places.length ? nearestPlaces(a.lon, a.lat, 1)[0] : null;
+    const place = near ? t('watch.near', { name: near.p.name, km: I.num(near.d, 1) }) : label;
+    const parts = [t(a.demo ? 'watch.msgHeadDemo' : 'watch.msgHead', { place, lat: I.num(a.lat, 4), lon: I.num(a.lon, 4), time: fmtTime(a.firstSeen), n: a.scansSeen })];
+    const c = a.context;
+    if (c.yearsObserved) parts.push(t('watch.msgHistory', { k: c.yearsWithFire, n: c.yearsObserved }));
+    if (c.municipality && c.anomalyZ !== null) parts.push(t('watch.msgMuni', { name: c.municipality, z: zText(c.anomalyZ).toLowerCase(), zv: fmtZ(c.anomalyZ) }));
+    if (a.frpMw !== null) parts.push(t('watch.msgFrp', { v: I.num(a.frpMw, 1) }));
+    parts.push(a.demo ? t('watch.demoStatus') : t(`watch.status.${a.status}`));
+    return parts.join(' ');
+  }
+  function toast(title, body) {
+    const box = $('toasts');
+    const n = el('div', 'toast');
+    n.setAttribute('role', 'status');
+    const close = el('button', 'toast__close', '×');
+    close.type = 'button'; close.setAttribute('aria-label', t('panel.close'));
+    close.onclick = () => n.remove();
+    n.append(el('strong', '', title), el('p', '', body), close);
+    box.append(n);
+    setTimeout(() => n.remove(), 30000);
+  }
+  /* ---- floating bell: list of notices, unread count, ring + chime ---- */
+  const NOTIF_KEY = 'cinder.notifs', SOUND_KEY = 'cinder.sound';
+  const notifs = { list: null, audio: null };
+  const notifList = () => notifs.list || (notifs.list = (store.get(NOTIF_KEY, []) || []).filter((n) => n && typeof n.id === 'string').slice(-30));
+  const soundOn = () => store.get(SOUND_KEY, true) !== false;
+  /** Browsers only allow sound after a user gesture: the audio context is created/resumed on clicks. */
+  function unlockAudio() {
+    try {
+      const AC = global.AudioContext || global.webkitAudioContext;
+      if (!AC) return;
+      notifs.audio = notifs.audio || new AC();
+      if (notifs.audio.state === 'suspended') notifs.audio.resume();
+    } catch (_) { /* no audio */ }
+  }
+  /** Two-tone chime generated in the page (no audio file). */
+  function chime() {
+    if (!soundOn() || !notifs.audio || notifs.audio.state !== 'running') return;
+    const ctx = notifs.audio, t0 = ctx.currentTime;
+    [[880, 0], [660, 0.18]].forEach(([f, dt]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + dt);
+      g.gain.exponentialRampToValueAtTime(0.25, t0 + dt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.32);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0 + dt); o.stop(t0 + dt + 0.34);
+    });
+  }
+  function renderBell() {
+    const box = $('notif');
+    box.hidden = !watches().length && !notifList().length;
+    $('notif').closest('.map-wrap').classList.toggle('has-notif', !box.hidden);
+    const unread = notifList().filter((n) => !n.read).length;
+    const c = $('notif-count');
+    c.hidden = !unread; c.textContent = unread > 9 ? '9+' : String(unread);
+    $('notif-btn').setAttribute('aria-label', t('notif.aria', { n: unread }));
+    $('notif-btn').title = t('notif.aria', { n: unread });
+    $('notif-sound').textContent = t(soundOn() ? 'notif.soundOn' : 'notif.soundOff');
+    $('notif-sound').setAttribute('aria-pressed', soundOn() ? 'true' : 'false');
+    const list = $('notif-list');
+    clear(list);
+    const items = notifList().slice().reverse();
+    if (!items.length) { list.append(el('li', 'muted', t('notif.empty'))); return; }
+    for (const n of items) {
+      const li = el('li', n.read ? 'notif__item' : 'notif__item is-unread');
+      const go = el('button', 'notif__go', t('notif.go'));
+      go.type = 'button';
+      go.onclick = () => {
+        n.read = true; store.set(NOTIF_KEY, notifList());
+        closeBell();
+        goToCoordinate({ lon: n.lon, lat: n.lat });
+        renderBell();
+      };
+      li.append(el('strong', '', n.title), el('p', '', n.body), go);
+      list.append(li);
+    }
+  }
+  function ring() {
+    const b = $('notif-btn');
+    b.classList.remove('is-ringing'); void b.offsetWidth; b.classList.add('is-ringing');
+    setTimeout(() => b.classList.remove('is-ringing'), 1600);
+    chime();
+  }
+  function openBell() { $('notif-pop').hidden = false; $('notif-btn').setAttribute('aria-expanded', 'true'); }
+  function closeBell() { $('notif-pop').hidden = true; $('notif-btn').setAttribute('aria-expanded', 'false'); }
+  function setupBell() {
+    $('notif-btn').addEventListener('click', (e) => {
+      e.stopPropagation(); unlockAudio();
+      if ($('notif-pop').hidden) openBell(); else closeBell();
+    });
+    $('notif-read').addEventListener('click', () => { notifList().forEach((n) => { n.read = true; }); store.set(NOTIF_KEY, notifList()); renderBell(); });
+    $('notif-sound').addEventListener('click', () => { store.set(SOUND_KEY, !soundOn()); unlockAudio(); renderBell(); });
+    document.addEventListener('click', (e) => { if (!$('notif').contains(e.target)) closeBell(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('notif-pop').hidden) closeBell(); });
+    // any click on the page unlocks the chime for later notices
+    document.addEventListener('pointerdown', unlockAudio, { once: true });
+    renderBell();
+  }
+
+  function notify(a, w) {
+    const title = t('watch.notifTitle', { label: w.label });
+    const body = alertText(a, w.label);
+    const list = notifList();
+    if (!list.some((n) => n.id === a.id)) {
+      list.push({ id: a.id, title, body, lon: a.lon, lat: a.lat, time: a.firstSeen, read: false });
+      notifs.list = list.slice(-30);
+      store.set(NOTIF_KEY, notifs.list);
+    }
+    renderBell();
+    ring();
+    toast(title, body);
+    try { if ('Notification' in global && Notification.permission === 'granted') new Notification(title, { body, tag: a.id }); } catch (_) { /* not supported */ }
+  }
+  function renderWatchFeed(feed) {
+    const f = $('watch-feed');
+    if (!feed) { f.textContent = ''; return; }
+    f.textContent = feed.lastError
+      ? t('watch.feedErr', { err: feed.lastError })
+      : feed.lastScan
+        ? t('watch.feed', { time: fmtTime(feed.lastScan), n: feed.detectionsInGoias ?? '–', p: feed.persistentInGoias ?? '–' })
+        : t('watch.feedWaiting');
+  }
+  async function renderWatchBlock() {
+    const cur = currentWatchArea();
+    const btn = $('watch-toggle'), list = $('watch-alerts');
+    clear(list);
+    if (!cur || isFuture()) { $('watch-block').hidden = true; return; }
+    $('watch-block').hidden = false;
+    const sw = watches().find((x) => x.key === STATE_WATCH.key);
+    $('watch-state').textContent = t(sw ? 'watch.stateOff' : 'watch.stateOn');
+    const own = watches().find((x) => x.key === cur.key);
+    btn.textContent = t(own ? 'watch.off' : 'watch.on');
+    btn.classList.toggle('btn--primary', !own);
+    const w = own || sw; // without a watch for this area, show the whole-state notices
+    $('watch-run').hidden = !w;
+    $('watch-demo').hidden = !w;
+    $('watch-demo').dataset.id = w ? w.id : '';
+    if (!w) { renderWatchFeed(null); return; }
+    try {
+      const r = await state.source.watchAlerts(w.id);
+      if (!r) { saveWatches(watches().filter((x) => x.id !== w.id)); renderWatchBlock(); return; }
+      renderWatchFeed(r.feed);
+      if (!r.alerts.length) { list.append(el('li', 'muted', t('watch.none'))); return; }
+      for (const a of r.alerts) {
+        const li = el('li', `watch__alert is-${a.status}`);
+        li.append(el('span', 'watch__badge', t(`watch.badge.${a.status}`)), el('p', '', alertText(a, w.label)));
+        list.append(li);
+      }
+    } catch (_) {
+      renderWatchFeed({ lastError: t('watch.apiErr') });
+    }
+  }
+  const STATE_WATCH = { key: `ibge:${CFG.uf}`, area: { ibge: CFG.uf }, label: CFG.ufName || 'Goiás' };
+  async function toggleWatch(which) {
+    unlockAudio();
+    const cur = which === 'state' ? STATE_WATCH : currentWatchArea();
+    if (!cur) return;
+    const w = watches().find((x) => x.key === cur.key);
+    $('watch-toggle').disabled = true; $('watch-state').disabled = true;
+    try {
+      if (w) {
+        await state.source.watchDelete(w.id).catch(() => {});
+        saveWatches(watches().filter((x) => x.id !== w.id));
+      } else {
+        try { if ('Notification' in global && Notification.permission === 'default') await Notification.requestPermission(); } catch (_) { /* ignore */ }
+        const r = await state.source.watchCreate(cur.area, cur.label);
+        saveWatches(watches().concat([{ id: r.id, key: cur.key, label: cur.label }]));
+      }
+    } catch (_) {
+      renderWatchFeed({ lastError: t('watch.apiErr') });
+    } finally {
+      $('watch-toggle').disabled = false; $('watch-state').disabled = false;
+      renderWatchBlock();
+      renderBell();
+    }
+  }
+  async function pollWatches() {
+    const list = watches();
+    if (!list.length || !state.source || !state.source.watchAlerts) return;
+    const seen = new Set(store.get(SEEN_KEY, []) || []);
+    let changed = false;
+    for (const w of list) {
+      try {
+        const r = await state.source.watchAlerts(w.id);
+        if (!r) { saveWatches(watches().filter((x) => x.id !== w.id)); continue; }
+        for (const a of r.alerts) {
+          if (seen.has(a.id)) continue;
+          seen.add(a.id); changed = true;
+          notify(a, w);
+        }
+      } catch (_) { /* API off: try again next round */ }
+    }
+    if (changed) store.set(SEEN_KEY, [...seen].slice(-500));
+    const cur = currentWatchArea();
+    if (cur && list.some((w) => w.key === cur.key)) renderWatchBlock();
   }
 
   /* ---------- Unusual months (alerts) ---------- */
@@ -1779,6 +2022,7 @@
   function applyLanguage() {
     I.apply();
     labelExpand();
+    if ($('notif-btn').title) renderBell();
     setBadge();
     map.setAriaLabel(t('map.aria'));
     if (state.lastView) updateLateralScale(state.lastView);
@@ -1880,6 +2124,24 @@
     setupModal();
     $('csv').addEventListener('click', downloadCsv);
     $('csv-fires').addEventListener('click', downloadFiresCsv);
+    $('watch-toggle').addEventListener('click', () => toggleWatch('area'));
+    $('watch-state').addEventListener('click', () => toggleWatch('state'));
+    $('watch-demo').addEventListener('click', async () => {
+      const id = $('watch-demo').dataset.id;
+      if (!id) return;
+      unlockAudio();
+      $('watch-demo').disabled = true;
+      try { await state.source.watchDemo(id); await pollWatches(); } catch (_) { toast(t('watch.title'), t('watch.apiErr')); }
+      finally { $('watch-demo').disabled = false; }
+    });
+    $('watch-run').addEventListener('click', async () => {
+      $('watch-run').disabled = true;
+      try { renderWatchFeed(await state.source.goesRun()); await pollWatches(); } catch (_) { renderWatchFeed({ lastError: t('watch.apiErr') }); }
+      finally { $('watch-run').disabled = false; renderWatchBlock(); }
+    });
+    setupBell();
+    setInterval(pollWatches, 60000);
+    setTimeout(pollWatches, 5000);
     $('png-calendar').addEventListener('click', downloadCalendarPng);
     $('png-map').addEventListener('click', downloadMapPng);
     $('map-png').addEventListener('click', downloadMapPng);
