@@ -15,6 +15,6 @@ window.FIREHUB_CONFIG = Object.freeze({
   lastYear: 2025,
   defaultYear: 2024,
   defaultMonth: 9,
-  requestTimeoutMs: 8000,
-  apiProbeTimeoutMs: 2500,
+  requestTimeoutMs: 20000,
+  apiProbeTimeoutMs: 20000,
 });

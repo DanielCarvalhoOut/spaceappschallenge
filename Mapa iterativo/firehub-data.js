@@ -119,8 +119,9 @@
   async function loadNames() { return validateNames(await fetchJson(CFG.ibgeNamesUrl)); }
 
   /* ---------------- API source ---------------- */
-  function apiSource(meta, getArea) {
+  function apiSource(meta, getIds, getArea) {
     const base = CFG.apiBase;
+    const fallbackDemo = demoSource(getIds, getArea);
     const sources = Array.isArray(meta.sources) ? meta.sources.filter((s) => s && typeof s.name === 'string').slice(0, 12) : [];
     return {
       kind: 'api',
@@ -134,55 +135,80 @@
       } : null,
       async mapValues(year, month, metric) {
         const get = async (k) => {
-          const j = await fetchJson(`${base}/api/map?${new URLSearchParams({ year: String(year), month: String(month), metric: k })}`);
+          const j = await fetchJson(`${base}/api/map?${new URLSearchParams({ year: String(year), month: String(month), metric: k })}`, 20000);
           const out = {};
           if (j && j.values && typeof j.values === 'object') {
             for (const id of Object.keys(j.values)) if (IBGE_CODE.test(id)) out[id] = num(j.values[id]);
           }
           return out;
         };
-        if (metric !== 'density') return get(metric);
-        try { return await get('density'); } catch (e) {
-          if (!/HTTP 503/.test(e.message) || !getArea) throw e;
-          // API without the PostGIS history: same formula on the counts it serves (cell-days per 1,000 km²).
-          const counts = await get('count');
-          const out = {};
-          for (const id of Object.keys(counts)) {
-            const a = getArea(id), c = counts[id];
-            out[id] = a && c !== null ? Math.round((1000 * c / a) * 10) / 10 : null;
+        try {
+          if (metric !== 'density') return await get(metric);
+          try { return await get('density'); } catch (e) {
+            if (!/HTTP 503/.test(e.message) || !getArea) throw e;
+            // API without the PostGIS history: same formula on the counts it serves (cell-days per 1,000 km²).
+            const counts = await get('count');
+            const out = {};
+            for (const id of Object.keys(counts)) {
+              const a = getArea(id), c = counts[id];
+              out[id] = a && c !== null ? Math.round((1000 * c / a) * 10) / 10 : null;
+            }
+            return out;
           }
-          return out;
+        } catch (err) {
+          console.warn('API mapValues timed out (>20s) or failed; using mock fallback:', err.message);
+          return fallbackDemo.mapValues(year, month, metric);
         }
       },
       async calendar(id) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
-        const j = await fetchJson(`${base}/api/municipalities/${id}/calendar`);
-        return cleanRows(j && j.rows);
+        try {
+          const j = await fetchJson(`${base}/api/municipalities/${id}/calendar`, 20000);
+          return cleanRows(j && j.rows);
+        } catch (err) {
+          console.warn('API calendar timed out (>20s) or failed; using mock fallback:', err.message);
+          return fallbackDemo.calendar(id);
+        }
       },
       async pattern(id) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
-        const j = await fetchJson(`${base}/api/municipalities/${id}/pattern`);
-        const months = (Array.isArray(j && j.months) ? j.months : [])
-          .filter((m) => m && intIn(m.month, 1, 12))
-          .map((m) => ({ month: m.month, mean: num(m.mean), sharePct: num(m.sharePct) }));
-        const s = (j && j.season) || {};
-        return {
-          months,
-          season: {
-            months: Array.isArray(s.months) ? s.months.filter((m) => intIn(m, 1, 12)) : [],
-            coveredPct: num(s.coveredPct), peakMonth: intIn(s.peakMonth, 1, 12) ? s.peakMonth : null,
-          },
-        };
+        try {
+          const j = await fetchJson(`${base}/api/municipalities/${id}/pattern`, 20000);
+          const months = (Array.isArray(j && j.months) ? j.months : [])
+            .filter((m) => m && intIn(m.month, 1, 12))
+            .map((m) => ({ month: m.month, mean: num(m.mean), sharePct: num(m.sharePct) }));
+          const s = (j && j.season) || {};
+          return {
+            months,
+            season: {
+              months: Array.isArray(s.months) ? s.months.filter((m) => intIn(m, 1, 12)) : [],
+              coveredPct: num(s.coveredPct), peakMonth: intIn(s.peakMonth, 1, 12) ? s.peakMonth : null,
+            },
+          };
+        } catch (err) {
+          console.warn('API pattern timed out (>20s) or failed; using mock fallback:', err.message);
+          return fallbackDemo.pattern(id);
+        }
       },
       async context(id, year) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
-        const j = await fetchJson(`${base}/api/municipalities/${id}/context?year=${encodeURIComponent(year)}`);
-        return sanitizeContext(j);
+        try {
+          const j = await fetchJson(`${base}/api/municipalities/${id}/context?year=${encodeURIComponent(year)}`, 20000);
+          return sanitizeContext(j);
+        } catch (err) {
+          console.warn('API context timed out (>20s) or failed; using mock fallback:', err.message);
+          return fallbackDemo.context(id, year);
+        }
       },
       async intelligence(id, year, month) {
         if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
         const q = new URLSearchParams({ year: String(year), month: String(month) });
-        return await fetchJson(`${base}/api/municipalities/${id}/intelligence?${q}`);
+        try {
+          return await fetchJson(`${base}/api/municipalities/${id}/intelligence?${q}`, 20000);
+        } catch (err) {
+          console.warn('API intelligence timed out (>20s) or failed; using mock fallback:', err.message);
+          return fallbackDemo.intelligence(id, year, month);
+        }
       },
       /** Expected range for the month + hindcast quality (null when the history is not built: HTTP 503). */
       async projection(id, year, month) {
@@ -700,10 +726,10 @@
   async function createSource(getIds, getArea) {
     try {
       const meta = await fetchJson(`${CFG.apiBase}/api/meta`, CFG.apiProbeTimeoutMs);
-      if (meta && (meta.service === 'firehub' || meta.service === 'monitor-cinder')) return apiSource(meta, getArea);
+      if (meta && (meta.service === 'firehub' || meta.service === 'monitor-cinder')) return apiSource(meta, getIds, getArea);
       throw new Error('Unexpected /api/meta payload');
     } catch (e) {
-      console.info('Monitor Cinder API not reachable, switching to DEMO data:', e.message);
+      console.info('Monitor Cinder API not reachable within 20s, switching to DEMO data:', e.message);
       return demoSource(getIds, getArea);
     }
   }

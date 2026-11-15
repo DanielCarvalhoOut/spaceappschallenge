@@ -697,7 +697,7 @@ class FireHubDataStore {
 
     if (!dailySeries) {
       try {
-        const fetched = await nasaPowerConnector.fetchRange(lat, lon, startDate, endDate, 5500);
+        const fetched = await nasaPowerConnector.fetchRange(lat, lon, startDate, endDate, 18000);
         if (fetched.length > 0) {
           dailySeries = fetched;
           this.powerCache.set(cacheKey, fetched);
@@ -958,14 +958,29 @@ class FireHubDataStore {
         }
       })();
 
-      // Wait up to 4.5s synchronously if the NASA tile is warm; otherwise let the background fetch finish and cache to disk
+      // Wait up to 18s synchronously for NASA satellites; if >18s, return mocked/calibrated fallback immediately
       await Promise.race([
         refreshTask,
-        new Promise<void>((resolve) => setTimeout(resolve, 4500)),
+        new Promise<void>((resolve) => setTimeout(resolve, 18000)),
       ]);
     }
 
     return this.buildMod13q1AndMcd12q1Profiles(ibge, year, month, consecutiveDryDays);
+  }
+
+  public hasLiveSatelliteData(ibge: string, year: number, month: number): boolean {
+    const clampedYear = Math.min(2025, Math.max(2001, year));
+    const mcdYear = Math.min(2024, Math.max(2001, year));
+    const mm = String(month).padStart(2, '0');
+    return (
+      this.mod13q1ObsCache.has(`${ibge}:${clampedYear}-${mm}`) ||
+      this.mcd12q1Cache.has(`${ibge}:${mcdYear}`) ||
+      this.powerCache.has(`${ibge}:${clampedYear}-${mm}`)
+    );
+  }
+
+  public hasAnyLiveSatelliteSnapshot(): boolean {
+    return this.liveHotspots.length > 0 || this.mod13q1ObsCache.size > 0 || this.mcd12q1Cache.size > 0;
   }
 
   public getAgroB2BRiskReportSync(ibge: string, year: number, month: number): AgroB2BRiskReport {
@@ -1035,28 +1050,39 @@ class FireHubDataStore {
     year: number,
     month: number
   ): Promise<AgroB2BRiskReport> {
-    const rows = this.getCalendar(ibge);
-    const calRow = rows.find((r) => r.year === year && r.month === month);
-    const rootFires = this.getRootFireAnalysis(ibge);
-    const predictability = await this.getPredictabilityAndWeather(ibge, year, month);
-    const { mod13q1, mcd12q1 } = await this.fetchLiveMod13q1AndMcd12q1Profiles(
-      ibge,
-      year,
-      month,
-      predictability.consecutiveDryDays
-    );
+    const liveTask = (async (): Promise<AgroB2BRiskReport> => {
+      const rows = this.getCalendar(ibge);
+      const calRow = rows.find((r) => r.year === year && r.month === month);
+      const rootFires = this.getRootFireAnalysis(ibge);
+      const predictability = await this.getPredictabilityAndWeather(ibge, year, month);
+      const { mod13q1, mcd12q1 } = await this.fetchLiveMod13q1AndMcd12q1Profiles(
+        ibge,
+        year,
+        month,
+        predictability.consecutiveDryDays
+      );
 
-    return computeAgroB2BRiskReport({
-      harmonizedCount: calRow?.harmonized ?? 0,
-      anomalyZ: calRow?.anomalyZ ?? 0,
-      meanFrpMw: calRow?.meanFrpMw ?? 24.0,
-      maxFrpMw: calRow?.maxFrpMw ?? 68.0,
-      rootFires,
-      month,
-      predictability,
-      mod13q1,
-      mcd12q1,
+      return computeAgroB2BRiskReport({
+        harmonizedCount: calRow?.harmonized ?? 0,
+        anomalyZ: calRow?.anomalyZ ?? 0,
+        meanFrpMw: calRow?.meanFrpMw ?? 24.0,
+        maxFrpMw: calRow?.maxFrpMw ?? 68.0,
+        rootFires,
+        month,
+        predictability,
+        mod13q1,
+        mcd12q1,
+      });
+    })();
+
+    // Hard 20-second ceiling: if satellite APIs do not finish within 20s, return the mocked/calibrated fallback
+    const fallbackTimeout = new Promise<AgroB2BRiskReport>((resolve) => {
+      setTimeout(() => {
+        resolve(this.getAgroB2BRiskReportSync(ibge, year, month));
+      }, 19000);
     });
+
+    return Promise.race([liveTask, fallbackTimeout]);
   }
 
   public async getContextItems(

@@ -188,6 +188,9 @@
       'agro.status.non_compliant_high_recurrence': 'Alerta: Alta Recorrência Antrópica',
       'agro.mod13q1.line': 'MOD13Q1 (Safra/Biomassa): NDVI {ndvi} ({anom}%) · EVI {evi} · Cura/Seca {curing}% · Combustível {fuel} t/ha',
       'agro.mcd12q1.line': 'MCD12Q1 (Uso do Solo): Lavoura {crop}% · Pastagem {past}% · Cerrado {sav}% · Floresta/RL {for}% (Interface {iface}/100)',
+      'intel.loading': 'Consultando satélites da NASA (FIRMS · POWER · MOD13Q1 · MCD12Q1)… ({s}s / máx 20s)',
+      'intel.source.live': 'Satélites NASA · Telemetria Real',
+      'intel.source.fallback': 'Fallback Mock (timeout > 20s / offline)',
       'ctx.embrapa_satveg.fuel_load_tons_ha': 'Carga de biomassa seca combustível (MOD13Q1)',
       'ctx.modis_mcd12q1.cropland_pct': 'Área de lavoura agrícola (MCD12Q1 IGBP)',
       'ctx.modis_mcd12q1.interface_risk': 'Índice de interface lavoura-vegetação (MCD12Q1)',
@@ -448,6 +451,9 @@
       'foot.inpe': 'Reference series & deforestation: INPE (Programa Queimadas, PRODES/DETER)',
       'foot.embrapa': 'Vegetation: Embrapa SATVeg',
       'foot.power': 'Weather: NASA POWER',
+      'intel.loading': 'Querying NASA satellites (FIRMS · POWER · MOD13Q1 · MCD12Q1)… ({s}s / max 20s)',
+      'intel.source.live': 'NASA Satellites · Live Telemetry',
+      'intel.source.fallback': 'Mock Fallback (> 20s timeout / offline)',
     },
   };
   const MONTHS = {

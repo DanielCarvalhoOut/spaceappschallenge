@@ -550,3 +550,6 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 /* ---------- Dentro da área (células) ---------- */
 .detail-box { display: flex; flex-direction: column; gap: 6px; }
 .detail-demo { margin: 0; font-size: 11.5px; color: var(--accent-2); font-weight: 600; }
+.intel-loading { display: flex; align-items: center; gap: 10px; padding: 12px 10px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px dashed var(--line); color: var(--muted); font-size: 12px; }
+.intel-spinner { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: intelSpin 0.8s linear infinite; flex-shrink: 0; }
+@keyframes intelSpin { to { transform: rotate(360deg); } }
