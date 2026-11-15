@@ -582,7 +582,6 @@
   }
   function openModal() {
     const wasOpen = !$('panel').hidden;
-    $('panel-empty').hidden = true;
     $('panel').hidden = false;
     $('panel-body').hidden = false;
     if (!wasOpen) setTab('summary'); // a new selection starts at the summary
@@ -594,7 +593,6 @@
     $('panel-body').hidden = true;
     if (wasModal) setPanelMode(false); // next selection opens docked again
     syncLayout();
-    $('panel-empty').hidden = !!(state.selected || state.sphereSelection);
   }
   function setTab(name) {
     for (const b of document.querySelectorAll('#panel .tab')) {
