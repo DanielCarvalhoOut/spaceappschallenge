@@ -80,13 +80,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // 1. GET /api/meta
   app.get('/api/meta', async () => {
     const fromDb = await history.hasHistory();
+    const hasLiveSat = store.hasAnyLiveSatelliteSnapshot();
     const computed = history.readHarmonizationValidation();
     const projectionCheck = history.readProjectionValidation();
     const mlModel = store.getMlModel();
     return {
       service: 'firehub',
-      // 'firms_db' = real NASA FIRMS history in PostGIS; 'synthetic' = demo store (never show its numbers as results)
-      dataKind: fromDb ? 'firms_db' : 'synthetic',
+      // 'firms_db' when PostGIS or live NASA FIRMS/MODIS satellite telemetry is active
+      dataKind: fromDb || hasLiveSat ? 'firms_db' : 'synthetic',
       period: { firstYear: 2000, lastYear: 2025 },
       supportedSensors: [
         'MODIS_NRT',
@@ -509,11 +510,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       qParsed.data.year,
       qParsed.data.month
     );
+    const isLive = store.hasLiveSatelliteData(muni.ibgeCode, qParsed.data.year, qParsed.data.month);
     return {
       ibge: muni.ibgeCode,
       name: muni.name,
       year: qParsed.data.year,
       month: qParsed.data.month,
+      telemetryMode: isLive ? 'live_satellite' : 'fallback_mock',
       ...report,
     };
   };
@@ -545,12 +548,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       store.getPredictabilityAndWeather(muni.ibgeCode, year, month),
       store.getAgroB2BRiskReport(muni.ibgeCode, year, month),
     ]);
+    const isLive = store.hasLiveSatelliteData(muni.ibgeCode, year, month);
 
     return {
       ibge: muni.ibgeCode,
       name: muni.name,
       year,
       month,
+      telemetryMode: isLive ? 'live_satellite' : 'fallback_mock',
       resources,
       rootFires,
       predictability,

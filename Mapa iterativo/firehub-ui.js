@@ -918,23 +918,55 @@
   }
 
   /* ---------- A, B, C & D Operational, ML & Agro-Insurance B2B Intelligence Renderers ---------- */
+  function renderIntelLoading(boxIds) {
+    const labelNodes = [];
+    for (const bid of boxIds) {
+      const box = $(bid);
+      if (!box) continue;
+      clear(box);
+      const wrap = el('div', 'intel-loading');
+      const spin = el('span', 'intel-spinner');
+      const txt = el('span', '', t('intel.loading', { s: 0 }));
+      wrap.append(spin, txt);
+      box.append(wrap);
+      labelNodes.push(txt);
+    }
+    let elapsed = 0;
+    const intervalId = setInterval(() => {
+      elapsed += 1;
+      for (const n of labelNodes) {
+        n.textContent = t('intel.loading', { s: Math.min(20, elapsed) });
+      }
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }
+
   async function loadIntelligence(id, seq) {
+    const stopLoading = renderIntelLoading(['resources-box', 'root-fires-box', 'predictability-box', 'agro-b2b-box']);
     try {
-      const intel = state.source.intelligence
-        ? await state.source.intelligence(id, state.year, state.month)
-        : global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id);
+      const fetchPromise = state.source.intelligence
+        ? state.source.intelligence(id, state.year, state.month)
+        : Promise.resolve(global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id));
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Satellite query exceeded 20s timeout')), 20000);
+      });
+
+      const intel = await Promise.race([fetchPromise, timeoutPromise]);
+      stopLoading();
       if (seq !== state.panelSeq || !intel) return;
       if (intel.resources) renderResourcesBox(intel.resources);
       if (intel.rootFires) renderRootFiresBox(intel.rootFires);
       if (intel.predictability) renderPredictabilityBox(intel.predictability);
-      if (intel.agroB2B) renderAgroB2BBox(intel.agroB2B);
+      if (intel.agroB2B) renderAgroB2BBox(intel.agroB2B, intel.telemetryMode || 'live_satellite');
     } catch (err) {
+      stopLoading();
       if (seq !== state.panelSeq) return;
       const fallback = global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id);
       renderResourcesBox(fallback.resources);
       renderRootFiresBox(fallback.rootFires);
       renderPredictabilityBox(fallback.predictability);
-      renderAgroB2BBox(fallback.agroB2B);
+      renderAgroB2BBox(fallback.agroB2B, 'fallback_mock');
     }
   }
 
@@ -1159,7 +1191,7 @@
     box.append(varsList);
   }
 
-  function renderAgroB2BBox(agro) {
+  function renderAgroB2BBox(agro, telemetryMode) {
     const box = $('agro-b2b-box');
     if (!box) return;
     clear(box);
@@ -1175,13 +1207,18 @@
 
     const head = el('div', 'intel-head');
     const tier = ins.riskTier || 'moderate';
+    const scoreWrap = el('strong', 'intel-mono', `${I.num(ins.agroInsuranceScore || 0, 1)} / 100`);
+    const isLive = telemetryMode !== 'fallback_mock';
+    const dot = el('span', `sat-dot ${isLive ? 'sat-dot--live' : 'sat-dot--snapshot'}`);
+    dot.title = isLive ? t('intel.source.live') : t('intel.source.fallback');
+    scoreWrap.append(dot);
     head.append(
       el(
         'span',
         `intel-badge intel-badge--${tier}`,
         t('agro.ratingBadge', { rating: ins.underwritingRating || 'BBB', tier: t(`pred.risk.${tier}`) })
       ),
-      el('strong', 'intel-mono', `${I.num(ins.agroInsuranceScore || 0, 1)} / 100`)
+      scoreWrap
     );
     box.append(head);
 
@@ -1296,9 +1333,21 @@
     const ul = $('context');
     $('ctx-year').textContent = String(state.year);
     clear(ul);
+    const loadingLi = el('li', 'intel-loading');
+    const spin = el('span', 'intel-spinner');
+    const txt = el('span', '', t('intel.loading', { s: 0 }));
+    loadingLi.append(spin, txt);
+    ul.append(loadingLi);
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed += 1;
+      txt.textContent = t('intel.loading', { s: Math.min(20, elapsed) });
+    }, 1000);
     try {
       const items = await state.source.context(id, state.year);
+      clearInterval(timer);
       if (seq !== state.panelSeq) return;
+      clear(ul);
       if (!items.length) { ul.append(el('li', '', t('ctx.none'))); return; }
       for (const it of items) {
         const li = el('li');
@@ -1309,7 +1358,11 @@
         ul.append(li);
       }
     } catch (_) {
-      if (seq === state.panelSeq) ul.append(el('li', '', t('ctx.err')));
+      clearInterval(timer);
+      if (seq === state.panelSeq) {
+        clear(ul);
+        ul.append(el('li', '', t('ctx.err')));
+      }
     }
   }
 
