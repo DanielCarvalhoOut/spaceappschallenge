@@ -18,3 +18,4 @@ node_modules/
 # código de terceiros do mapa antigo (não pode ir para o repositório)
 Mapa iterativo/assets/
 Mapa iterativo/painel-original.html
+monitor-cinder/api/out/logs/

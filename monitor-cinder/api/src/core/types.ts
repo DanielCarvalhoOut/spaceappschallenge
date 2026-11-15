@@ -23,7 +23,8 @@ export interface SourceConnector<TQuery, TRecord> {
     | 'firms'
     | 'ibge'
     | 'inpe_queimadas'
-    | 'nasa_power';
+    | 'nasa_power'
+    | 'noaa_oni';
   readonly license: string;
   fetch(query: TQuery, signal: AbortSignal): AsyncIterable<TRecord>;
 }

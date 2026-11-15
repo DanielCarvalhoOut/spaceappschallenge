@@ -16,6 +16,7 @@ services:
       - ../Tema_08_MODIS_VIIRS/db/schema_contexto.sql:/docker-entrypoint-initdb.d/03_schema_contexto.sql:ro
       - ../Tema_08_MODIS_VIIRS/db/schema_operacional.sql:/docker-entrypoint-initdb.d/04_schema_operacional.sql:ro
       - ../Tema_08_MODIS_VIIRS/db/schema_projecao.sql:/docker-entrypoint-initdb.d/05_schema_projecao.sql:ro
+      - ../Tema_08_MODIS_VIIRS/db/schema_intervencao.sql:/docker-entrypoint-initdb.d/06_schema_intervencao.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cinder -d cinder"]
       interval: 5s

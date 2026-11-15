@@ -31,6 +31,19 @@ const ConfigSchema = z.object({
     (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
     z.string().regex(/^[0-9a-f]{32}$/i, 'FIRMS_MAP_KEY must be a 32-char hex string').optional()
   ),
+  // Optional: without it the assistant runs in no-LLM mode. Empty string in .env counts as absent.
+  ANTHROPIC_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(20).optional()),
+  // Gemini is the LLM used by the team; it wins when both keys are set. Models can be overridden without code changes.
+  GEMINI_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(20).optional()),
+  GEMINI_ROUTER_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^[a-z0-9.-]+$/).optional()),
+  OPENAI_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(20).optional()),
+  OPENAI_ROUTER_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^[a-z0-9.-]+$/).optional()),
+  OPENAI_WRITER_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^[a-z0-9.-]+$/).optional()),
+  ANTHROPIC_ROUTER_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^[a-z0-9.-]+$/).optional()),
+  ANTHROPIC_WRITER_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^[a-z0-9.-]+$/).optional()),
+  // Order of preference among the providers that have a key, e.g. "openai,gemini". The next one is the fallback.
+  LLM_PROVIDERS: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^(gemini|openai|anthropic)(,(gemini|openai|anthropic))*$/).default('gemini,openai,anthropic')),
+  GEMINI_WRITER_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().regex(/^[a-z0-9.-]+$/).optional()),
   GOIAS_BBOX: z.string().default('-53.25,-19.50,-45.90,-12.39'),
 });
 
