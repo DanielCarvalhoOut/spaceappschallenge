@@ -148,6 +148,7 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 
 /* layout */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
+.layout.has-side { grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 480px); }
 .map-wrap {
   position: relative; min-height: 420px;
   background-color: var(--map-bg);
@@ -311,7 +312,7 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 }
 .status--error { border-color: var(--danger); }
 
-/* details modal (replaces the old side panel: the map keeps the full width) */
+/* details: side panel docked next to the map (default) or full modal (footer toggle) */
 .modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; }
 .modal[hidden] { display: none; }
 .modal__backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .42); animation: fadeIn .15s ease; }
@@ -323,19 +324,31 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
   animation: popIn .18s ease;
 }
 .modal__card:focus { outline: none; }
-.modal__head { display: flex; justify-content: space-between; gap: 10px; align-items: start; padding: 18px 20px 6px; }
+.modal__head { flex-shrink: 0; display: flex; justify-content: space-between; gap: 10px; align-items: start; padding: 18px 20px 6px; }
 .modal__head h2 { margin: 0; font-size: 21px; letter-spacing: .2px; }
 .modal__actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-.reopen-chip {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 7;
-  background: var(--accent); color: var(--white); border: 1px solid var(--accent-2); border-radius: 999px;
-  padding: 8px 16px; font: 600 13px var(--font); cursor: pointer; box-shadow: var(--hud-shadow);
-}
-.reopen-chip:hover { background: var(--accent-2); color: var(--black); }
-.reopen-chip[hidden] { display: none; }
 .modal__head p { margin: 3px 0 0; font-size: 12px; }
-.modal__body { overflow: auto; padding: 4px 20px 20px; }
-.tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.modal__body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 20px 20px; }
+.modal__foot {
+  flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px;
+  padding: 10px 16px; border-top: 1px solid var(--line); background: var(--surface);
+}
+.modal__foot .btn { width: 100%; }
+/* side mode: the panel is the layout's second column, the map stays visible */
+.modal.is-side { position: relative; inset: auto; z-index: 5; display: block; padding: 0; min-height: 0; }
+.modal.is-side[hidden] { display: none; }
+.modal.is-side .modal__backdrop { display: none; }
+.modal.is-side .modal__card {
+  position: absolute; inset: 0; width: auto; height: auto;
+  border-radius: 0; border-width: 0 0 0 1px; box-shadow: none; animation: slideIn .18s ease;
+}
+.modal.is-side .modal__head { padding: 14px 16px 4px; }
+.modal.is-side .modal__head h2 { font-size: 18px; }
+.modal.is-side .tabs { padding: 0 8px; }
+.modal.is-side .tab { padding: 10px 9px; font-size: 12.5px; }
+.modal.is-side .modal__body { padding: 2px 16px 16px; }
+.modal.is-modal .modal__foot .btn { width: auto; }
+.tabs { flex-shrink: 0; display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
 .tab {
   background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
   padding: 10px 12px; font: 600 13px var(--font); cursor: pointer; white-space: nowrap;
@@ -345,8 +358,9 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .tab:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
 .tabpane > .block:first-child { margin-top: 14px; }
 @keyframes fadeIn { from { opacity: 0; } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(12px); } }
 @keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(.985); } }
-@media (prefers-reduced-motion: reduce) { .modal__backdrop, .modal__card { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .modal__backdrop, .modal__card, .modal.is-side .modal__card { animation: none; } }
 
 /* empty-state hint floating on the map */
 .map-hint {
@@ -560,6 +574,8 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 @media (max-width: 980px) {
   .layout { grid-template-rows: 70vh; }
   .modal { padding: 0; align-items: end; }
+  .layout.has-side { grid-template-columns: minmax(0, 1fr); grid-template-rows: 55vh 62vh; }
+  .modal.is-side .modal__card { border-width: 1px 0 0; }
   .modal__card { width: 100%; height: 88vh; border-radius: 14px 14px 0 0; }
   .map-hint { display: none; }
   .search input { width: 100%; }

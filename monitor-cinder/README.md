@@ -12,7 +12,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 ## What it shows
 
 - **Map of Goiás** by IBGE municipality: anomaly vs. the historical pattern (z), cell-days or density, for any month since 2001.
-- **Details in a dialog** (tabs Summary · Projection · History · Area · Context): typical fire season, monthly calendar since 2001,
+- **Details in a side panel beside the map** (tabs Summary · Projection · History · Area · Context; a footer button opens the same view full screen): typical fire season, monthly calendar since 2001,
   MODIS × VIIRS × harmonized yearly chart, expected range for the month, fire cells inside the area, and context.
 - **Circle analysis**: draw a circle anywhere; every number counts only the 1 km cells inside it.
 - **Projection with a validated uncertainty band**: next 15 days, the current month and the next 6 months. A horizon is shown only

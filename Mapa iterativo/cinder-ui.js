@@ -31,7 +31,6 @@
     lastView: null,
     reqSeq: 0,
     panelSeq: 0,
-    minimized: false, // details hidden with "show on map"; selection kept
     horizonsShown: null,
     calYear: null, // year shown in the History calendar
     places: null, // IBGE localities (map reference only) // projection currently rendered (re-rendered on language change)
@@ -451,39 +450,51 @@
 
   /* ---------- Details modal (tabs) ---------- */
   let lastFocus = null;
+  /** Details open docked beside the map (side) or as the full modal (footer toggle). */
+  function isModalMode() { return $('panel').classList.contains('is-modal'); }
+  function setPanelMode(modal) {
+    const panel = $('panel'), card = $('panel-body'), btn = $('p-expand');
+    panel.classList.toggle('is-modal', modal);
+    panel.classList.toggle('is-side', !modal);
+    card.setAttribute('role', modal ? 'dialog' : 'region');
+    if (modal) card.setAttribute('aria-modal', 'true'); else card.removeAttribute('aria-modal');
+    labelExpand();
+    syncLayout();
+    if (modal) {
+      lastFocus = document.activeElement;
+      card.focus({ preventScroll: true });
+    } else if (lastFocus && document.contains(lastFocus) && lastFocus.focus) {
+      lastFocus.focus({ preventScroll: true });
+      lastFocus = null;
+    }
+  }
+  function labelExpand() {
+    const modal = isModalMode(), btn = $('p-expand');
+    btn.textContent = (modal ? '⤡ ' : '⤢ ') + t(modal ? 'panel.collapse' : 'panel.expand');
+    btn.title = t(modal ? 'panel.collapseTitle' : 'panel.expandTitle');
+    btn.setAttribute('aria-pressed', modal ? 'true' : 'false');
+  }
+  /** The map column shrinks only while the docked panel is visible (the engine's ResizeObserver redraws). */
+  function syncLayout() {
+    const panel = $('panel');
+    panel.closest('.layout').classList.toggle('has-side', !panel.hidden && !isModalMode());
+  }
   function openModal() {
     const wasOpen = !$('panel').hidden;
     $('panel-empty').hidden = true;
     $('panel').hidden = false;
     $('panel-body').hidden = false;
-    $('reopen').hidden = true;
     $('csv').hidden = !!state.sphereSelection; // the CSV is per municipality
-    if (!wasOpen) {
-      if (!state.minimized) setTab('summary'); // a new selection starts at the summary
-      state.minimized = false;
-      lastFocus = document.activeElement;
-      $('panel-body').focus({ preventScroll: true });
-    }
-  }
-  /** Hide the dialog but keep the selection, so the area (and its cells) can be seen on the map. */
-  function minimizeModal() {
-    $('panel').hidden = true;
-    $('panel-body').hidden = true;
-    state.minimized = true;
-    const r = $('reopen');
-    r.textContent = t('panel.reopen', { name: $('p-name').textContent });
-    r.hidden = false;
-    r.focus({ preventScroll: true });
+    if (!wasOpen) setTab('summary'); // a new selection starts at the summary
+    syncLayout();
   }
   function closeModal() {
-    const wasOpen = !$('panel').hidden;
+    const wasModal = !$('panel').hidden && isModalMode();
     $('panel').hidden = true;
     $('panel-body').hidden = true;
-    $('reopen').hidden = true;
-    state.minimized = false;
+    if (wasModal) setPanelMode(false); // next selection opens docked again
+    syncLayout();
     $('panel-empty').hidden = !!(state.selected || state.sphereSelection);
-    if (wasOpen && lastFocus && document.contains(lastFocus) && lastFocus.focus) lastFocus.focus({ preventScroll: true });
-    lastFocus = null;
   }
   function setTab(name) {
     for (const b of document.querySelectorAll('#panel .tab')) {
@@ -511,12 +522,20 @@
       });
     });
     setTab('summary');
-    $('panel').addEventListener('click', (e) => { if (e.target && e.target.dataset && e.target.dataset.close) dismissDetails(); });
+    // backdrop click / Esc in the full view go back to the docked panel; Esc in the docked panel closes it
+    $('panel').addEventListener('click', (e) => { if (e.target && e.target.dataset && e.target.dataset.close) setPanelMode(false); });
+    $('p-expand').addEventListener('click', () => setPanelMode(!isModalMode()));
+    setPanelMode(false);
     document.addEventListener('keydown', (e) => {
       if ($('panel').hidden) return;
-      if (e.key === 'Escape') { e.preventDefault(); dismissDetails(); return; }
-      if (e.key !== 'Tab') return;
-      // keep focus inside the dialog
+      if (e.key === 'Escape') {
+        if (e.target && e.target.closest && e.target.closest('input, select, .period__pop')) return;
+        e.preventDefault();
+        if (isModalMode()) setPanelMode(false); else dismissDetails();
+        return;
+      }
+      if (e.key !== 'Tab' || !isModalMode()) return;
+      // keep focus inside the dialog (full view only; the docked panel is part of the page)
       const f = [...$('panel-body').querySelectorAll('button, [href], select, input, [tabindex]:not([tabindex="-1"])')]
         .filter((n) => !n.disabled && n.offsetParent !== null);
       if (!f.length) return;
@@ -1949,6 +1968,7 @@
   /* ---------- language & theme ---------- */
   function applyLanguage() {
     I.apply();
+    labelExpand();
     setBadge();
     map.setAriaLabel(t('map.aria'));
     if (state.lastView) updateLateralScale(state.lastView);
@@ -2047,10 +2067,8 @@
     });
 
     $('p-close').addEventListener('click', dismissDetails);
-    $('p-min').addEventListener('click', minimizeModal);
     $('cal-prev').addEventListener('click', () => { state.calYear -= 1; renderCalView(); });
     $('cal-next').addEventListener('click', () => { state.calYear += 1; renderCalView(); });
-    $('reopen').addEventListener('click', openModal);
     setupModal();
     $('csv').addEventListener('click', downloadCsv);
     $('calendar').addEventListener('click', (e) => {

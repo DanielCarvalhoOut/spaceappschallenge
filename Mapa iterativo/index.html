@@ -117,7 +117,6 @@
           <small id="roots-hit" class="muted"></small>
         </div>
       </figure>
-      <button id="reopen" class="reopen-chip" type="button" hidden></button>
       <div id="proj-ribbon" class="proj-ribbon" role="status" hidden>
         <strong class="proj-ribbon__tag" data-i18n="ribbon.tag"></strong>
         <span id="proj-ribbon-text"></span>
@@ -132,16 +131,15 @@
       </div>
     </section>
 
-    <div id="panel" class="modal" hidden>
+    <aside id="panel" class="modal is-side" hidden>
       <div class="modal__backdrop" data-close="1"></div>
-      <div id="panel-body" class="modal__card" role="dialog" aria-modal="true" aria-labelledby="p-name" tabindex="-1" hidden>
+      <div id="panel-body" class="modal__card" role="region" aria-labelledby="p-name" tabindex="-1" hidden>
         <header class="modal__head">
           <div>
             <h2 id="p-name"></h2>
             <p id="p-sub" class="muted"></p>
           </div>
           <div class="modal__actions">
-            <button id="p-min" class="btn" type="button" data-i18n="panel.showMap" data-i18n-attr="title:panel.showMapTitle"></button>
             <button id="p-close" class="icon-btn" type="button" data-i18n-attr="aria-label:panel.close;title:panel.close">×</button>
           </div>
         </header>
@@ -241,8 +239,11 @@
             <section class="block" hidden><div id="agro-b2b-box" class="intel-box"></div></section>
           </div>
         </div>
+        <footer class="modal__foot">
+          <button id="p-expand" class="btn" type="button" aria-pressed="false"></button>
+        </footer>
       </div>
-    </div>
+    </aside>
   </main>
 
   <footer class="foot">

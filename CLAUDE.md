@@ -17,7 +17,7 @@ Monitor Cinder harmoniza os focos de calor MODIS e VIIRS (NASA FIRMS) de 2001 at
 - Interface **bilíngue**: português por padrão (apresentação local) e inglês no botão `EN` (vídeo, capturas, júri global). Todo texto novo entra nos dois idiomas em `Mapa iterativo/i18n.js`. README do app e página do projeto em **inglês**.
 - Segredos (`FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY/SECRET`) só em `monitor-cinder/api/.env`. O front nunca chama FIRMS nem Embrapa. Logger com redaction.
 - TypeScript: sem `any`; zod em toda entrada HTTP e toda resposta externa; consultas parametrizadas; um endpoint = uma consulta (sem N+1); erros em problem+json sem stack; rate limit (mais restrito no CSV); CORS só para a origem do front; API com o papel `fire_api_ro`.
-- Front: tela = mapa em largura total + detalhes em modal com abas (Resumo, Projeção, Histórico, Área, Contexto) e hover rico; sem painel lateral. O círculo conta só o que está dentro dele (sem estimativa por município inteiro).
+- Front: tela = mapa + painel lateral de detalhes ao lado (abas Resumo, Projeção, Histórico, Área, Contexto), com botão no rodapé do painel para abrir os mesmos detalhes em tela cheia (modal) e voltar; hover rico. Sem seleção, o mapa ocupa a largura toda. O círculo conta só o que está dentro dele (sem estimativa por município inteiro).
 - Front: `textContent` sempre (nunca `innerHTML` com dado externo); CSP sem `unsafe-inline`; se mudar `apiBase` em `config.js`, atualizar o `connect-src` do `index.html`.
 - Não altere tabelas sem atualizar os testes em `db/teste_*.sql`.
 - Todo número mostrado na interface vem da API; todo número do pitch vem de um arquivo em `monitor-cinder/api/out/`.
