@@ -6,7 +6,7 @@ import { ibgeConnector, pointInMunicipality, type IbgeMunicipalityRecord } from 
 import { fetchCroplandPct, fetchNdvi } from '../connectors/ornl-modis.js';
 import { nasaPowerConnector } from '../connectors/nasa-power.js';
 import { logger } from '../core/logger.js';
-import { buildChain, cellDetections, dailyOfMonth, partialWindow, withPartialAnomaly, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
+import { buildChain, cellDetections, dailyOfMonth, fireCellsOfMonth, type FireCellRow, partialWindow, withPartialAnomaly, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 import { hindcast, projectFrom, type Hindcast, type Projection } from '../core/projection-model.js';
 
@@ -506,6 +506,34 @@ class CinderDataStore {
       ? (area.ibge === '52' ? () => true : (c: { 2: string }) => c[2] === area.ibge)
       : inCircle(area.lon, area.lat, area.radiusKm);
     return dailyOfMonth(this.index, keep as Parameters<typeof dailyOfMonth>[1], year, month);
+  }
+
+  /**
+   * Fire cells (1 km) of a municipality or circle in one month, each with its municipality name and the nearest
+   * IBGE locality (straight-line km). Null without the FIRMS index.
+   */
+  public getFireCells(area: { ibge: string } | { lon: number; lat: number; radiusKm: number }, year: number, month: number):
+    Array<FireCellRow & { municipality: string; nearest: { name: string; kind: string; km: number } | null }> | null {
+    if (!this.index) return null;
+    const keep = 'ibge' in area ? (c: { 2: string }) => c[2] === area.ibge : inCircle(area.lon, area.lat, area.radiusKm);
+    const rows = fireCellsOfMonth(this.index, keep as Parameters<typeof fireCellsOfMonth>[1], year, month);
+    const places = this.localities ?? [];
+    const R = 6371.0088, rad = Math.PI / 180;
+    return rows.map((r) => {
+      let best: { name: string; kind: string; km: number } | null = null;
+      const cosLat = Math.cos(r.lat * rad);
+      for (const p of places) {
+        const dLat = (p.lat - r.lat) * rad, dLon = (p.lon - r.lon) * rad;
+        const a = Math.sin(dLat / 2) ** 2 + cosLat * Math.cos(p.lat * rad) * Math.sin(dLon / 2) ** 2;
+        const km = 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+        if (!best || km < best.km) best = { name: p.name, kind: p.kind, km };
+      }
+      return {
+        ...r,
+        municipality: this.municipalities.get(r.ibge)?.name ?? r.ibge,
+        nearest: best ? { ...best, km: Math.round(best.km * 10) / 10 } : null,
+      };
+    });
   }
 
   /** Focos-raiz from the FIRMS index (null without it). */

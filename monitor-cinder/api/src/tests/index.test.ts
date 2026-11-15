@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChain, partialWindow, withPartialAnomaly, cellDetections, cellOf, dailyOfMonth, fromPolyconic, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
+import { buildChain, fireCellsOfMonth, partialWindow, withPartialAnomaly, cellDetections, cellOf, dailyOfMonth, fromPolyconic, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 
 /**
@@ -97,6 +97,22 @@ describe('satellite chain (FIRMS index, no PostGIS)', () => {
     const r = cellDetections(idx, lon, lat, 1000, date.getUTCFullYear(), date.getUTCMonth() + 1);
     expect(r.cells1km).toBe(1);
     expect(r.days.some((x) => x.sensor === 'NOAA20' && x.date === date.toISOString().slice(0, 10))).toBe(true);
+  });
+
+  it('exports the fire cells of a month: every detection day and satellite, harmonized cell-days on the S-NPP scale', () => {
+    const idx = fixture();
+    const rows = fireCellsOfMonth(idx, () => true, 2024, 9); // even year: both cells burned
+    expect(rows).toHaveLength(2);
+    const a = rows.find((r) => r.detections.some((d) => d.date === '2024-09-10'))!;
+    expect(a.ibge).toBe('5208707');
+    // S-NPP was in use: 3 S-NPP days count (factor 1); the MODIS and NOAA-20 detections are listed but not added
+    expect(a.cellDays).toBe(3);
+    expect(a.detections.filter((d) => d.sensor === 'SNPP')).toHaveLength(3);
+    expect(a.detections.filter((d) => d.sensor === 'NOAA20')).toHaveLength(6);
+    expect(a.detections.filter((d) => d.sensor === 'MODIS')).toHaveLength(1);
+    expect(fireCellsOfMonth(idx, () => true, 2024, 7)).toHaveLength(0);
+    // after S-NPP ended, NOAA-20 days are marked provisional
+    expect(fireCellsOfMonth(idx, () => true, 2026, 9)[0]!.detections.every((d) => d.sensor !== 'NOAA20' || d.provisional)).toBe(true);
   });
 
   it('judges the month in progress against the same days of earlier years', () => {

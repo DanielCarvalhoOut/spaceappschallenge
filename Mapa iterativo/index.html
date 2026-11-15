@@ -82,6 +82,7 @@
         <button id="zoom-out" class="icon-btn" type="button" data-i18n-attr="aria-label:zoom.out;title:zoom.out">−</button>
         <button id="zoom-reset" class="icon-btn icon-btn--tag" type="button" data-i18n-attr="aria-label:zoom.reset;title:zoom.reset">GO</button>
         <button id="zoom-brazil" class="icon-btn icon-btn--tag" type="button" data-i18n-attr="aria-label:zoom.brazil;title:zoom.brazil">BR</button>
+        <button id="map-png" class="icon-btn icon-btn--tag" type="button" data-i18n-attr="aria-label:dl.mapTitle;title:dl.mapTitle">PNG</button>
         <button id="toggle-numbers" class="icon-btn icon-btn--tag is-active" type="button" data-i18n-attr="aria-label:zoom.numbers;title:zoom.numbers">Nº</button>
         <button id="toggle-roots" class="icon-btn icon-btn--tag" type="button" aria-pressed="false" data-i18n-attr="aria-label:roots.btn;title:roots.btn">FR</button>
       </div>
@@ -176,6 +177,20 @@
               <h3><span data-i18n="block.next"></span> <small data-i18n="block.nextSmall"></small></h3>
               <div id="next-box" class="next-box"></div>
             </section>
+            <section class="block" id="alerts-block">
+              <h3><span data-i18n="block.alerts"></span> <small data-i18n="block.alertsSmall"></small></h3>
+              <ul id="alerts-box" class="alerts"></ul>
+            </section>
+            <section class="block">
+              <h3 data-i18n="block.downloads"></h3>
+              <div class="downloads">
+                <button id="csv" class="btn btn--primary" type="button" data-i18n="csv" data-i18n-attr="title:dl.seriesTitle"></button>
+                <button id="csv-fires" class="btn" type="button" data-i18n="dl.fires" data-i18n-attr="title:dl.firesTitle"></button>
+                <button id="png-calendar" class="btn" type="button" data-i18n="dl.calendar" data-i18n-attr="title:dl.calendarTitle"></button>
+                <button id="png-map" class="btn" type="button" data-i18n="dl.map" data-i18n-attr="title:dl.mapTitle"></button>
+              </div>
+              <p id="dl-status" class="muted dl-status" role="status"></p>
+            </section>
           </section>
 
           <section id="tab-projection" class="tabpane" role="tabpanel" aria-labelledby="t-projection" hidden>
@@ -219,9 +234,6 @@
               <h3><span data-i18n="block.context"></span> <small id="ctx-year"></small></h3>
               <ul id="context" class="context"></ul>
             </section>
-            <div class="actions">
-              <button id="csv" class="btn btn--primary" type="button" data-i18n="csv"></button>
-            </div>
           </section>
 
         </div>

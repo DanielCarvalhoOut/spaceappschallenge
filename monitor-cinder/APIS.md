@@ -83,7 +83,9 @@ Todas as rotas validam a entrada com zod e respondem erro em problem+json. As ro
 | `GET /api/municipalities/:ibge/calendar` | Série mensal 2001 → hoje, harmonizada, com o satélite de cada mês e o z | Aba **Histórico** (ano → meses), gráfico, KPIs |
 | `GET /api/municipalities/:ibge/pattern` | Temporada típica (mediana e faixa por mês) | Abas **Resumo** e **Histórico** |
 | `GET /api/daily?ibge\|circle&year&month` | Valor de cada dia do mês e o satélite do dia | Calendário diário da aba **Histórico** |
-| `GET /api/municipalities/:ibge/calendar.csv` | A mesma série em CSV (protegida contra injeção de fórmula; rate limit mais restrito) | Botão **Baixar CSV** |
+| `GET /api/municipalities/:ibge/calendar.csv` | A mesma série em CSV (protegida contra injeção de fórmula; 20 pedidos por minuto) | Botão **Série mensal (CSV)** |
+| `GET /api/area/fires.csv?ibge\|lon&lat&radiusKm&year&month` | Células de 1 km com detecção no mês: centro, células-dia, dias e satélite, povoado mais próximo (20 pedidos por minuto) | Botão **Focos do mês (CSV)** |
+| `GET /api/municipalities/:ibge/alerts` | Meses incomuns (anomalia ≥ +1,5σ e ≥ 10 células-dia) | Bloco **Meses incomuns** na aba Resumo |
 | `GET /api/projection?ibge&year&month` | Faixa esperada do mês (P10–P50–P90 dos anos anteriores) e o retroteste | Aba **Resumo** ("faixa esperada"), modo projeção |
 | `GET /api/projection/horizons?ibge\|circle` | Projeção com faixa validada: 15 dias e 1 mês (publicados); amanhã e semestre só se tiverem ganho | Aba **Projeção**, faixa do modo projeção |
 | `GET /api/area/history?lon&lat&radius` | Histórico **só das células dentro do círculo** | Modo **Círculo** (Esfera) |
@@ -93,12 +95,6 @@ Todas as rotas validam a entrada com zod e respondem erro em problem+json. As ro
 | `GET /api/localities[?ibge]` | Localidades do IBGE: nome, tipo, lat/lon | Povoados no zoom, "povoado mais próximo" |
 | `GET /api/municipalities/:ibge/context?year` | Itens de contexto (NASA POWER, NDVI e uso do solo do ORNL DAAC) | Aba **Contexto** |
 | `GET /api/validation` | Números de validação calculados (não digitados) | Não é chamada pelo front; serve para conferência e para o júri |
-
-### Rota que existe mas o site não chama
-
-- **`/api/municipalities/:ibge/alerts`:** meses com anomalia ≥ 1,5σ e pelo menos 10 células-dia. Fica para o futuro agente de anomalias.
-
----
 
 ## 3. Limpeza feita em 15/11
 

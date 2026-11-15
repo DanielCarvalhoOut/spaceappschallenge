@@ -65,17 +65,8 @@ function sendProblem(
 /**
  * Protects CSV exports from spreadsheet formula injection (OWASP CSV Injection).
  */
-export function sanitizeCsvCell(val: unknown): string {
-  if (val === null || val === undefined) return '';
-  const str = String(val).replace(/[\r\n]+/g, ' ');
-  if (/^[=+\-@\t\r]/.test(str)) {
-    return `"'${str.replace(/"/g, '""')}"`;
-  }
-  if (str.includes(',') || str.includes('"')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
+export { sanitizeCsvCell } from '../core/csv.js';
+import { sanitizeCsvCell } from '../core/csv.js';
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // 0. Static front-end routes (serves "Mapa iterativo/" directly on http://localhost:8787/)
@@ -311,7 +302,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // 8. GET /api/municipalities/:ibge/calendar.csv
-  app.get('/api/municipalities/:ibge/calendar.csv', async (req: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/municipalities/:ibge/calendar.csv', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req: FastifyRequest, reply: FastifyReply) => {
     const pSchema = z.object({ ibge: IbgeCodeSchema });
     const parsed = pSchema.safeParse(req.params);
     if (!parsed.success) {

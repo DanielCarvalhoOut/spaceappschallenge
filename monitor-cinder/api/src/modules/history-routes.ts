@@ -18,6 +18,7 @@ import {
 import { store } from '../db/store.js';
 import { areaCellsFromIndex, loadCellIndex } from '../core/cell-index.js';
 import { pointInMunicipality } from '../connectors/ibge.js';
+import { csvNumber, sanitizeCsvCell } from '../core/csv.js';
 
 const GOIAS = { west: -53.3, south: -19.55, east: -45.85, north: -12.35 };
 
@@ -216,6 +217,47 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
     if (!r) return problem(reply, 503, 'History not loaded', 'Cell detections need the FIRMS index.');
     reply.header('Cache-Control', 'public, max-age=600');
     return r;
+  });
+
+  // Fire cells of the month as CSV (municipality or circle): 1 km cell centre, harmonized cell-days, every detection
+  // day with its satellite, and the nearest IBGE locality. Stricter rate limit than the JSON routes.
+  app.get('/api/area/fires.csv', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const q = z
+      .object({
+        ibge: z.string().regex(/^52\d{5}$/).optional(),
+        lon: lon.optional(),
+        lat: lat.optional(),
+        radiusKm: z.coerce.number().min(5).max(300).optional(),
+        year: z.coerce.number().int().min(2001).max(2100),
+        month: z.coerce.number().int().min(1).max(12),
+      })
+      .refine((v) => (v.ibge !== undefined) !== (v.lon !== undefined && v.lat !== undefined && v.radiusKm !== undefined), {
+        message: 'give either ibge or lon+lat+radiusKm',
+      })
+      .safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid fires query', q.error.message);
+    const { ibge, year, month } = q.data;
+    if (ibge && !store.getMunicipality(ibge)) return problem(reply, 404, 'Region not found', `IBGE ${ibge}`);
+    const area = ibge ? { ibge } : { lon: q.data.lon!, lat: q.data.lat!, radiusKm: q.data.radiusKm! };
+    const rows = store.getFireCells(area, year, month);
+    if (!rows) return problem(reply, 503, 'History not loaded', 'The fire cells need the FIRMS index (job:build-cell-index).');
+    const lines = [
+      'year,month,cell_lon,cell_lat,ibge_code,municipality,harmonized_cell_days,detections,satellites,provisional,detection_days,nearest_locality,nearest_locality_type,nearest_locality_km',
+    ];
+    for (const r of rows) {
+      const sats = [...new Set(r.detections.map((d) => d.sensor))].join(' ');
+      const days = r.detections.map((d) => `${d.date} ${d.sensor}`).join('; ');
+      lines.push([
+        csvNumber(year), csvNumber(month), csvNumber(r.lon), csvNumber(r.lat), sanitizeCsvCell(r.ibge), sanitizeCsvCell(r.municipality),
+        csvNumber(r.cellDays), csvNumber(r.detections.length), sanitizeCsvCell(sats), r.detections.some((d) => d.provisional) ? 'yes' : 'no',
+        sanitizeCsvCell(days), sanitizeCsvCell(r.nearest?.name), sanitizeCsvCell(r.nearest?.kind), csvNumber(r.nearest?.km),
+      ].join(','));
+    }
+    const tag = ibge ?? `circle-${q.data.lat!.toFixed(3)}_${q.data.lon!.toFixed(3)}_${q.data.radiusKm}km`;
+    reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="monitor-cinder-fires-${tag}-${year}-${String(month).padStart(2, '0')}.csv"`);
+    return '\ufeff' + lines.join('\r\n');
   });
 
   // One month day by day (calendar of the History tab): municipality, state or circle.
