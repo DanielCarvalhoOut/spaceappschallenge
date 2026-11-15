@@ -129,17 +129,19 @@
     retryBtn.hidden = !retry;
     retryBtn.onclick = retry || null;
   }
+  /** The header badge only speaks when something needs attention (loading, API off, no history); hidden when the data is there. */
   function setBadge() {
     const b = $('source-badge');
-    if (!state.source) { b.textContent = t('badge.loading'); b.className = 'badge'; return; }
+    if (!state.source) { b.hidden = false; b.textContent = t('badge.loading'); b.className = 'badge'; return; }
     const kind = state.source.dataKind;
-    const live = kind === 'firms_db' || kind === 'firms_index';
-    b.className = 'badge ' + (live ? 'badge--live' : 'badge--demo');
+    const live = state.source.kind !== 'offline' && (kind === 'firms_db' || kind === 'firms_index');
+    b.hidden = live;
+    if (live) { b.textContent = ''; return; }
+    b.className = 'badge badge--demo';
     const h = state.source.historyLoad;
     b.textContent = state.source.kind === 'offline' ? t('badge.offline')
       : kind === 'loading' ? t('badge.historyLoading', { done: h ? h.done : 0, total: h ? h.total : 0 })
-        : kind === 'none' ? t('badge.historyNone')
-          : t(kind === 'firms_index' ? 'badge.firmsIndex' : 'badge.firms');
+        : t('badge.historyNone');
   }
 
   /* ---------- Lateral Scale & Proportion HUD ---------- */
