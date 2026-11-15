@@ -1,7 +1,7 @@
 /*
  * Monitor Cinder front-end configuration.
  * If you change apiBase, also add the same origin to connect-src in index.html (Content-Security-Policy).
- * Never put keys here: FIRMS MAP_KEY and Embrapa tokens live only in the backend .env.
+ * Never put keys here: the FIRMS MAP_KEY lives only in the backend .env.
  */
 window.CINDER_CONFIG = Object.freeze({
   apiBase: 'http://localhost:8787',

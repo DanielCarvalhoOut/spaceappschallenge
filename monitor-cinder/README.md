@@ -26,7 +26,7 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 | IBGE — municipal boundaries and names | Aggregation units |
 | IBGE — Base de Localidades, 2022 Census (vilas, povoados, communities) | Map reference only: shown when zoomed in; nearest locality and straight-line distance to each fire cell |
 | INPE Programa Queimadas — reference satellite (AQUA MODIS afternoon) | External validation only |
-| NASA POWER, MODIS MOD13Q1 / MCD12Q1 | Context only, never cause |
+| NASA POWER (daily point API); NASA ORNL DAAC MODIS web service (MOD13Q1 NDVI, MCD12Q1 land cover) | Context tab only, never cause |
 
 Data up to the last day FIRMS serves (NRT days are marked *provisional* in the interface).
 
@@ -104,6 +104,15 @@ Optional PostGIS schema in `Tema_08_MODIS_VIIRS/db/`.
 
 Code in this repository was written with the help of an AI coding assistant (Claude, by Anthropic), reviewed and directed by the team.
 The idea, the questions and the decisions are the team's. No AI-generated images or video are used in the interface.
+
+## Acknowledgements and licenses
+
+- We acknowledge the use of data from NASA's Fire Information for Resource Management System (FIRMS) (https://firms.modaps.eosdis.nasa.gov/), part of NASA's Earth Science Data and Information System (ESDIS): MODIS Collection 6.1 and VIIRS 375 m (S-NPP, NOAA-20, NOAA-21) active fire products.
+- Weather context: NASA Langley Research Center (LaRC) POWER Project (https://power.larc.nasa.gov/).
+- Vegetation and land-cover context: MODIS MOD13Q1 and MCD12Q1 through the NASA ORNL DAAC MODIS web service (https://modis.ornl.gov/).
+- Municipal boundaries, names and 2022 Census localities: IBGE (https://www.ibge.gov.br/), public data.
+- External validation: INPE Programa Queimadas state statistics (https://terrabrasilis.dpi.inpe.br/queimadas/portal/), public data.
+- Libraries: Fastify, @fastify/cors, @fastify/rate-limit, pg, pino, zod, tsx, vitest (MIT); TypeScript (Apache-2.0). The map engine and interface are the team's own code; no third-party map assets or fonts are bundled.
 
 ## Team
 

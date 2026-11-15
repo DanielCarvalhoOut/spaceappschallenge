@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Mantenha o connect-src igual ao apiBase do config.js. Não há scripts nem estilos inline. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src https://servicodados.ibge.gov.br https://power.larc.nasa.gov http://localhost:8787 http://127.0.0.1:8787; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src https://servicodados.ibge.gov.br http://localhost:8787 http://127.0.0.1:8787; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>Monitor Cinder · Padrões históricos de fogo em Goiás</title>
   <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
@@ -233,13 +233,6 @@
             </div>
           </section>
 
-          <!-- Reviewed-inputs-only blocks (API answers 503 while disabled); kept hidden. -->
-          <div hidden>
-            <section class="block" hidden><div id="resources-box" class="intel-box"></div></section>
-            <section class="block" hidden><div id="root-fires-box" class="intel-box"></div></section>
-            <section class="block" hidden><div id="predictability-box" class="intel-box"></div></section>
-            <section class="block" hidden><div id="agro-b2b-box" class="intel-box"></div></section>
-          </div>
         </div>
         <footer class="modal__foot">
           <button id="p-expand" class="btn" type="button" aria-pressed="false"></button>
@@ -252,8 +245,8 @@
     <span data-i18n="foot.firms"></span>
     <span data-i18n="foot.ibge"></span>
     <span data-i18n="foot.inpe"></span>
-    <span data-i18n="foot.embrapa"></span>
     <span data-i18n="foot.power"></span>
+    <span data-i18n="foot.ornl"></span>
   </footer>
 
   <script src="config.js"></script>

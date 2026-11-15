@@ -1,9 +1,28 @@
 import { z } from 'zod';
 import { config } from '../config.js';
-import { normalizeConfidence } from '../core/analytics.js';
 import { logger, redactSecrets } from '../core/logger.js';
 import type { FirmsHotspotRecord, FirmsSensorCode, SourceConnector } from '../core/types.js';
 import { FirmsSensorSchema } from '../core/types.js';
+
+/**
+ * Normalizes confidence across MODIS (0..100) and VIIRS/OLI ('l' | 'n' | 'h').
+ * 0 = low, 1 = nominal, 2 = high
+ */
+export function normalizeConfidence(instrument: 'MODIS' | 'VIIRS' | 'OLI', raw: string): 0 | 1 | 2 {
+  const clean = raw.trim().toLowerCase();
+  if (instrument === 'VIIRS' || instrument === 'OLI') {
+    if (clean === 'h' || clean === 'high') return 2;
+    if (clean === 'l' || clean === 'low') return 0;
+    const n = Number(clean);
+    if (Number.isFinite(n)) return n < 30 ? 0 : n < 80 ? 1 : 2;
+    return 1;
+  }
+  const num = Number(clean);
+  if (!Number.isFinite(num)) return 1;
+  if (num < 30) return 0;
+  if (num < 80) return 1;
+  return 2;
+}
 
 export type FirmsQuery =
   | {

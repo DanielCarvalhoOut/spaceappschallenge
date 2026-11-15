@@ -5,16 +5,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import * as history from '../db/history.js';
 import { registerHistoryRoutes } from './history-routes.js';
-import { config } from '../config.js';
-import { firmsConnector } from '../connectors/firms.js';
 import { ibgeConnector } from '../connectors/ibge.js';
-import { clusterHotspotsDbscan, estimateResourcesByFrp } from '../core/analytics.js';
 import {
-  FirmsSensorSchema,
   IbgeCodeSchema,
   MonthSchema,
   YearSchema,
-  type FirmsSensorCode,
 } from '../core/types.js';
 import { store } from '../db/store.js';
 import { historyStatus } from '../core/history-status.js';
@@ -34,25 +29,6 @@ async function requireFirmsHistory(reply: FastifyReply): Promise<boolean> {
     .header('Retry-After', '15')
     .send({ type: 'about:blank', title: 'History not loaded', status: 503, detail });
   return false;
-}
-
-/**
- * Blocks A–D, the propensity map and the agro score stay off until they are rebuilt on real inputs
- * (they used a fixed weather table, an ML model trained on generated features and hand-set weights).
- */
-const REVIEWED_INPUTS_ONLY_FEATURES = false;
-
-/** Features whose inputs are not real yet (fixed weather table, ML trained on generated features, hand-set weights). */
-async function disabledFeature(reply: FastifyReply): Promise<FastifyReply> {
-  return reply
-    .code(503)
-    .header('content-type', 'application/problem+json; charset=utf-8')
-    .send({
-      type: 'about:blank',
-      title: 'Not available',
-      status: 503,
-      detail: 'Disabled: this output depended on generated inputs (weather table, ML weights) not validated with real data.',
-    });
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -153,45 +129,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       sources: [
         {
           id: 'firms',
-          name: 'NASA FIRMS (MODIS C6.1 1km & VIIRS 375m S-NPP/NOAA-20/NOAA-21 + Landsat NRT)',
+          name: 'NASA FIRMS (MODIS C6.1 1 km; VIIRS 375 m S-NPP, NOAA-20, NOAA-21)',
           url: 'https://firms.modaps.eosdis.nasa.gov/',
-          role: 'Core hotspot harmonization (DBSCAN/H3 1km), FRP resource scaling & 2000–Present Root Fire Archive',
-        },
-        {
-          id: 'nasa_power',
-          name: 'NASA POWER Daily & Monthly API (T2M_MAX, RH2M, PRECTOTCORR, WS10M, WD10M)',
-          url: 'https://power.larc.nasa.gov/api/temporal/daily/point',
-          role: 'Daily meteorological variables, ML Fire Propensity score & downwind fire propagation vector',
+          role: 'Only input of the harmonization, the anomaly, the calendar and the projection',
         },
         {
           id: 'ibge',
-          name: 'IBGE Malhas e Localidades (UF 52 · Goiás)',
+          name: 'IBGE: municipal boundaries and names (UF 52) and Censo 2022 localities',
           url: 'https://servicodados.ibge.gov.br/',
-          role: '246 municipal boundaries and spatial aggregation units',
+          role: 'Map geography, municipal aggregation and nearest locality (reference only)',
         },
         {
           id: 'inpe_queimadas',
-          name: 'INPE BDQueimadas (Satélite de Referência Aqua M-T)',
-          url: 'https://terrabrasilis.dpi.inpe.br/queimadas/',
-          role: 'External validation of FIRMS MODIS series',
+          name: 'INPE Programa Queimadas: state statistics (reference satellite AQUA)',
+          url: 'https://data.inpe.br/queimadas/estatisticas/',
+          role: 'External validation only (job:validate); never an input',
         },
         {
-          id: 'inpe_terrabrasilis',
-          name: 'INPE PRODES & DETER Cerrado',
-          url: 'https://terrabrasilis.dpi.inpe.br/',
-          role: 'Annual deforestation & border alert context',
+          id: 'nasa_power',
+          name: 'NASA POWER Daily Point API (T2M_MAX, RH2M, PRECTOTCORR, WS10M)',
+          url: 'https://power.larc.nasa.gov/',
+          role: 'Context tab: dry-season weather; never presented as a cause',
         },
         {
-          id: 'embrapa_satveg',
-          name: 'Embrapa SATVeg & NASA LP DAAC MOD13Q1 (250m NDVI/EVI)',
-          url: 'https://www.satveg.cnptia.embrapa.br/',
-          role: 'Biomass vigor (NDVI/EVI), dry fuel load (t/ha) & curing rate for Agro-Insurance',
-        },
-        {
-          id: 'modis_mcd12q1',
-          name: 'NASA LP DAAC MODIS MCD12Q1 v6.1 (IGBP 500m Land Cover)',
-          url: 'https://lpdaac.usgs.gov/products/mcd12q1v061/',
-          role: 'Cropland, pasture, savanna & Reserva Legal/APP exposure for B2B underwriting & credit audit',
+          id: 'ornl_modis',
+          name: 'NASA ORNL DAAC MODIS Web Service (MOD13Q1 NDVI 250 m, MCD12Q1 land cover 500 m)',
+          url: 'https://modis.ornl.gov/',
+          role: 'Context tab: vegetation and cropland share; never presented as a cause',
         },
       ],
       validation: computed
@@ -208,12 +172,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           }
         : null,
       projectionCheck: fromDb ? projectionCheck : null,
-      mlModel: null,
     };
   });
-
-  // 1b. GET /api/ml/model
-  app.get('/api/ml/model', async (_req: FastifyRequest, reply: FastifyReply) => disabledFeature(reply));
 
   // 2. GET /api/geo/municipalities?uf=52
   app.get('/api/geo/municipalities', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -227,13 +187,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return mesh;
   });
 
-  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count|density|propensity|agro_score
+  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count|density|typical
   app.get('/api/map', async (req: FastifyRequest, reply: FastifyReply) => {
     const qSchema = z.object({
       year: YearSchema.default(2024),
       month: MonthSchema.default(9),
       metric: z
-        .enum(['anomaly', 'count', 'density', 'typical', 'propensity', 'agro_score'])
+        .enum(['anomaly', 'count', 'density', 'typical'])
         .default('anomaly'),
     });
     const parsed = qSchema.safeParse(req.query);
@@ -241,7 +201,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return sendProblem(reply, 400, 'Invalid map query parameters', parsed.error.message);
     }
     const { year, month, metric } = parsed.data;
-    if (metric === 'propensity' || metric === 'agro_score') return disabledFeature(reply);
     if (metric === 'typical') {
       // future months: the map shows the historical pattern of that calendar month (median of earlier years)
       if (!(await requireFirmsHistory(reply))) return reply;
@@ -395,227 +354,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         `attachment; filename="monitor-cinder-goias-${muni.ibgeCode}.csv"`
       );
     return '\ufeff' + lines.join('\r\n');
-  });
-
-  // ============================================================================
-  // A. Harmonização MODIS + VIIRS & Escala de Recursos (DBSCAN/H3 + FRP MW)
-  // ============================================================================
-  app.get('/api/municipalities/:ibge/resources', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
-    const pSchema = z.object({ ibge: IbgeCodeSchema });
-    const qSchema = z.object({
-      year: YearSchema.default(2024),
-      month: MonthSchema.default(9),
-    });
-    const pParsed = pSchema.safeParse(req.params);
-    const qParsed = qSchema.safeParse(req.query);
-    if (!pParsed.success || !qParsed.success) {
-      return sendProblem(reply, 400, 'Invalid parameters', 'Valid 7-digit IBGE, year, and month required');
-    }
-    const muni = store.getMunicipality(pParsed.data.ibge);
-    if (!muni) {
-      return sendProblem(reply, 404, 'Municipality not found', `IBGE ${pParsed.data.ibge} not found`);
-    }
-    return store.getMunicipalityResourcesAndClusters(
-      muni.ibgeCode,
-      qParsed.data.year,
-      qParsed.data.month
-    );
-  });
-
-  /**
-   * Direct FIRMS Area REST API Harmonizer & Spatial DBSCAN Cluster Endpoint
-   * Proxies GET /api/area/csv/{MAP_KEY}/{SENSOR}/{COORDINATES}/{DAY_RANGE} safely without exposing MAP_KEY.
-   */
-  app.get('/api/firms/area', async (req: FastifyRequest, reply: FastifyReply) => {
-    const qSchema = z.object({
-      sensor: z
-        .union([FirmsSensorSchema, z.literal('ALL')])
-        .default('ALL'),
-      bbox: z.string().default(config.GOIAS_BBOX),
-      days: z.coerce.number().int().min(1).max(5).default(2),
-      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-      epsMeters: z.coerce.number().min(100).max(5000).default(1000),
-    });
-    const parsed = qSchema.safeParse(req.query);
-    if (!parsed.success) {
-      return sendProblem(reply, 400, 'Invalid FIRMS area query parameters', parsed.error.message);
-    }
-
-    const coordParts = parsed.data.bbox.split(',').map(Number);
-    if (
-      coordParts.length !== 4 ||
-      coordParts.some((n) => !Number.isFinite(n)) ||
-      coordParts[0]! >= coordParts[2]! ||
-      coordParts[1]! >= coordParts[3]!
-    ) {
-      return sendProblem(reply, 400, 'Invalid bbox', 'Expected west,south,east,north with west < east and south < north');
-    }
-    const bbox: [number, number, number, number] = [
-      coordParts[0]!,
-      coordParts[1]!,
-      coordParts[2]!,
-      coordParts[3]!,
-    ];
-
-    const sensors: FirmsSensorCode[] =
-      parsed.data.sensor === 'ALL'
-        ? ['MODIS_NRT', 'MODIS_SP', 'VIIRS_NOAA20_NRT', 'VIIRS_NOAA21_NRT', 'LANDSAT_NRT']
-        : [parsed.data.sensor];
-
-    const hotspots = await firmsConnector.fetchMultiSensorArea(
-      bbox,
-      parsed.data.days,
-      sensors,
-      parsed.data.date
-    );
-    const clusters = clusterHotspotsDbscan(hotspots, parsed.data.epsMeters);
-    const meanFrp =
-      clusters.length > 0
-        ? clusters.reduce((a, c) => a + c.meanFrpMw, 0) / clusters.length
-        : 0;
-    const maxFrp =
-      clusters.length > 0 ? Math.max(...clusters.map((c) => c.maxFrpMw)) : 0;
-    const scaling = estimateResourcesByFrp(
-      clusters.length,
-      hotspots.length,
-      meanFrp,
-      maxFrp
-    );
-
-    return {
-      endpointTemplate: 'GET /api/area/csv/{MAP_KEY}/{SENSOR}/{COORDINATES}/{DAY_RANGE}',
-      sensorsQueried: sensors,
-      bbox,
-      dayRange: parsed.data.days,
-      epsMeters: parsed.data.epsMeters,
-      rawHotspotsCount: hotspots.length,
-      deduplicatedClustersCount: clusters.length,
-      scaling,
-      clusters: clusters.slice(0, 100),
-    };
-  });
-
-  // ============================================================================
-  // B. Calendário de Focos Raízes & Histórico (2000–Presente)
-  // ============================================================================
-  app.get('/api/municipalities/:ibge/root-fires', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
-    const pSchema = z.object({ ibge: IbgeCodeSchema });
-    const parsed = pSchema.safeParse(req.params);
-    if (!parsed.success) {
-      return sendProblem(reply, 400, 'Invalid IBGE code', parsed.error.message);
-    }
-    const muni = store.getMunicipality(parsed.data.ibge);
-    if (!muni) {
-      return sendProblem(reply, 404, 'Municipality not found', `IBGE ${parsed.data.ibge} not found`);
-    }
-    return store.getRootFireAnalysis(muni.ibgeCode);
-  });
-
-  // ============================================================================
-  // C. Clima e Previsibilidade de Ocorrência (NASA POWER Daily Point)
-  // ============================================================================
-  app.get('/api/municipalities/:ibge/predictability', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
-    const pSchema = z.object({ ibge: IbgeCodeSchema });
-    const qSchema = z.object({
-      year: YearSchema.default(2024),
-      month: MonthSchema.default(9),
-    });
-    const pParsed = pSchema.safeParse(req.params);
-    const qParsed = qSchema.safeParse(req.query);
-    if (!pParsed.success || !qParsed.success) {
-      return sendProblem(reply, 400, 'Invalid parameters', 'Valid 7-digit IBGE, year, and month required');
-    }
-    const muni = store.getMunicipality(pParsed.data.ibge);
-    if (!muni) {
-      return sendProblem(reply, 404, 'Municipality not found', `IBGE ${pParsed.data.ibge} not found`);
-    }
-    return store.getPredictabilityAndWeather(
-      muni.ibgeCode,
-      qParsed.data.year,
-      qParsed.data.month
-    );
-  });
-
-  // ============================================================================
-  // D. Score Agrícola para Seguros & Inteligência B2B
-  //    (FIRMS + NASA POWER + MOD13Q1 Biomassa/Safra + MCD12Q1 Uso do Solo)
-  // ============================================================================
-  const handleAgroScore = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
-    const pSchema = z.object({ ibge: IbgeCodeSchema });
-    const qSchema = z.object({
-      year: YearSchema.default(2024),
-      month: MonthSchema.default(9),
-    });
-    const pParsed = pSchema.safeParse(req.params);
-    const qParsed = qSchema.safeParse(req.query);
-    if (!pParsed.success || !qParsed.success) {
-      return sendProblem(reply, 400, 'Invalid parameters', 'Valid 7-digit IBGE, year, and month required');
-    }
-    const muni = store.getMunicipality(pParsed.data.ibge);
-    if (!muni) {
-      return sendProblem(reply, 404, 'Municipality not found', `IBGE ${pParsed.data.ibge} not found`);
-    }
-    const report = await store.getAgroB2BRiskReport(
-      muni.ibgeCode,
-      qParsed.data.year,
-      qParsed.data.month
-    );
-    const isLive = store.hasLiveSatelliteData(muni.ibgeCode, qParsed.data.year, qParsed.data.month);
-    return {
-      ibge: muni.ibgeCode,
-      name: muni.name,
-      year: qParsed.data.year,
-      month: qParsed.data.month,
-      telemetryMode: isLive ? 'live_satellite' : 'fallback_mock',
-      ...report,
-    };
-  };
-  app.get('/api/municipalities/:ibge/agro-score', handleAgroScore);
-  app.get('/api/municipalities/:ibge/b2b-risk', handleAgroScore);
-
-  // ============================================================================
-  // Unified Intelligence Endpoint (A + B + C + D in a single round-trip)
-  // ============================================================================
-  app.get('/api/municipalities/:ibge/intelligence', async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!REVIEWED_INPUTS_ONLY_FEATURES) return disabledFeature(reply);
-    const pSchema = z.object({ ibge: IbgeCodeSchema });
-    const qSchema = z.object({
-      year: YearSchema.default(2024),
-      month: MonthSchema.default(9),
-    });
-    const pParsed = pSchema.safeParse(req.params);
-    const qParsed = qSchema.safeParse(req.query);
-    if (!pParsed.success || !qParsed.success) {
-      return sendProblem(reply, 400, 'Invalid parameters', 'Valid 7-digit IBGE, year, and month required');
-    }
-    const muni = store.getMunicipality(pParsed.data.ibge);
-    if (!muni) {
-      return sendProblem(reply, 404, 'Municipality not found', `IBGE ${pParsed.data.ibge} not found`);
-    }
-    const { year, month } = qParsed.data;
-    const [resources, rootFires, predictability, agroB2B] = await Promise.all([
-      Promise.resolve(store.getMunicipalityResourcesAndClusters(muni.ibgeCode, year, month)),
-      Promise.resolve(store.getRootFireAnalysis(muni.ibgeCode)),
-      store.getPredictabilityAndWeather(muni.ibgeCode, year, month),
-      store.getAgroB2BRiskReport(muni.ibgeCode, year, month),
-    ]);
-    const isLive = store.hasLiveSatelliteData(muni.ibgeCode, year, month);
-
-    return {
-      ibge: muni.ibgeCode,
-      name: muni.name,
-      year,
-      month,
-      telemetryMode: isLive ? 'live_satellite' : 'fallback_mock',
-      resources,
-      rootFires,
-      predictability,
-      agroB2B,
-    };
   });
 
   // Real-history routes (PostGIS): projection, exact circle, focos-raiz overlay, validation

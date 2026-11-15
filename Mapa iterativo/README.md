@@ -19,7 +19,7 @@ Dê dois cliques em `index.html`. Não precisa de build nem de servidor:
 | `i18n.js` | Textos em português (padrão) e inglês (botão `EN`/`PT`). Expõe `window.FireI18n`. |
 | `mapa-engine.js` | Motor do mapa: projeção policônica (parâmetros do EPSG:5880), `Path2D` por município, câmera (roda suave ancorada no cursor, arraste com inércia, pinça no celular, voo de zoom ótimo de van Wijk & Nuij), hit-test, rótulos com contraste WCAG, rampas de cor em OKLab. Expõe `window.FireMap`. |
 | `cinder-data.js` | Camada de dados: IBGE (malha e nomes), cliente da API do Monitor Cinder (sem fonte sintética). Valida toda resposta. Expõe `window.FireData`. |
-| `cinder-ui.js` | Controlador da tela: filtros, legenda, tooltip, busca, painel com padrão histórico, calendário, comparação MODIS × VIIRS × harmonizado, contexto (INPE/Embrapa/POWER) e CSV. |
+| `cinder-ui.js` | Controlador da tela: filtros, legenda, tooltip, busca, painel com padrão histórico, calendário, comparação MODIS × VIIRS × harmonizado, contexto (NASA POWER e ORNL DAAC) e CSV. |
 
 ## API do motor (`FireMap`)
 
@@ -46,7 +46,7 @@ Todas as rotas são `GET`, JSON e públicas (sem chave no front). Código de mun
 | `/api/map?year=2024&month=9&metric=anomaly\|count\|density` | `{ values: { "5208707": 2.1, ... } }` (`null` = sem dado) |
 | `/api/municipalities/{ibge}/calendar` | `{ rows: [{ year, month, modis, viirs, noaa20, harmonized\|null, anomalyZ, daysMissing, provisional, partial }] }` (meses futuros não vêm; `provisional` = NRT; `partial` = mês em andamento) |
 | `/api/municipalities/{ibge}/pattern` | `{ months: [{ month, mean, sharePct }], season: { months: [8,9,10], coveredPct, peakMonth } }` |
-| `/api/municipalities/{ibge}/context?year=2024` | `{ items: [{ key, label, value, unit, source }] }` com `key` = `fonte.métrica` (ex.: `inpe_prodes.deforestation_km2`); o front traduz pela `key` e usa `label` como reserva |
+| `/api/municipalities/{ibge}/context?year=2024` | `{ items: [{ key, label, value, unit, source }] }` com `key` = `fonte.métrica` (ex.: `nasa_power.precip_dry_mm`, `modis_mod13q1.ndvi_sep`); o front traduz pela `key` e usa `label` como reserva |
 | `/api/municipalities/{ibge}/calendar.csv` | CSV com proteção contra injeção de fórmula |
 | `/api/projection?ibge=52\|52xxxxx&year&month` | `{ method, range: { p10, p50, p90, nYears }, analog: { p10, p50, p90, years } \| null, observed, hindcast }`; 503 sem histórico → o front calcula a mesma faixa com a série que já tem e avisa "sem retroteste" |
 | `/api/area/history?lon&lat&radiusKm&source` | só as células dentro do círculo: `{ areaKm2, pctInState, rows, municipalities: [{ ibge, pctOfMunicipality }] }`; 503 → o front avisa que precisa do histórico (não estima por município inteiro) |
@@ -95,4 +95,4 @@ Playwright + Chrome com malha sintética do IBGE (36 polígonos, incluindo `Mult
 - zero erros de JavaScript e zero violações de CSP;
 - nomes com `<b>` e `<script>` aparecem como texto.
 
-Fontes de dados citadas no rodapé: NASA FIRMS, IBGE, INPE (Programa Queimadas, PRODES/DETER), Embrapa SATVeg, NASA POWER.
+Fontes de dados citadas no rodapé: NASA FIRMS, IBGE, INPE (Programa Queimadas, só validação), NASA POWER e NASA ORNL DAAC (MODIS MOD13Q1, MCD12Q1).

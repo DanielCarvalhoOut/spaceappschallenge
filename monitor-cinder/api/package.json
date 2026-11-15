@@ -1,7 +1,7 @@
 {
   "name": "monitor-cinder-api",
   "version": "1.0.0",
-  "description": "Monitor Cinder Backend \u2014 MODIS & VIIRS Harmonization, Root Fire Calendar & NASA POWER Predictability",
+  "description": "Monitor Cinder API: MODIS and VIIRS (NASA FIRMS) hotspot harmonization for Goiás",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,12 +11,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "job:load-regions": "tsx src/jobs/load-regions.ts",
-    "job:ingest-firms": "tsx src/jobs/ingest-firms.ts",
     "job:harmonize": "tsx src/jobs/harmonize.ts",
-    "job:build-calendar": "tsx src/jobs/build-calendar.ts",
-    "job:ingest-context": "tsx src/jobs/ingest-context.ts",
-    "job:train-ml": "tsx src/jobs/train-ml.ts",
-    "job:pipeline": "tsx src/jobs/run-pipeline.ts",
     "job:db-load-regions": "tsx src/jobs/db-load-regions.ts",
     "job:ingest-firms-history": "tsx src/jobs/ingest-firms-history.ts",
     "job:build-history": "tsx src/jobs/build-history.ts",

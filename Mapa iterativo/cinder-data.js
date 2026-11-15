@@ -188,11 +188,6 @@
         const j = await fetchJson(`${base}/api/municipalities/${id}/context?year=${encodeURIComponent(year)}`, 20000);
         return sanitizeContext(j);
       },
-      async intelligence(id, year, month) {
-        if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
-        const q = new URLSearchParams({ year: String(year), month: String(month) });
-        return await fetchJson(`${base}/api/municipalities/${id}/intelligence?${q}`, 20000);
-      },
       /** Expected range for the month + hindcast quality (null when the history is not built: HTTP 503). */
       async projection(id, year, month) {
         if (!(IBGE_CODE.test(id) || id === CFG.uf)) throw new Error('Invalid IBGE code');
@@ -382,7 +377,7 @@
     return {
       kind: 'offline', dataKind: 'none', historyLoad: null, lastObservedDay: null, provisionalFrom: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
-      mapValues: fail, calendar: fail, pattern: fail, context: fail, intelligence: fail,
+      mapValues: fail, calendar: fail, pattern: fail, context: fail,
       projection: fail, horizons: fail, daily: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
       csvUrl() { return null; },
     };

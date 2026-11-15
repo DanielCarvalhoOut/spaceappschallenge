@@ -15,8 +15,6 @@ export const logger = pino({
     paths: [
       'req.headers.authorization',
       'FIRMS_MAP_KEY',
-      'EMBRAPA_CONSUMER_KEY',
-      'EMBRAPA_CONSUMER_SECRET',
       'mapKey',
     ],
     censor: '[REDACTED]',

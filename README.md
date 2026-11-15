@@ -10,8 +10,8 @@ Prazo de submissão: **domingo, 15/11/2026, 23h59 no horário do evento local** 
 | --- | --- |
 | `Tema_08_MODIS_VIIRS/` | **Foco (Monitor Cinder).** Dados do FIRMS, harmonização, banco testado (PostGIS) com padrão histórico, anomalia e alertas, contrato da API e catálogo |
 | `monitor-cinder/` | **App do Monitor Cinder.** [`README.md`](monitor-cinder/README.md) em inglês para o júri (o que faz, como harmoniza, provas, como rodar). `api/` é o back (Node 22 + TypeScript); `api/out/` guarda as provas geradas por código (`npm run job:validate`) |
-| `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás em largura total, detalhes em janela com abas (Resumo, Projeção, Histórico, Área, Contexto), hover com resumo e análise por círculo que conta só o que está dentro dele. Todos os números vêm da API (histórico real do NASA FIRMS, 2001 até ontem); sem API mostra só os contornos |
-| `IMPLEMENTACAO.md` / `CLAUDE.md` | Guia de implementação (back em TypeScript, conectores NASA/IBGE/INPE/Embrapa) e regras para o Claude Code |
+| `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás com painel lateral de detalhes (abas Resumo, Projeção, Histórico, Área, Contexto; tela cheia pelo rodapé), hover com resumo e análise por círculo que conta só o que está dentro dele. Todos os números vêm da API (histórico real do NASA FIRMS, 2001 até ontem); sem API mostra só os contornos |
+| `IMPLEMENTACAO.md` / `CLAUDE.md` | Guia de implementação (back em TypeScript, conectores NASA/IBGE/INPE) e regras para o Claude Code |
 | `00_Geral/` | Kit de decisão, regras de entrega e recursos dos desafios, vencedores globais de 2025 (PDFs) |
 
 ## Números do pitch (todos saem de `monitor-cinder/api/out/`)
@@ -36,11 +36,11 @@ Os PDFs são uma cópia de 14/11/2026. Se os docs online mudarem, os PDFs ficam 
 - Tudo em inglês. Vídeo pode ser falado em português, com legenda em inglês.
 - Demo: vídeo de até 30 s **ou** até 7 slides.
 - Links públicos, sem login.
-- Pelo menos um dado ou recurso da NASA (aqui: FIRMS como núcleo; NASA POWER e, se der tempo, MCD12Q1 como contexto). INPE, IBGE e Embrapa entram como fontes complementares.
+- Pelo menos um dado ou recurso da NASA (aqui: FIRMS como núcleo; NASA POWER e ORNL DAAC MOD13Q1/MCD12Q1 como contexto). INPE e IBGE entram como fontes complementares.
 - IA permitida como ferramenta, não para gerar a ideia; imagem e vídeo gerados por IA com marca d'água; código gerado por IA declarado.
 
 Fonte: [Project Submission Guide](https://www.spaceappschallenge.org/resources/project-submission-guide/) e [Judging & Awards Guide](https://www.spaceappschallenge.org/resources/judging-awards-guide/).
 
 ## Repositório
 
-O `.gitignore` já ignora `.env` e `data/raw/`: nunca suba a MAP_KEY do FIRMS, o token da Embrapa nem os CSV brutos do Brasil (dezenas a centenas de MB por ano). Suba só o recorte de Goiás e o SHA-256 de cada arquivo de origem.
+O `.gitignore` já ignora `.env` e `data/raw/`: nunca suba a MAP_KEY do FIRMS nem os CSV brutos do Brasil (dezenas a centenas de MB por ano). Suba só o recorte de Goiás e o SHA-256 de cada arquivo de origem.

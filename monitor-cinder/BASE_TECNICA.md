@@ -31,7 +31,7 @@ Documento interno da equipe (PT). Cada número aqui vem de um arquivo em `monito
 | **IBGE** — malhas municipais | Limites e nomes dos 246 municípios de GO | Geografia |
 | **IBGE** — Base de Localidades do Censo 2022 | 1.400 pontos em GO (sede, vila, povoado, lugarejo, aglomerados rurais, quilombola, indígena…) | Só referência no mapa (zoom) e "povoado mais próximo" |
 | **INPE** — Programa Queimadas | Estatística mensal por estado (satélite de referência AQUA) | **Validação externa** e contexto; nunca entra no cálculo |
-| **INPE** PRODES/DETER, **Embrapa** SATVeg, **NASA POWER** | Desmatamento, vegetação, clima | Contexto; nunca é apresentado como causa |
+| **NASA POWER** e **NASA ORNL DAAC** (MODIS MOD13Q1, MCD12Q1) | Clima da seca, NDVI e fração agrícola | Contexto na aba Contexto; nunca é apresentado como causa |
 
 **Regra de linguagem:** dizemos "padrão histórico", "anomalia", "temporada típica", "contexto" e "projeção com faixa de incerteza validada". Nunca dizemos "previsão", "risco" ou "causa".
 
@@ -200,7 +200,7 @@ npx serve "../../Mapa iterativo" -l 3000   # front
 
 ## 9. Testes automatizados
 
-Resultado atual: **25 testes passando + 10 pulados** (os 10 precisam de PostGIS ligado: `npm run test:db`).
+Resultado atual: **21 testes passando + 10 pulados** (os 10 precisam de PostGIS ligado: `npm run test:db`).
 
 | Arquivo | O que prova |
 |---|---|
@@ -209,7 +209,7 @@ Resultado atual: **25 testes passando + 10 pulados** (os 10 precisam de PostGIS 
 | `inpe-stats.test.ts` | Soma os biomas do estado, ignora outros estados e meses nulos, rejeita payload inválido (zod) |
 | `ibge-localities.test.ts` | Lê o `.dbf` de dentro do zip do IBGE, uma linha por localidade, erro claro se faltar a UF |
 | `cors.test.ts` | Aceita o front local em qualquer porta de localhost; em produção, só a origem configurada |
-| `pipeline.test.ts` | URL do FIRMS com a chave mascarada no log, normalização MODIS/VIIRS, proteção contra injeção de fórmula no CSV. *Também contém testes de módulos antigos (ML, recursos, score agrícola) que estão **desligados** na API (respondem 503) e não aparecem na interface.* |
+| `pipeline.test.ts` | URL do FIRMS com a chave mascarada no log, leitura e confiança dos CSV MODIS/VIIRS, leitura da NASA POWER e proteção contra injeção de fórmula no CSV |
 | `history.db.test.ts` (PostGIS) | Ingestão idempotente, normalização, erro de harmonização medido (não digitado), calendário VIIRS desde 2012, círculo conta só o que está dentro, células de um município somam o valor mensal |
 
 **Além dos testes unitários:**
@@ -220,7 +220,7 @@ Resultado atual: **25 testes passando + 10 pulados** (os 10 precisam de PostGIS 
 
 ## 10. Segurança (resumo)
 
-- **Chaves:** a chave do FIRMS fica só no `.env` da API. O front nunca chama FIRMS nem Embrapa e não vê chave nenhuma.
+- **Chaves:** a chave do FIRMS fica só no `.env` da API. O front nunca chama o FIRMS e não vê chave nenhuma.
 - **Entradas:** todas validadas com zod; consultas parametrizadas; erros em problem+json sem stack trace.
 - **Rede e navegador:** rate limit (mais restrito no CSV); CORS só para a origem do front; CSP sem `unsafe-inline`.
 - **Dados externos na tela:** sempre por `textContent`; nunca `innerHTML`.
@@ -249,7 +249,7 @@ Não. É uma projeção com faixa de incerteza, validada contra a média histór
 De propósito: é transparente, roda em segundos, e o retroteste mostra o ganho real. Um modelo mais complexo sem validação seria pior para quem decide.
 
 **"E desmatamento ou clima, causam o fogo?"**
-Mostramos como contexto (INPE, Embrapa, NASA POWER). Não afirmamos causa, e nada disso entra no cálculo.
+Mostramos clima (NASA POWER) e vegetação (NASA ORNL DAAC) como contexto. Desmatamento (PRODES) ainda não entra. Não afirmamos causa, e nada disso entra no cálculo.
 
 **"Funciona para outros estados?"**
 Sim. Tudo é parametrizado por UF (FIRMS por país, recortado pelos municípios do IBGE). Bastam a malha e as localidades da UF e refazer o índice.

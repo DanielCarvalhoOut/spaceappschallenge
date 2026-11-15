@@ -13,7 +13,7 @@
 | `db/teste_schema.sql` | Teste funcional do banco (rodado em PostgreSQL 16 + PostGIS em 14/11/2026) |
 | `db/schema_cinder.sql` | Extensão Monitor Cinder: padrão sazonal, época típica de fogo, anomalia, alertas para gestores, vegetação (MCD12Q1) |
 | `db/teste_cinder.sql` | Teste da extensão com calendário sintético (rodado em 14/11/2026) |
-| `db/schema_contexto.sql` | Série de referência do INPE (validação externa) e contexto anual: PRODES/DETER, Embrapa SATVeg, NASA POWER |
+| `db/schema_contexto.sql` | Série de referência do INPE (validação externa) e contexto anual (tabelas do plano original; o app atual busca o contexto na hora pela NASA POWER e pelo ORNL DAAC) |
 | `db/teste_contexto.sql` | Teste do contexto, com casos negativos (fonte inválida, NaN, papel da API sem escrita) |
 | `contrato_api.md` | Endpoints da API do app, regras de validação e o worker de ingestão |
 

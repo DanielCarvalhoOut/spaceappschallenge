@@ -90,11 +90,7 @@
       ? fmtZ(v)
       : state.metric === 'density'
         ? fmt1(v)
-        : state.metric === 'propensity'
-          ? (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(v, 1) + '%')
-          : state.metric === 'agro_score'
-            ? (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(v, 1) + '/100')
-            : fmtInt(v)
+        : fmtInt(v)
   );
   const period = () => `${monthName(state.month)}/${state.year}`;
   function zText(z) {
@@ -111,7 +107,7 @@
     const y = Number(p.get('y')), m = Number(p.get('m')), k = p.get('k'), mun = p.get('mun');
     if (Number.isInteger(y) && y >= state.source.firstYear && y <= lastPickYear()) state.year = y;
     if (Number.isInteger(m) && m >= 1 && m <= 12) state.month = m;
-    if (k === 'anomaly' || k === 'count' || k === 'density') state.metric = k; // propensity/agro are off in the API
+    if (k === 'anomaly' || k === 'count' || k === 'density') state.metric = k;
     if (mun && /^\d{7}$/.test(mun) && state.ids.includes(mun)) state.selected = mun;
   }
   function writeHash() {
@@ -254,7 +250,6 @@
       renderNeighborsList(state.selected);
       const seq = ++state.panelSeq;
       loadRange(state.selected, seq);
-      loadIntelligence(state.selected, seq);
       loadContext(state.selected, seq);
       const cur = currentRow();
       loadDetail({ kind: 'muni', id: state.selected }, cur ? cur.harmonized : 0, seq);
@@ -263,10 +258,8 @@
 
   /* ---------- map & legend ---------- */
   const Z_SCALE = { type: 'diverging', min: -3, max: 3 };
-  const PROPENSITY_SCALE = { type: 'sequential', min: 0, max: 100 };
   function scaleFor(values) {
     if (state.metric === 'anomaly') return Object.assign({}, Z_SCALE);
-    if (state.metric === 'propensity' || state.metric === 'agro_score') return PROPENSITY_SCALE;
     let max = 10;
     for (const k of Object.keys(values)) { const v = values[k]; if (typeof v === 'number' && v > max) max = v; }
     return { type: 'sequential', min: 0, max };
@@ -339,11 +332,7 @@
     const labels =
       scale.type === 'diverging'
         ? ['−3σ', '−1σ', t('legend.normal'), '+1σ', '+3σ']
-        : state.metric === 'propensity'
-          ? ['0%', '50%', '100%']
-          : state.metric === 'agro_score'
-            ? ['0 (AAA)', '50 (BBB)', '100 (CCC)']
-            : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
+        : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
     for (const s of labels) ticks.append(el('span', '', s));
   }
 
@@ -359,11 +348,7 @@
       ? `${fmtZ(v)} · ${zText(v)}`
       : state.metric === 'density'
         ? t('tt.density', { v: fmt1(v), period: period() })
-        : state.metric === 'propensity'
-          ? t('tt.propensity', { n: v === null || v === undefined ? '–' : I.num(v, 1), period: period() })
-          : state.metric === 'agro_score'
-            ? t('tt.agro_score', { n: v === null || v === undefined ? '–' : I.num(v, 1), period: period() })
-            : t('tt.count', { n: fmtInt(v), period: period() });
+        : t('tt.count', { n: fmtInt(v), period: period() });
     const inf = state.info.get(h.id) || {};
     const extra = $('tt-extra');
     clear(extra);
@@ -677,7 +662,6 @@
       renderPanelBody(id);
       loadRange(id, seq);
       loadHorizons({ ibge: id }, seq);
-      loadIntelligence(id, seq);
       loadContext(id, seq);
       const cur = currentRow();
       loadDetail({ kind: 'muni', id }, cur ? cur.harmonized : 0, seq);
@@ -793,7 +777,6 @@
         method: 'all', range: global.FireData.rangeFromRows(rows, state.year, state.month), analog: null,
         observed: cur ? cur.harmonized : null, hindcast: null,
       }, true);
-      setIntelVisible(false); // blocks A–D only come from the API, per municipality
       if (sphere.radiusKm >= 5) loadHorizons({ lon: sphere.lon, lat: sphere.lat, radiusKm: sphere.radiusKm }, seq);
       else renderHorizonsMessage('proj.unavailable');
       if (sphere.centerId) {
@@ -1564,414 +1547,6 @@
       : '';
   }
 
-  /* ---------- A, B, C & D Operational, ML & Agro-Insurance B2B Intelligence Renderers ---------- */
-  function renderIntelLoading(boxIds) {
-    const labelNodes = [];
-    for (const bid of boxIds) {
-      const box = $(bid);
-      if (!box) continue;
-      clear(box);
-      const wrap = el('div', 'intel-loading');
-      const spin = el('span', 'intel-spinner');
-      const txt = el('span', '', t('intel.loading', { s: 0 }));
-      wrap.append(spin, txt);
-      box.append(wrap);
-      labelNodes.push(txt);
-    }
-    let elapsed = 0;
-    const intervalId = setInterval(() => {
-      elapsed += 1;
-      for (const n of labelNodes) {
-        n.textContent = t('intel.loading', { s: Math.min(20, elapsed) });
-      }
-    }, 1000);
-    return () => clearInterval(intervalId);
-  }
-
-  const INTEL_BOXES = ['resources-box', 'root-fires-box', 'predictability-box', 'agro-b2b-box'];
-  /** Blocks A–D are shown only when the API serves them (it disables them while their inputs are not real). */
-  function setIntelVisible(on) {
-    for (const id of INTEL_BOXES) {
-      const sec = $(id) && $(id).closest('section');
-      if (sec) sec.hidden = !on;
-    }
-  }
-
-  async function loadIntelligence(id, seq) {
-    setIntelVisible(false);
-    if (!state.source.intelligence) return;
-    try {
-      const intel = await state.source.intelligence(id, state.year, state.month);
-      if (seq !== state.panelSeq || !intel) return;
-      setIntelVisible(true);
-      if (intel.resources) renderResourcesBox(intel.resources);
-      if (intel.rootFires) renderRootFiresBox(intel.rootFires);
-      if (intel.predictability) renderPredictabilityBox(intel.predictability);
-      if (intel.agroB2B) renderAgroB2BBox(intel.agroB2B, intel.telemetryMode || 'live_satellite');
-    } catch (err) {
-      // 503 "Not available" or offline: the blocks stay hidden; nothing is computed in the browser.
-    }
-  }
-
-  function renderResourcesBox(resData) {
-    const box = $('resources-box');
-    if (!box) return;
-    clear(box);
-    const sc = (resData && resData.scaling) || resData;
-    if (!sc) return;
-
-    const head = el('div', 'intel-head');
-    const badge = el(
-      'span',
-      `intel-badge intel-badge--${sc.intensityClass || 'low'}`,
-      t(`res.intensity.${sc.intensityClass || 'low'}`)
-    );
-    const frpTag = el('strong', 'intel-mono', `${I.num(sc.totalFrpMw || 0, 1)} MW FRP`);
-    head.append(badge, frpTag);
-    box.append(head);
-
-    box.append(
-      el(
-        'p',
-        'intel-note',
-        t('res.dedup', {
-          clusters: fmtInt(sc.activeClusters),
-          raw: fmtInt(sc.rawDetections),
-          pct: I.num(sc.deduplicatedRatioPct || 0, 1),
-        })
-      ),
-      el(
-        'p',
-        'intel-note',
-        t('res.frp', {
-          mean: I.num(sc.meanFrpMw || 0, 1),
-          max: I.num(sc.maxFrpMw || 0, 1),
-          total: I.num(sc.totalFrpMw || 0, 1),
-        })
-      )
-    );
-
-    const grid = el('div', 'res-grid');
-    const cards = [
-      {
-        label: t('res.brigadistas'),
-        val: fmtInt(sc.brigadistas),
-        sub: t('res.squads', { n: fmtInt(sc.squads) }),
-      },
-      {
-        label: t('res.water'),
-        val: `${fmtInt(sc.waterLiters)} L`,
-        sub: t('res.trucks', { n: fmtInt(sc.waterTrucks) }),
-      },
-      {
-        label: t('res.kits'),
-        val: fmtInt(sc.manualKits),
-        sub: t('res.kitsSub'),
-      },
-      {
-        label: t('res.air'),
-        val: fmtInt(sc.aircraftSupport),
-        sub: t('res.airSub'),
-      },
-    ];
-    for (const c of cards) {
-      const card = el('div', 'res-card');
-      card.append(
-        el('span', 'res-card__label', c.label),
-        el('strong', 'res-card__val', c.val),
-        el('small', 'res-card__sub', c.sub)
-      );
-      grid.append(card);
-    }
-    box.append(grid, el('small', 'intel-foot', t('res.sensors')));
-  }
-
-  function renderRootFiresBox(rf) {
-    const box = $('root-fires-box');
-    if (!box) return;
-    clear(box);
-    if (!rf) return;
-
-    const head = el('div', 'intel-head');
-    const regimeKey = `root.regime.${rf.dominantRegime || 'low_activity'}`;
-    const badgeClass =
-      rf.dominantRegime === 'anthropogenic_root'
-        ? 'high'
-        : rf.dominantRegime === 'root_with_climate_spikes'
-          ? 'extreme'
-          : rf.dominantRegime === 'climatic_anomaly_driven'
-            ? 'moderate'
-            : 'low';
-    head.append(
-      el('span', `intel-badge intel-badge--${badgeClass}`, t(regimeKey)),
-      el('strong', 'intel-mono', `${I.num(rf.persistenceScorePct || 0, 1)}%`)
-    );
-    box.append(head);
-
-    const metaList = el('ul', 'context');
-    const rows = [
-      [t('root.persistence'), `${I.num(rf.persistenceScorePct || 0, 1)}%`],
-      [t('root.anthroShare'), `${I.num(rf.anthropogenicSharePct || 0, 1)}%`],
-      [
-        t('root.anomalyYears'),
-        Array.isArray(rf.climaticAnomalyYears) && rf.climaticAnomalyYears.length
-          ? rf.climaticAnomalyYears.slice(-6).join(', ')
-          : '–',
-      ],
-    ];
-    for (const [lbl, val] of rows) {
-      const li = el('li');
-      li.append(el('span', '', lbl), el('strong', '', val));
-      metaList.append(li);
-    }
-    box.append(metaList);
-
-    if (Array.isArray(rf.months) && rf.months.length) {
-      box.append(el('p', 'intel-subhead', t('root.matrixTitle')));
-      const matrix = el('div', 'root-matrix');
-      for (const m of rf.months) {
-        const cell = el('div', 'root-cell');
-        if (m.isRootMonth) cell.classList.add('is-root');
-        const pct = Math.round(m.recurrencePct || 0);
-        cell.title = `${monthName(m.month)}: ${pct}% (${m.yearsWithFire}/${m.yearsObserved})`;
-        cell.append(
-          el('span', 'root-cell__m', monthName(m.month)[0]),
-          el('strong', 'root-cell__p', `${pct}%`)
-        );
-        matrix.append(cell);
-      }
-      box.append(matrix);
-    }
-  }
-
-  function renderPredictabilityBox(pred) {
-    const box = $('predictability-box');
-    if (!box) return;
-    clear(box);
-    if (!pred) return;
-
-    const head = el('div', 'intel-head');
-    const rClass = pred.ignitionRiskClass || 'moderate';
-    const ml = pred.mlPropensity || null;
-    const aucText = ml && ml.modelRocAuc ? I.num(ml.modelRocAuc, 3) : '0.957';
-    head.append(
-      el('span', `intel-badge intel-badge--${rClass}`, t(`pred.risk.${rClass}`)),
-      el('strong', 'intel-mono', `${I.num(pred.ignitionRiskScore || 0, 1)}%`)
-    );
-    box.append(head);
-    box.append(el('p', 'intel-note', t('pred.mlTitle', { auc: aucText })));
-
-    if (ml && Array.isArray(ml.contributions) && ml.contributions.length) {
-      box.append(el('p', 'intel-subhead', t('pred.mlDrivers')));
-      const driversBox = el('div', 'ml-drivers');
-      const isEn = I.lang() === 'en';
-      for (const c of ml.contributions.slice(0, 5)) {
-        const row = el('div', 'ml-driver-row');
-        const top = el('div', 'ml-driver-top');
-        top.append(
-          el('span', '', isEn ? c.labelEn : c.labelPt),
-          el('strong', 'intel-mono', `${I.num(c.sharePct, 1)}%`)
-        );
-        const track = el('div', 'ml-driver-track');
-        const fill = el('div', 'ml-driver-fill');
-        fill.style.width = `${Math.max(4, Math.min(100, Math.round(c.sharePct * 1.8)))}%`;
-        track.append(fill);
-        row.append(top, track);
-        driversBox.append(row);
-      }
-      box.append(driversBox);
-    }
-
-    const prop = pred.propagation || { azimuthDeg: 270, cardinal: 'W', spreadRateKmh: 0.8, reachRadius6hKm: 4.8 };
-    const w = pred.weatherSummary || { t2mMaxC: 34, rh2mPct: 28, prectotcorrMm: 0, ws10mMs: 3.5, wd10mDeg: 90, windFromCardinal: 'E' };
-
-    const compassRow = el('div', 'pred-compass-row');
-    const compassSvg = svg('svg', { viewBox: '0 0 64 64', class: 'pred-compass', 'aria-hidden': 'true' });
-    compassSvg.append(svg('circle', { cx: 32, cy: 32, r: 27, fill: 'none', stroke: 'currentColor', opacity: 0.28, 'stroke-width': 1.5 }));
-    const nLabel = svg('text', { x: 32, y: 11, 'text-anchor': 'middle', class: 'compass-n' });
-    nLabel.textContent = 'N';
-    compassSvg.append(nLabel);
-
-    const angleRad = ((prop.azimuthDeg - 90) * Math.PI) / 180;
-    const x2 = 32 + Math.cos(angleRad) * 20;
-    const y2 = 32 + Math.sin(angleRad) * 20;
-    compassSvg.append(
-      svg('line', {
-        x1: 32,
-        y1: 32,
-        x2: x2.toFixed(1),
-        y2: y2.toFixed(1),
-        stroke: '#f26d6d',
-        'stroke-width': 2.6,
-        'stroke-linecap': 'round',
-      }),
-      svg('circle', { cx: x2.toFixed(1), cy: y2.toFixed(1), r: 3.4, fill: '#c62828' }),
-      svg('circle', { cx: 32, cy: 32, r: 2.2, fill: 'currentColor' })
-    );
-
-    const vecInfo = el('div', 'pred-vec-info');
-    vecInfo.append(
-      el('strong', '', `${t('pred.vectorLabel')}: ${prop.azimuthDeg}° (${prop.cardinal})`),
-      el('span', '', t('pred.vectorSub', { az: prop.azimuthDeg, card: prop.cardinal, rate: I.num(prop.spreadRateKmh, 2), reach: I.num(prop.reachRadius6hKm, 1) })),
-      el('small', 'muted', t('pred.windFrom', { deg: w.wd10mDeg, card: w.windFromCardinal, ws: I.num(w.ws10mMs, 1) }))
-    );
-    compassRow.append(compassSvg, vecInfo);
-    box.append(compassRow);
-
-    const varsList = el('ul', 'context');
-    const items = [
-      [t('pred.t2mMax'), `${I.num(w.t2mMaxC, 1)} °C`],
-      [t('pred.rh2m'), `${I.num(w.rh2mPct, 1)} %`],
-      [t('pred.precip'), `${I.num(w.prectotcorrMm, 1)} mm`],
-      [t('pred.ws10m'), `${I.num(w.ws10mMs, 1)} m/s · ${w.wd10mDeg}° (${w.windFromCardinal})`],
-      [t('pred.dryDays'), `${pred.consecutiveDryDays || 0} d · ${I.num(pred.vaporPressureDeficitHpa || 0, 1)} hPa`],
-    ];
-    for (const [lbl, val] of items) {
-      const li = el('li');
-      li.append(el('span', '', lbl), el('strong', '', val));
-      varsList.append(li);
-    }
-    box.append(varsList);
-  }
-
-  function renderAgroB2BBox(agro, telemetryMode) {
-    const box = $('agro-b2b-box');
-    if (!box) return;
-    clear(box);
-    if (!agro || !agro.insurance) return;
-
-    const ins = agro.insurance;
-    const fin = agro.financialRisk || {};
-    const tx = agro.transmissionLine || {};
-    const cred = agro.creditAudit || {};
-    const m13 = agro.mod13q1 || {};
-    const m12 = agro.mcd12q1 || {};
-    const pil = agro.pillars || {};
-
-    const head = el('div', 'intel-head');
-    const tier = ins.riskTier || 'moderate';
-    const scoreWrap = el('strong', 'intel-mono', `${I.num(ins.agroInsuranceScore || 0, 1)} / 100`);
-    const isLive = telemetryMode !== 'fallback_mock';
-    const dot = el('span', `sat-dot ${isLive ? 'sat-dot--live' : 'sat-dot--snapshot'}`);
-    dot.title = isLive ? t('intel.source.live') : t('intel.source.fallback');
-    scoreWrap.append(dot);
-    head.append(
-      el(
-        'span',
-        `intel-badge intel-badge--${tier}`,
-        t('agro.ratingBadge', { rating: ins.underwritingRating || 'BBB', tier: t(`pred.risk.${tier}`) })
-      ),
-      scoreWrap
-    );
-    box.append(head);
-
-    box.append(
-      el(
-        'p',
-        'intel-note',
-        `${t('agro.scoreSummary', {
-          score: I.num(ins.agroInsuranceScore || 0, 1),
-          ins: fmtInt(ins.insurabilityScore || 0),
-        })} · ${t(`agro.decision.${ins.underwritingDecision || 'approve_with_firebreak_covenant'}`)}`
-      )
-    );
-
-    box.append(el('p', 'intel-subhead', t('agro.pillarsTitle')));
-    const pillarsBox = el('div', 'ml-drivers');
-    const pillarRows = [
-      [t('agro.pillar.firms'), pil.firmsFireScore || 0],
-      [t('agro.pillar.power'), pil.powerClimateScore || 0],
-      [t('agro.pillar.mod13q1'), pil.mod13q1BiomassScore || 0],
-      [t('agro.pillar.mcd12q1'), pil.mcd12q1LandUseScore || 0],
-    ];
-    for (const [label, val] of pillarRows) {
-      const row = el('div', 'ml-driver-row');
-      const top = el('div', 'ml-driver-top');
-      top.append(el('span', '', label), el('strong', 'intel-mono', `${I.num(val, 1)}/100`));
-      const track = el('div', 'ml-driver-track');
-      const fill = el('div', 'ml-driver-fill');
-      fill.style.width = `${Math.max(4, Math.min(100, Math.round(val)))}%`;
-      track.append(fill);
-      row.append(top, track);
-      pillarsBox.append(row);
-    }
-    box.append(pillarsBox);
-
-    const grid = el('div', 'res-grid');
-    const loadSign = (ins.recommendedLoadingPct || 0) >= 0 ? '+' : '';
-    const cards = [
-      {
-        label: t('agro.v1.title'),
-        val: `${ins.underwritingRating || 'BBB'} · ${I.num(ins.pureRiskRatePct || 0, 2)}%`,
-        sub: t('agro.v1.sub', {
-          rate: I.num(ins.pureRiskRatePct || 0, 2),
-          ded: fmtInt(ins.suggestedDeductiblePct || 10),
-          load: `${loadSign}${I.num(ins.recommendedLoadingPct || 0, 1)}`,
-        }),
-      },
-      {
-        label: t('agro.v2.title'),
-        val: `R$ ${fmtInt(fin.valueAtRiskBrlPerHa || 0)}/ha`,
-        sub: t('agro.v2.sub', {
-          eal: I.num(fin.expectedAnnualLossPct || 0, 2),
-          pml: I.num(fin.probableMaximumLossP95Pct || 0, 1),
-        }),
-      },
-      {
-        label: t('agro.v3.title'),
-        val: `${I.num(tx.rowClearingPriorityScore || 0, 1)}/100`,
-        sub: t('agro.v3.sub', {
-          buf: fmtInt(tx.recommendedBufferWidthM || 40),
-          smoke: t(`pred.risk.${tx.smokeOutageRiskClass || 'moderate'}`),
-        }),
-      },
-      {
-        label: t('agro.v4.title'),
-        val: `${I.num(cred.complianceScore || 0, 1)}/100`,
-        sub: t('agro.v4.sub', {
-          rl: I.num(cred.rlAppExposurePct || 0, 1),
-          status: t(`agro.status.${cred.creditAuditStatus || 'compliant'}`),
-        }),
-      },
-    ];
-    for (const c of cards) {
-      const card = el('div', 'res-card');
-      card.append(
-        el('span', 'res-card__label', c.label),
-        el('strong', 'res-card__val', c.val),
-        el('small', 'res-card__sub', c.sub)
-      );
-      grid.append(card);
-    }
-    box.append(grid);
-
-    const anomSign = (m13.ndviAnomalyPct || 0) >= 0 ? '+' : '';
-    box.append(
-      el(
-        'p',
-        'intel-note',
-        t('agro.mod13q1.line', {
-          ndvi: I.num(m13.ndviMean || 0, 2),
-          anom: `${anomSign}${I.num(m13.ndviAnomalyPct || 0, 1)}`,
-          evi: I.num(m13.eviMean || 0, 2),
-          curing: I.num(m13.curingRatePct || 0, 1),
-          fuel: I.num(m13.fuelLoadTonsHa || 0, 1),
-        })
-      ),
-      el(
-        'p',
-        'intel-note',
-        t('agro.mcd12q1.line', {
-          crop: I.num(m12.croplandPct || 0, 1),
-          past: I.num(m12.pastureGrasslandPct || 0, 1),
-          sav: I.num(m12.savannaCerradoPct || 0, 1),
-          for: I.num(m12.forestRlAppPct || 0, 1),
-          iface: I.num(m12.interfaceRiskIndex || 0, 1),
-        })
-      )
-    );
-  }
-
   async function loadContext(id, seq) {
     const ul = $('context');
     $('ctx-year').textContent = String(state.year);
@@ -2053,7 +1628,6 @@
       const seq = ++state.panelSeq;
       loadRange(state.selected, seq);
       loadHorizons({ ibge: state.selected }, seq);
-      loadIntelligence(state.selected, seq);
       loadContext(state.selected, seq);
       const cur = currentRow();
       loadDetail({ kind: 'muni', id: state.selected }, cur ? cur.harmonized : 0, seq);

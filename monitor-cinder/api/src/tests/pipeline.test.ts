@@ -1,22 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { computeMod13q1BiomassProfile } from '../connectors/embrapa-satveg.js';
-import { buildFirmsAreaUrl, parseFirmsCsv } from '../connectors/firms.js';
-import { computeMcd12q1LandCoverProfile } from '../connectors/modis-landcover.js';
+import { buildFirmsAreaUrl, normalizeConfidence, parseFirmsCsv } from '../connectors/firms.js';
 import { buildNasaPowerDailyUrl, parseNasaPowerDailyJson } from '../connectors/nasa-power.js';
-import {
-  analyzeRootFires,
-  clusterHotspotsDbscan,
-  computeAgroB2BRiskReport,
-  computeFirePredictability,
-  estimateResourcesByFrp,
-  normalizeConfidence,
-} from '../core/analytics.js';
 import { redactSecrets } from '../core/logger.js';
-import { predictFirePropensity, trainPropensityModel, type TrainingRow } from '../core/ml-propensity.js';
 import { sanitizeCsvCell } from '../modules/routes.js';
 
-describe('A. Harmonização MODIS + VIIRS & Escala de Recursos (DBSCAN/H3 + FRP)', () => {
-  it('builds FIRMS Area REST API URL and redacts MAP_KEY in logs', () => {
+describe('FIRMS connector', () => {
+  it('builds the FIRMS area URL and redacts the MAP_KEY in logs', () => {
     const fakeKey = '0123456789abcdef0123456789abcdef';
     const url = buildFirmsAreaUrl(fakeKey, 'VIIRS_NOAA20_NRT', [-53.25, -19.5, -45.9, -12.39], 3);
     expect(url).toBe(
@@ -27,288 +16,53 @@ describe('A. Harmonização MODIS + VIIRS & Escala de Recursos (DBSCAN/H3 + FRP)
     expect(redacted).toContain('[REDACTED_MAP_KEY]');
   });
 
-  it('normalizes MODIS (1 km) and VIIRS (375 m) CSV records and deduplicates same fire via spatial DBSCAN', () => {
+  it('parses MODIS (1 km) and VIIRS (375 m) CSV rows and normalizes confidence to low / nominal / high', () => {
     const modisCsv = [
       'latitude,longitude,brightness,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_t31,frp,daynight,type',
       '-16.68000,-49.25000,335.2,1.0,1.0,2024-09-10,1640,Aqua,MODIS,82,61.03,301.1,42.5,D,0',
     ].join('\n');
-
-    const viirsNoaa20Csv = [
+    const viirsCsv = [
       'latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight',
       '-16.68080,-49.25090,348.4,0.38,0.38,2024-09-10,1705,N20,VIIRS,h,2.0NRT,298.5,19.8,D',
       '-16.67920,-49.24910,341.0,0.39,0.38,2024-09-10,1705,N20,VIIRS,n,2.0NRT,296.0,15.2,D',
-      // Low confidence pixel -> filtered out from active clustering
       '-15.90000,-48.10000,308.0,0.40,0.40,2024-09-10,0510,N20,VIIRS,l,2.0NRT,289.0,1.1,N',
     ].join('\n');
-
-    const modisRecords = parseFirmsCsv(modisCsv, 'MODIS_SP');
-    const viirsRecords = parseFirmsCsv(viirsNoaa20Csv, 'VIIRS_NOAA20_NRT');
-    expect(modisRecords).toHaveLength(1);
-    expect(viirsRecords).toHaveLength(3);
+    expect(parseFirmsCsv(modisCsv, 'MODIS_SP')).toHaveLength(1);
+    expect(parseFirmsCsv(viirsCsv, 'VIIRS_NOAA20_NRT')).toHaveLength(3);
     expect(normalizeConfidence('MODIS', '82')).toBe(2);
+    expect(normalizeConfidence('MODIS', '50')).toBe(1);
     expect(normalizeConfidence('VIIRS', 'h')).toBe(2);
+    expect(normalizeConfidence('VIIRS', 'n')).toBe(1);
     expect(normalizeConfidence('VIIRS', 'l')).toBe(0);
-
-    // Combine 1 MODIS (1 km) + 2 nominal/high VIIRS (375 m) detections of the SAME fire (~150 m apart)
-    const combined = [...modisRecords, ...viirsRecords];
-    const clusters = clusterHotspotsDbscan(combined, 1000);
-
-    // Must merge all 3 nominal/high detections into 1 single deduplicated fire cluster!
-    expect(clusters).toHaveLength(1);
-    const cluster = clusters[0]!;
-    expect(cluster.detectionsCount).toBe(3);
-    expect(cluster.modisPixels).toBe(1);
-    expect(cluster.viirsPixels).toBe(2);
-    expect(cluster.deduplicatedCount).toBe(2);
-    expect(cluster.maxFrpMw).toBe(42.5);
-    expect(cluster.sumFrpMw).toBeCloseTo(77.5, 1);
-    expect(cluster.h3LikeIndex).toMatch(/^88[0-9a-f]+fff$/);
-  });
-
-  it('estimates tactical resource scale (brigadistas, water, trucks, aircraft) from FRP (MW)', () => {
-    const lowScale = estimateResourcesByFrp(2, 5, 11.0, 14.0);
-    expect(lowScale.intensityClass).toBe('low');
-    expect(lowScale.brigadistas).toBeGreaterThanOrEqual(4);
-    expect(lowScale.aircraftSupport).toBe(0);
-
-    const extremeScale = estimateResourcesByFrp(45, 110, 42.0, 185.0);
-    expect(extremeScale.intensityClass).toBe('extreme');
-    expect(extremeScale.totalFrpMw).toBeGreaterThan(1500);
-    expect(extremeScale.brigadistas).toBeGreaterThan(80);
-    expect(extremeScale.waterLiters).toBeGreaterThan(500000);
-    expect(extremeScale.waterTrucks).toBeGreaterThan(50);
-    expect(extremeScale.aircraftSupport).toBeGreaterThanOrEqual(1);
   });
 });
 
-describe('B. Calendário de Focos Raízes & Histórico (2000–Presente)', () => {
-  it('identifies recurring seasonal root fires (Aug/Sep) and separates them from climatic anomalies', () => {
-    const syntheticSeries: Array<{
-      year: number;
-      month: number;
-      harmonized: number;
-      anomalyZ: number;
-    }> = [];
-
-    for (let y = 2001; y <= 2025; y++) {
-      for (let m = 1; m <= 12; m++) {
-        // Consistent high agricultural/border burning every August & September (anthropogenic root fire)
-        const isAugSep = m === 8 || m === 9;
-        const isDroughtSpikeYear = y === 2010 || y === 2024;
-        const harmonized = isAugSep ? (isDroughtSpikeYear ? 190 : 110) : 4;
-        const anomalyZ = isAugSep && isDroughtSpikeYear ? 2.1 : 0.2;
-        syntheticSeries.push({ year: y, month: m, harmonized, anomalyZ });
-      }
-    }
-
-    const summary = analyzeRootFires(syntheticSeries, 2001, 2025);
-    expect(summary.rootMonths).toContain(8);
-    expect(summary.rootMonths).toContain(9);
-    expect(summary.anthropogenicSharePct).toBeGreaterThan(60);
-    expect(summary.climaticAnomalyYears).toEqual([2010, 2024]);
-    const sepProfile = summary.months.find((x) => x.month === 9)!;
-    expect(sepProfile.recurrencePct).toBe(100);
-    expect(sepProfile.isRootMonth).toBe(true);
-    expect(sepProfile.regime).toBe('anthropogenic_root');
-  });
-});
-
-describe('C. Clima e Previsibilidade de Ocorrência (NASA POWER Daily Point)', () => {
-  it('parses NASA POWER daily parameters (T2M_MAX, RH2M, PRECTOTCORR, WS10M, WD10M) and computes ignition risk + propagation vector', () => {
-    const url = buildNasaPowerDailyUrl({
-      latitude: -16.68,
-      longitude: -49.25,
-      startDate: '20240901',
-      endDate: '20240905',
-    });
+describe('NASA POWER connector (context only)', () => {
+  it('builds the daily point URL and parses the parameters, dropping fill values', () => {
+    const url = buildNasaPowerDailyUrl({ latitude: -16.68, longitude: -49.25, startDate: '20240901', endDate: '20240903' });
     expect(url).toContain('https://power.larc.nasa.gov/api/temporal/daily/point');
     expect(url).toContain('parameters=T2M_MAX%2CRH2M%2CPRECTOTCORR%2CWS10M%2CWD10M');
-
-    const mockPayload = {
+    const daily = parseNasaPowerDailyJson({
       properties: {
         parameter: {
-          T2M_MAX: { '20240901': 37.4, '20240902': 38.6, '20240903': 39.1 },
+          T2M_MAX: { '20240901': 37.4, '20240902': 38.6, '20240903': -999 },
           RH2M: { '20240901': 22.0, '20240902': 19.5, '20240903': 18.0 },
           PRECTOTCORR: { '20240901': 0.0, '20240902': 0.0, '20240903': 0.0 },
           WS10M: { '20240901': 4.8, '20240902': 5.2, '20240903': 5.6 },
-          // Wind blowing FROM East (90 deg) -> Fire propagates TOWARD West (270 deg)
           WD10M: { '20240901': 88.0, '20240902': 90.0, '20240903': 92.0 },
         },
       },
-    };
-
-    const daily = parseNasaPowerDailyJson(mockPayload);
+    });
     expect(daily).toHaveLength(3);
-    const report = computeFirePredictability(daily, 90, 45);
-    expect(report.ignitionRiskScore).toBeGreaterThanOrEqual(70);
-    expect(['high', 'extreme']).toContain(report.ignitionRiskClass);
-    expect(report.weatherSummary.windFromCardinal).toBe('E');
-    // Downwind propagation azimuth = (90 + 180) % 360 = 270° (W)
-    expect(report.propagation.azimuthDeg).toBe(270);
-    expect(report.propagation.cardinal).toBe('W');
-    expect(report.propagation.spreadRateKmh).toBeGreaterThan(1.0);
-  });
-
-  it('prevents CSV formula injection on export', () => {
-    expect(sanitizeCsvCell('=CMD()')).toBe('"\'=CMD()"');
-    expect(sanitizeCsvCell('+SUM(A1:A2)')).toBe('"\'+SUM(A1:A2)"');
-    expect(sanitizeCsvCell('Goiânia')).toBe('Goiânia');
-  });
-
-  it('trains the Hybrid GBDT + L2 Logistic ML Fire Propensity model (2001-2019) and achieves high ROC-AUC on 2020-2025', () => {
-    const rows: TrainingRow[] = [];
-    for (let y = 2001; y <= 2025; y++) {
-      for (let m = 1; m <= 12; m++) {
-        const isDry = m === 8 || m === 9;
-        rows.push({
-          year: y,
-          month: m,
-          features: {
-            rootRecurrencePct: isDry ? 88 : 12,
-            lag1HarmonizedLog: isDry ? 3.8 : 0.4,
-            spatialGradient: isDry ? 1.5 : 0.8,
-            t2mMaxC: isDry ? 36.5 : 28.5,
-            vpdHpa: isDry ? 44.0 : 12.0,
-            rh2mDeficit: isDry ? 76.0 : 30.0,
-            droughtIndex: isDry ? 22.0 : 2.0,
-            ws10mMs: isDry ? 4.4 : 2.1,
-          },
-          label: isDry ? 1 : 0,
-        });
-      }
-    }
-
-    const model = trainPropensityModel(rows);
-    expect(model.metrics.rocAuc).toBeGreaterThanOrEqual(0.9);
-    expect(model.featureImportances).toHaveLength(8);
-
-    const highPred = predictFirePropensity(model, {
-      rootRecurrencePct: 92,
-      lag1HarmonizedLog: 4.1,
-      spatialGradient: 1.6,
-      t2mMaxC: 37.8,
-      vpdHpa: 48.0,
-      rh2mDeficit: 78.0,
-      droughtIndex: 25.0,
-      ws10mMs: 4.8,
-    });
-    const lowPred = predictFirePropensity(model, {
-      rootRecurrencePct: 8,
-      lag1HarmonizedLog: 0.2,
-      spatialGradient: 0.7,
-      t2mMaxC: 27.5,
-      vpdHpa: 10.0,
-      rh2mDeficit: 25.0,
-      droughtIndex: 1.0,
-      ws10mMs: 1.9,
-    });
-
-    expect(highPred.propensityScore).toBeGreaterThan(75);
-    expect(lowPred.propensityScore).toBeLessThan(25);
-    expect(highPred.contributions.length).toBe(8);
+    expect(daily[0]?.t2mMaxC).toBe(37.4);
+    expect(daily[2]?.t2mMaxC).toBeNull();
   });
 });
 
-describe('D. Score Agrícola para Seguros & Inteligência B2B (FIRMS + POWER + MOD13Q1 + MCD12Q1)', () => {
-  it('fuses FIRMS + POWER + MOD13Q1 + MCD12Q1 into Agricultural Insurance Score and 4 B2B SaaS verticals', () => {
-    const highRiskSeries: Array<{
-      year: number;
-      month: number;
-      harmonized: number;
-      anomalyZ: number;
-    }> = [];
-    for (let y = 2001; y <= 2025; y++) {
-      for (let m = 1; m <= 12; m++) {
-        const isSep = m === 8 || m === 9;
-        highRiskSeries.push({
-          year: y,
-          month: m,
-          harmonized: isSep ? 165 : 5,
-          anomalyZ: isSep && y === 2024 ? 2.4 : 0.3,
-        });
-      }
-    }
-    const rootFires = analyzeRootFires(highRiskSeries, 2001, 2025);
-    const predictability = computeFirePredictability(
-      [
-        {
-          date: '2024-09-10',
-          t2mMaxC: 39.2,
-          rh2mPct: 16.5,
-          prectotcorrMm: 0,
-          ws10mMs: 5.8,
-          wd10mDeg: 85,
-        },
-        {
-          date: '2024-09-11',
-          t2mMaxC: 40.1,
-          rh2mPct: 15.0,
-          prectotcorrMm: 0,
-          ws10mMs: 6.1,
-          wd10mDeg: 88,
-        },
-      ],
-      95,
-      90
-    );
-
-    const mod13q1 = computeMod13q1BiomassProfile({
-      ndviMean: 0.29,
-      eviMean: 0.2,
-      ndviWetPeak: 0.82,
-      historicalNdviBaseline: 0.44,
-      consecutiveDryDays: 28,
-    });
-    expect(mod13q1.curingRatePct).toBeGreaterThan(65);
-    expect(mod13q1.fuelLoadTonsHa).toBeGreaterThan(10);
-    expect(mod13q1.cropVigorClass).toBe('severe_senescence');
-
-    const mcd12q1 = computeMcd12q1LandCoverProfile({
-      croplandPct: 46,
-      pastureGrasslandPct: 26,
-      savannaCerradoPct: 18,
-      forestRlAppPct: 10,
-      prodesDeforestationKm2: 14.5,
-    });
-    expect(mcd12q1.interfaceRiskIndex).toBeGreaterThan(60);
-
-    const b2b = computeAgroB2BRiskReport({
-      harmonizedCount: 185,
-      anomalyZ: 2.4,
-      meanFrpMw: 58.0,
-      maxFrpMw: 195.0,
-      rootFires,
-      month: 9,
-      predictability,
-      mod13q1,
-      mcd12q1,
-    });
-
-    // 1. Insurance Underwriting Score
-    expect(b2b.insurance.agroInsuranceScore).toBeGreaterThan(68);
-    expect(['BB', 'B', 'CCC']).toContain(b2b.insurance.underwritingRating);
-    expect(b2b.insurance.pureRiskRatePct).toBeGreaterThan(2.5);
-    expect(b2b.insurance.recommendedLoadingPct).toBeGreaterThan(25);
-    expect(['manual_inspection_required', 'decline_or_reinsurance']).toContain(
-      b2b.insurance.underwritingDecision
-    );
-
-    // 2. Financial Risk Analysis
-    expect(b2b.financialRisk.expectedAnnualLossPct).toBeGreaterThan(2.0);
-    expect(b2b.financialRisk.probableMaximumLossP95Pct).toBeGreaterThan(15);
-    expect(b2b.financialRisk.valueAtRiskBrlPerHa).toBeGreaterThan(1000);
-
-    // 3. Transmission Line ROW Clearing Priority
-    expect(b2b.transmissionLine.rowClearingPriorityScore).toBeGreaterThan(65);
-    expect(['urgent_7d', 'immediate_dispatch']).toContain(b2b.transmissionLine.priorityTier);
-    expect(['high', 'extreme']).toContain(b2b.transmissionLine.smokeOutageRiskClass);
-    expect(b2b.transmissionLine.recommendedBufferWidthM).toBeGreaterThanOrEqual(55);
-
-    // 4. Rural Credit Audit & Compliance
-    expect(b2b.creditAudit.anthropogenicBurnFlag).toBe(true);
-    expect(b2b.creditAudit.complianceScore).toBeLessThan(55);
-    expect(['attention_seasonal_burn', 'non_compliant_high_recurrence']).toContain(
-      b2b.creditAudit.creditAuditStatus
-    );
+describe('CSV export', () => {
+  it('prevents CSV formula injection', () => {
+    expect(sanitizeCsvCell('=CMD()')).toBe('"\'=CMD()"');
+    expect(sanitizeCsvCell('+SUM(A1:A2)')).toBe('"\'+SUM(A1:A2)"');
+    expect(sanitizeCsvCell('Goiânia')).toBe('Goiânia');
   });
 });

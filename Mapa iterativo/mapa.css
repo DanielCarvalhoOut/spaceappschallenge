@@ -488,101 +488,6 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .context li small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .actions { margin: 18px 0 6px; display: flex; gap: 8px; }
 
-/* Operational Intelligence Blocks (A: FRP Resources, B: Root Fires, C: NASA POWER Predictability) */
-.intel-box {
-  display: flex; flex-direction: column; gap: 8px;
-}
-.intel-head {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 8px; padding: 7px 10px;
-}
-.intel-mono {
-  font: 700 12.5px var(--mono); color: var(--accent-2);
-}
-.intel-badge {
-  font: 700 10.5px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .4px;
-  padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line);
-}
-.intel-badge--low { background: rgba(255, 255, 255, 0.08); color: var(--text); border-color: var(--gray-600); }
-.intel-badge--moderate { background: rgba(242, 109, 109, 0.18); color: var(--accent-2); border-color: var(--accent-2); }
-.intel-badge--high { background: rgba(198, 40, 40, 0.35); color: var(--white); border-color: var(--accent); }
-.intel-badge--extreme { background: var(--accent); color: var(--white); border-color: var(--accent-2); }
-
-.intel-note {
-  margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.35;
-}
-.intel-subhead {
-  margin: 4px 0 2px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px;
-}
-.intel-foot {
-  font-size: 10.5px; color: var(--muted); font-family: var(--mono);
-}
-
-.res-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
-}
-.res-card {
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 8px; padding: 8px 9px;
-  display: flex; flex-direction: column; gap: 2px;
-}
-.res-card__label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .35px; color: var(--muted); }
-.res-card__val { font: 700 16px/1.15 var(--mono); color: var(--text); }
-.res-card__sub { font-size: 11px; color: var(--muted); }
-
-.root-matrix {
-  display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px;
-}
-.root-cell {
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 5px; padding: 4px 2px;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-}
-.root-cell.is-root {
-  background: rgba(198, 40, 40, 0.34);
-  border-color: var(--accent-2);
-}
-.root-cell__m { font: 600 9.5px var(--mono); color: var(--muted); }
-.root-cell__p { font: 700 9.5px var(--mono); color: var(--text); }
-
-.pred-compass-row {
-  display: grid; grid-template-columns: 58px 1fr; gap: 10px; align-items: center;
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 8px; padding: 8px 10px;
-}
-.pred-compass {
-  width: 56px; height: 56px; display: block; color: var(--text);
-}
-.compass-n {
-  font: 700 8.5px var(--mono); fill: var(--accent-2);
-}
-.pred-vec-info {
-  display: flex; flex-direction: column; gap: 2px; font-size: 12px;
-}
-.pred-vec-info strong { color: var(--accent-2); font-size: 12.5px; }
-
-.ml-drivers {
-  display: flex; flex-direction: column; gap: 5px;
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 8px; padding: 8px 10px;
-}
-.ml-driver-row {
-  display: flex; flex-direction: column; gap: 2px;
-}
-.ml-driver-top {
-  display: flex; justify-content: space-between; align-items: center; gap: 6px;
-  font-size: 11px; color: var(--text);
-}
-.ml-driver-track {
-  height: 5px; width: 100%; background: var(--surface);
-  border-radius: 99px; overflow: hidden;
-}
-.ml-driver-fill {
-  height: 100%; background: linear-gradient(90deg, var(--gray-600), var(--red-300), var(--red-600));
-  border-radius: 99px;
-}
-
 .foot {
   display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 16px; font-size: 11.5px; color: var(--muted);
   border-top: 1px solid var(--line); background: var(--surface);
@@ -620,13 +525,9 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 
 /* ---------- Dentro da área (células) ---------- */
 .detail-box { display: flex; flex-direction: column; gap: 6px; }
-.detail-demo { margin: 0; font-size: 11.5px; color: var(--accent-2); font-weight: 600; }
 .intel-loading { display: flex; align-items: center; gap: 10px; padding: 12px 10px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px dashed var(--line); color: var(--muted); font-size: 12px; }
 .intel-spinner { width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: intelSpin 0.8s linear infinite; flex-shrink: 0; }
 @keyframes intelSpin { to { transform: rotate(360deg); } }
-.sat-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; vertical-align: middle; opacity: 0.82; }
-.sat-dot--live { background: #2ecc71; box-shadow: 0 0 6px rgba(46, 204, 113, 0.65); }
-.sat-dot--snapshot { background: #5aa9e6; box-shadow: 0 0 4px rgba(90, 169, 230, 0.45); }
 
 /* ---------- Projection (validated uncertainty band) ---------- */
 .horizons { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }

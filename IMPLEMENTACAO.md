@@ -2,7 +2,9 @@
 
 Documento de contexto e execução para quem vai codar (pessoas e Claude Code). Leia inteiro antes de começar.
 
-> **Stack decidida em 14/11:** front em **JavaScript puro + Canvas 2D** (pasta `Mapa iterativo/`, já pronta e autoral). Backend em **TypeScript (Node 22)**, modular. Banco PostgreSQL 16 + PostGIS. Fontes: **NASA FIRMS (núcleo)**, IBGE (municípios), INPE, Embrapa e NASA POWER (contexto e validação).
+> **Stack decidida em 14/11:** front em **JavaScript puro + Canvas 2D** (pasta `Mapa iterativo/`, já pronta e autoral). Backend em **TypeScript (Node 22)**, modular. Banco PostgreSQL 16 + PostGIS. Fontes: **NASA FIRMS (núcleo)**, IBGE (municípios), INPE e NASA POWER (contexto e validação).
+
+> **Atualização 15/11:** os conectores Embrapa SATVeg, INPE TerraBrasilis (PRODES/DETER) e BDQueimadas por município foram removidos (nunca chegaram a funcionar). NDVI e uso do solo vêm do **NASA ORNL DAAC** (MOD13Q1, MCD12Q1, `connectors/ornl-modis.ts`); o INPE entra só como validação externa (`connectors/inpe-stats.ts`). Os módulos antigos de ML, risco, recursos e score agrícola também saíram. As seções abaixo que citam esses itens ficam como registro do plano original.
 
 ## 1. Contexto
 
@@ -31,7 +33,7 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
 | Padrão sazonal, época típica de fogo, anomalia (z) | Taxa de combustão por vegetação e ciclo de vida |
 | Alertas para gestores (**entrega simulada** na demo) | Estimativa de recursos e suprimentos |
 | Validação externa com a série de referência do INPE | Tempo real, risco do dia (já existem no Painel do Fogo e no INPE) |
-| Contexto anual: PRODES/DETER (INPE), NDVI (Embrapa SATVeg), vento e chuva (NASA POWER) | Login, perfis, gamificação |
+| Contexto anual: NDVI e uso do solo (NASA ORNL DAAC · MODIS), vento e chuva (NASA POWER) | Login, perfis, gamificação |
 | Download CSV, página "Method & limits" | |
 
 **Vocabulário obrigatório na interface e no pitch:** "historical pattern", "anomaly", "typical fire season", "context". **Nunca** "forecast", "prediction", "probability", "risk" nem "cause".
@@ -42,8 +44,8 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
    - A pasta `Mapa iterativo/` foi **reescrita do zero** em 14/11. Os arquivos antigos de terceiros (`assets/`, `painel-original.html`) **precisam ser apagados** e nunca podem ir para o repositório.
    - Todo recurso de terceiros (bibliotecas npm, dados) vai em "References".
 2. **Idioma.** A página do projeto, o README do repositório e os slides da submissão vão em **inglês**; o vídeo pode ser em português **com legenda em inglês**. A interface é **bilíngue**: abre em português (apresentação local) e o botão `EN` muda tudo para inglês. Grave o vídeo e as capturas da submissão com a interface em inglês.
-3. **Segredos:** `FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY` e `EMBRAPA_CONSUMER_SECRET` ficam só em `monitor-cinder/api/.env` (já ignorado pelo git). O front nunca chama FIRMS nem Embrapa. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
-4. **Dado da NASA é o núcleo.** O FIRMS é obrigatório e é a única base da harmonização e da anomalia. INPE, Embrapa e POWER são contexto e conferência.
+3. **Segredos:** `FIRMS_MAP_KEY` fica só em `monitor-cinder/api/.env`. O front nunca chama FIRMS. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
+4. **Dado da NASA é o núcleo.** O FIRMS é obrigatório e é a única base da harmonização e da anomalia. INPE é conferência; NASA POWER e ORNL DAAC são contexto.
 5. **Uso de IA declarado** no README ("AI-assisted code") e na página do projeto.
 6. **Padrões técnicos:**
    - **TypeScript:** `strict: true`, `noUncheckedIndexedAccess`, sem `any`. Toda entrada HTTP e toda resposta de API externa validada com `zod`. `async/await` em todo I/O; streams para arquivos grandes.
@@ -223,7 +225,7 @@ Contrato que o front já consome (detalhes no `Mapa iterativo/README.md`):
 - Deploy: banco (Supabase ou VM), API e front num link público, testados em janela anônima.
 - README do repositório **em inglês**: o que é, como rodar, fontes, método, limites e "AI-assisted code".
 - Vídeo de até 30 s com legenda em inglês: problema (MODIS no fim da vida) → mapa → calendário → anomalia e alerta → número da validação.
-- Página do projeto: NASA Data (FIRMS, POWER; MCD12Q1 se usar) e References (IBGE, INPE, Embrapa, bibliotecas; Painel do Fogo e BDQueimadas como trabalhos relacionados).
+- Página do projeto: NASA Data (FIRMS, POWER, ORNL DAAC MOD13Q1/MCD12Q1) e References (IBGE, INPE, bibliotecas; Painel do Fogo e BDQueimadas como trabalhos relacionados).
 - **Submit for Judging às 22h.**
 
 ## 6. O mapa (já implementado)

@@ -19,7 +19,7 @@ Navegador (Mapa iterativo) ──▶ API Monitor Cinder (localhost:8787) ──�
 |---|---|---|---|
 | `firms.modaps.eosdis.nasa.gov/api/data_availability/csv/{KEY}/ALL` | Descobre até que dia cada sensor tem dados definitivos (SP) e quase em tempo real (NRT) | `connectors/firms.ts` → `job:build-cell-index` | Na montagem do índice e no início da API, se o índice estiver atrasado mais de 3 dias |
 | `firms.modaps.eosdis.nasa.gov/data/country/{sensor}/{ano}/{sensor}_{ano}_Brazil.csv` | Arquivo anual definitivo do Brasil, por sensor (MODIS, VIIRS S-NPP, NOAA-20, NOAA-21) | `firms.ts` → `job:build-cell-index` e `job:ingest-firms-history` | Montagem do histórico 2001 → hoje |
-| `firms.modaps.eosdis.nasa.gov/api/area/csv/{KEY}/{SENSOR}/{bbox}/{dias}` | Focos recentes (NRT) recortados para Goiás, em janelas, para os meses que ainda não estão no arquivo definitivo | `firms.ts` → `job:build-cell-index`; rota `/api/firms/area` | Atualização dos dados recentes (provisórios desde 01/08/2026) |
+| `firms.modaps.eosdis.nasa.gov/api/area/csv/{KEY}/{SENSOR}/{bbox}/{dias}` | Focos recentes (NRT) recortados para Goiás, em janelas, para os meses que ainda não estão no arquivo definitivo | `firms.ts` → `job:build-cell-index` | Atualização dos dados recentes (provisórios desde 01/08/2026) |
 
 **Função na aplicação:** é a única fonte da **harmonização**, da **anomalia**, do **calendário**, das **células de 1 km**, do **círculo** e da **projeção**. O resultado vai para `data/firms_goias_cells.json` (ou para o PostGIS).
 
@@ -64,8 +64,8 @@ Os resultados ficam em `out/external_validation.json` e `out/inpe_goias_referenc
 
 | Endpoint | Para que serve | Onde | Quando |
 |---|---|---|---|
-| `modis.ornl.gov/rst/api/v1/MOD13Q1/subset` | NDVI de setembro (MODIS 250 m) no centro do município | `connectors/embrapa-satveg.ts` → `/context` | Aba **Contexto** |
-| `modis.ornl.gov/rst/api/v1/MCD12Q1/subset` | % de área agrícola (classificação IGBP, 500 m) | `connectors/modis-landcover.ts` → `/context` | Aba **Contexto** |
+| `modis.ornl.gov/rst/api/v1/MOD13Q1/subset` | NDVI de setembro (MODIS 250 m) no centro do município | `connectors/ornl-modis.ts` → `/context` | Aba **Contexto** |
+| `modis.ornl.gov/rst/api/v1/MCD12Q1/subset` | % de área agrícola (classificação IGBP, 500 m) | `connectors/ornl-modis.ts` → `/context` | Aba **Contexto** |
 
 **Função na aplicação:** só **contexto** (vegetação verde e fração agrícola).
 
@@ -73,7 +73,7 @@ Os resultados ficam em `out/external_validation.json` e `out/inpe_goias_referenc
 
 ## 2. A nossa API (Monitor Cinder, Fastify, porta 8787)
 
-Todas as rotas validam a entrada com zod e respondem erro em problem+json. As **rotas ativas** que o front usa:
+Todas as rotas validam a entrada com zod e respondem erro em problem+json. As rotas que o front usa:
 
 | Rota | O que entrega | Onde aparece na interface |
 |---|---|---|
@@ -94,27 +94,16 @@ Todas as rotas validam a entrada com zod e respondem erro em problem+json. As **
 | `GET /api/municipalities/:ibge/context?year` | Itens de contexto (NASA POWER, NDVI e uso do solo do ORNL DAAC) | Aba **Contexto** |
 | `GET /api/validation` | Números de validação calculados (não digitados) | Não é chamada pelo front; serve para conferência e para o júri |
 
-### Rotas que existem mas estão desligadas (respondem 503)
+### Rota que existe mas o site não chama
 
-Ficaram de uma versão anterior e foram desligadas por usarem entradas não revisadas ou linguagem fora da regra (risco, previsão).
-
-- **Lista:** `/api/ml/model`, `/api/municipalities/:ibge/resources`, `/root-fires`, `/predictability`, `/agro-score`, `/b2b-risk`, `/intelligence`, além das métricas `propensity` e `agro_score` do `/api/map`.
-- **Na interface:** os blocos dessas rotas ficam escondidos.
-- **`/alerts`:** existe, mas o front atual não a chama.
+- **`/api/municipalities/:ibge/alerts`:** meses com anomalia ≥ 1,5σ e pelo menos 10 células-dia. Fica para o futuro agente de anomalias.
 
 ---
 
-## 3. Pontos de atenção encontrados neste levantamento
+## 3. Limpeza feita em 15/11
 
-1. **"Embrapa SATVeg" no rodapé não bate com o código.**
-   - O conector chamado `embrapa-satveg.ts` busca o NDVI no **NASA ORNL DAAC (MOD13Q1)**, não na API da Embrapa: a chave da Embrapa é lida, mas nunca usada.
-   - A própria aba Contexto já mostra a fonte certa ("NASA ORNL DAAC · MOD13Q1 250 m").
-   - **Sugestão:** trocar o rodapé para "Vegetação e uso do solo: NASA ORNL DAAC (MODIS MOD13Q1/MCD12Q1)" e ajustar o `CLAUDE.md` e o README onde citam a Embrapa.
-2. **"PRODES/DETER" no rodapé também não é chamado.**
-   - O conector `inpe-terrabrasilis.ts` existe, mas nenhuma rota ativa o usa.
-   - **Sugestão:** deixar só "INPE (Programa Queimadas): série de referência para validação".
-3. **CSP do front permite `power.larc.nasa.gov`**, mas o navegador não chama a NASA POWER (quem chama é a API).
-   - **Sugestão:** remover da CSP para ficar mais restrita.
-4. **Conector `inpe-queimadas.ts`** (BDQueimadas por município): não é usado. A validação usa o `inpe-stats.ts`.
-
-Se o júri perguntar "de onde vem a vegetação?", a resposta correta hoje é **NASA ORNL DAAC (MODIS)**, não Embrapa.
+- **Removido do código:** conectores Embrapa SATVeg (nunca chamava a Embrapa), INPE TerraBrasilis/PRODES-DETER (nunca ligado; tinha um valor fixo de reserva) e BDQueimadas por município (repetia o `inpe-stats.ts`).
+- **Removido da API:** as rotas antigas `/api/ml/model`, `/resources`, `/root-fires`, `/predictability`, `/agro-score`, `/b2b-risk`, `/intelligence` e `/api/firms/area`, e as métricas `propensity` e `agro_score`. Junto saíram o modelo de ML, a escala de recursos, o score agrícola e a busca de focos em tempo real ao iniciar a API.
+- **Rodapé:** agora cita "Validação externa: INPE (Programa Queimadas)" e "Vegetação e uso do solo: NASA ORNL DAAC (MODIS MOD13Q1, MCD12Q1)".
+- **CSP do front:** sem `power.larc.nasa.gov`, porque quem chama a NASA POWER é a API.
+- **Chave:** a chave do FIRMS saiu do `.env.example` e do valor padrão do `config.ts`.
