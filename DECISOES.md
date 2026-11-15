@@ -17,3 +17,14 @@ Uma linha por decisão: **decisão** — motivo — alternativa descartada.
 - Toda linha da tabela de `CONFERENCIA.md` tem evidência ou "não verificado": **passou** (12 linhas; 4 trechos marcados "não verificado").
 - `CLAUDE.md` e `IMPLEMENTACAO.md` refletem a regra nova: **passou** (`CLAUDE.md:16-18`; `IMPLEMENTACAO.md` "Escopo travado", "Vocabulário" e §5 F6).
 - `.env` fora do índice do git: **passou** (`git check-ignore -v monitor-cinder/api/.env` → `.gitignore:1`).
+
+## Fase 1 (15/11, 09:38–09:41)
+
+- **D08 · Intervenções lidas de um arquivo de cadastro quando não há banco** — PostGIS fora do ar; a tabela e o teste SQL ficam escritos — descartado: bloquear a capacidade 4 inteira.
+- **D09 · Intervalo P10–P90 por quantis dos resíduos de treino** — simples, sem suposição de distribuição e calculável em memória — descartado: regressão quantílica (mais código, mesmo prazo).
+
+### Autochecagem da fase 1
+
+- Todo passo tem critério testável: **passou** (12 passos, coluna "Critério de pronto"; o passo 9 declara o que não é verificável sem chave e o 10 o que não roda sem banco).
+- Usa só o que a fase 0 confirmou: **passou** (features do passo 3 = sazonalidade, lags, vizinhos e ONI; POWER e MCD12Q1 ficam fora do treino, conforme D05).
+- A soma dos minutos cabe no tempo restante: **passou** (125 min planejados; 142 min restantes às 09:38).
