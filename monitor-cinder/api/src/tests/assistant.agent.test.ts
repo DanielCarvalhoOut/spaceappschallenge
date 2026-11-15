@@ -59,7 +59,11 @@ describe.skipIf(!ready)('assistant over the real series (no LLM)', () => {
   it('flags data older than 24 h, answers "no data" outside Goiás and caches by (ibge, intent, period)', async () => {
     const r = await answerQuestion({ question: 'Qual a previsão de focos para Goiânia em setembro de 2026?' }, deps);
     expect(r.cached).toBe(true);
-    expect(r.notices.join(' ')).toMatch(/24 h/);
+    // data through 14/11 asked on 15/11 12h: fresh, no staleness notice
+    expect(r.notices.join(' ')).not.toMatch(/24 h/);
+    // the same data asked three days later is flagged
+    const later = await answerQuestion({ question: 'Qual a previsão de focos para Goiânia em outubro de 2026?' }, { ...deps, now: new Date('2026-11-18T12:00:00Z') });
+    expect(later.notices.join(' ')).toMatch(/24 h/);
     const out = await answerQuestion({ question: 'Qual a previsão para 3550308?' }, deps);
     expect(out.intent).toBe('no_data');
     expect(out.answer).toMatch(/Sem dados/);
