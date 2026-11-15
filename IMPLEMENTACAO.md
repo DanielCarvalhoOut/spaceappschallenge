@@ -26,7 +26,8 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
 
 | Entra (MVP) | Fica de fora (só como "próximos passos" no pitch) |
 | --- | --- |
-| Série harmonizada (MODIS 2001–2025 + VIIRS S-NPP 2012–2025), recorte de Goiás | Previsão por modelo / machine learning |
+| Série harmonizada (MODIS 2001–2025 + VIIRS S-NPP 2012–2025), recorte de Goiás | Modelo de propagação / comportamento do fogo (velocidade, direção, alcance) |
+| **Previsão de focos por município e mês** (decisão da equipe em 15/11), com intervalo P10–P90, período de treino e métrica fora da amostra contra climatologia e persistência; **agente conversacional** (`POST /api/assistant`) | Autorizar ou recomendar queima: o agente só dá contexto e remete ao órgão ambiental |
 | Mapa por município, calendário (anos × meses), comparação MODIS × VIIRS × harmonizado | **Atribuir causa** ao fogo: o contexto (PRODES, NDVI, vento) aparece ao lado, nunca como explicação |
 | Padrão sazonal, época típica de fogo, anomalia (z) | Taxa de combustão por vegetação e ciclo de vida |
 | Alertas para gestores (**entrega simulada** na demo) | Estimativa de recursos e suprimentos |
@@ -34,7 +35,7 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
 | Contexto anual: PRODES/DETER (INPE), NDVI (Embrapa SATVeg), vento e chuva (NASA POWER) | Login, perfis, gamificação |
 | Download CSV, página "Method & limits" | |
 
-**Vocabulário obrigatório na interface e no pitch:** "historical pattern", "anomaly", "typical fire season", "context". **Nunca** "forecast", "prediction", "probability", "risk" nem "cause".
+**Vocabulário na interface e no pitch:** "historical pattern", "anomaly", "typical fire season", "context". Desde 15/11, "forecast", "prediction", "probability" e "risk" são permitidos **só** para a previsão de focos por município e mês, e **toda previsão mostrada traz intervalo (P10–P90), período de treino e métrica de validação fora da amostra**; toda probabilidade traz n e fonte. **Nunca** "cause" / "caused by" / "causado por": use "associated with" / "associado a".
 
 ## 2. Regras não negociáveis
 
@@ -42,7 +43,7 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
    - A pasta `Mapa iterativo/` foi **reescrita do zero** em 14/11. Os arquivos antigos de terceiros (`assets/`, `painel-original.html`) **precisam ser apagados** e nunca podem ir para o repositório.
    - Todo recurso de terceiros (bibliotecas npm, dados) vai em "References".
 2. **Idioma.** A página do projeto, o README do repositório e os slides da submissão vão em **inglês**; o vídeo pode ser em português **com legenda em inglês**. A interface é **bilíngue**: abre em português (apresentação local) e o botão `EN` muda tudo para inglês. Grave o vídeo e as capturas da submissão com a interface em inglês.
-3. **Segredos:** `FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY` e `EMBRAPA_CONSUMER_SECRET` ficam só em `monitor-cinder/api/.env` (já ignorado pelo git). O front nunca chama FIRMS nem Embrapa. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
+3. **Segredos:** `FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY`, `EMBRAPA_CONSUMER_SECRET` e `ANTHROPIC_API_KEY` ficam só em `monitor-cinder/api/.env` (ignorado pelo git desde 15/11; antes estava rastreado, então a MAP_KEY antiga precisa ser rotacionada). Nenhuma chave como valor padrão no código. O front nunca chama FIRMS nem Embrapa. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
 4. **Dado da NASA é o núcleo.** O FIRMS é obrigatório e é a única base da harmonização e da anomalia. INPE, Embrapa e POWER são contexto e conferência.
 5. **Uso de IA declarado** no README ("AI-assisted code") e na página do projeto.
 6. **Padrões técnicos:**
@@ -219,6 +220,16 @@ Contrato que o front já consome (detalhes no `Mapa iterativo/README.md`):
 - Vídeo de até 30 s com legenda em inglês: problema (MODIS no fim da vida) → mapa → calendário → anomalia e alerta → número da validação.
 - Página do projeto: NASA Data (FIRMS, POWER; MCD12Q1 se usar) e References (IBGE, INPE, Embrapa, bibliotecas; Painel do Fogo e BDQueimadas como trabalhos relacionados).
 - **Submit for Judging às 22h.**
+
+### F6 · Previsão e agente conversacional (dom, manhã; branch `feat/agente-previsao`)
+
+Decisão da equipe em 15/11: a previsão entra no escopo. O estado real de cada peça está em `CONFERENCIA.md`, os passos em `PLANO.md` e as decisões em `DECISOES.md`.
+
+- **Previsão de focos por município e mês.** Treino até 2019, teste em 2020–2025, sem embaralhar anos. Linhas de base: climatologia (média do mesmo mês) e persistência (mesmo mês do ano anterior). Métricas: MAE e, para "mês acima do P90", Brier score e calibração → `monitor-cinder/api/out/forecast_validation.json`. **Se o modelo não superar a climatologia, a climatologia é a previsão oficial**, e isso é dito na interface.
+- **Toda previsão mostrada** traz valor, intervalo P10–P90, probabilidade de ficar acima do P90, período de treino e métrica de validação fora da amostra. É previsão de **ocorrência de focos por área e mês**, nunca de comportamento do fogo.
+- **Agente (`POST /api/assistant`)**: chama a própria API como ferramentas somente leitura; o LLM recebe só agregados (≈2 KB por chamada). Roteamento com modelo pequeno, redação multi-fonte com modelo maior, e **modo sem LLM** (palavras-chave + texto preenchido) quando não há `ANTHROPIC_API_KEY`.
+- **Conferência determinística antes de cada resposta** (zero tokens): todo número existe na saída de uma ferramenta; toda previsão tem intervalo, treino e métrica; nenhuma frase atribui causa; falhou duas vezes → responde só o verificável e diz o que faltou. Cada conferência vai para um log de decisões.
+- **Salvaguardas:** nunca autoriza nem recomenda acender fogo (Lei 14.944/2024, órgão ambiental de Goiás, plano de queima, aceiro, Corpo de Bombeiros); dado com mais de 24 h de defasagem é sinalizado; fora de Goiás ou sem dado → "sem dados".
 
 ## 6. O mapa (já implementado)
 

@@ -1,7 +1,6 @@
 .env
 .env.*
 !.env.example
-!monitor-cinder/api/.env
 data/raw/
 monitor-cinder/data/
 monitor-cinder/api/data/
