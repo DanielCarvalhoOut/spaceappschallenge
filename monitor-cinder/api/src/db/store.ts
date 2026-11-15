@@ -403,9 +403,18 @@ class CinderDataStore {
   public getMapValues(
     year: number,
     month: number,
-    metric: 'anomaly' | 'count' | 'density'
+    metric: 'anomaly' | 'count' | 'density' | 'typical'
   ): Record<string, number | null> {
     const out: Record<string, number | null> = {};
+    if (metric === 'typical') {
+      // Historical pattern of the calendar month: median of the same month in every complete earlier year (2002+).
+      for (const [ibge, rows] of this.calendars.entries()) {
+        const xs = rows.filter((r) => r.month === month && r.year >= 2002 && r.year < year && !r.partial && r.harmonized !== null)
+          .map((r) => r.harmonized as number).sort((a, b) => a - b);
+        out[ibge] = xs.length >= 5 ? Math.round((xs.length % 2 ? xs[(xs.length - 1) / 2]! : (xs[xs.length / 2 - 1]! + xs[xs.length / 2]!) / 2) * 10) / 10 : null;
+      }
+      return out;
+    }
     for (const [ibge, rows] of this.calendars.entries()) {
       const idx = rows.findIndex((r) => r.year === year && r.month === month);
       const row = idx >= 0 ? rows[idx]! : undefined;

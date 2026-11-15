@@ -56,9 +56,37 @@
   const fmtZ = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : (v >= 0 ? '+' : '') + I.num(v, 2) + 'σ');
   const monthName = (m) => I.months()[m - 1] || '';
   const fmt1 = (v) => (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(Math.round(v * 10) / 10));
+
+  /* ---------- the edge between observed data and projection ---------- */
+  const keyOf = (y, m) => y * 100 + m;
+  const addMonths = (key, n) => { const y = Math.floor(key / 100), m = (key % 100) - 1 + n; return keyOf(y + Math.floor(m / 12), (m % 12) + 1); };
+  const PROJ_MONTHS = 6; // the projection reaches 6 months past the last observed day
+  function edge() {
+    const d = state.source && state.source.lastObservedDay;
+    if (!d) return null;
+    const p = state.source.provisionalFrom;
+    return { key: keyOf(Number(d.slice(0, 4)), Number(d.slice(5, 7))), date: d, provKey: p ? keyOf(Number(p.slice(0, 4)), Number(p.slice(5, 7))) : null, prov: p };
+  }
+  /** 'obs' | 'prov' (observed, near-real-time) | 'partial' (month in progress) | 'proj' (future, up to 6 months) | 'none' */
+  function periodKind(y, m) {
+    const k = keyOf(y, m), e = edge();
+    if (!state.source || k < keyOf(state.source.firstYear, 1)) return 'none';
+    if (!e) return k <= keyOf(state.source.lastYear, 12) ? 'obs' : 'none';
+    if (k === e.key) return 'partial';
+    if (k < e.key) return e.provKey !== null && k >= e.provKey ? 'prov' : 'obs';
+    return k <= addMonths(e.key, PROJ_MONTHS) ? 'proj' : 'none';
+  }
+  const isFuture = () => periodKind(state.year, state.month) === 'proj';
+  /** Metric actually painted: future months show the historical pattern of that calendar month. */
+  const viewMetric = () => (isFuture() ? 'typical' : state.metric);
+  const lastPickYear = () => { const e = edge(); return e ? Math.floor(addMonths(e.key, PROJ_MONTHS) / 100) : state.source.lastYear; };
+  const fmtDay = (iso) => { const d = new Date(`${iso}T00:00:00Z`); return d.toLocaleDateString(I.lang() === 'en' ? 'en-US' : 'pt-BR', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }); };
+
   /** Value text for the active map metric (pills, tooltip). */
   const valueText = (v) => (
-    state.metric === 'anomaly'
+    viewMetric() === 'typical'
+      ? fmtInt(v)
+      : state.metric === 'anomaly'
       ? fmtZ(v)
       : state.metric === 'density'
         ? fmt1(v)
@@ -81,7 +109,7 @@
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     const y = Number(p.get('y')), m = Number(p.get('m')), k = p.get('k'), mun = p.get('mun');
-    if (Number.isInteger(y) && y >= state.source.firstYear && y <= state.source.lastYear) state.year = y;
+    if (Number.isInteger(y) && y >= state.source.firstYear && y <= lastPickYear()) state.year = y;
     if (Number.isInteger(m) && m >= 1 && m <= 12) state.month = m;
     if (k === 'anomaly' || k === 'count' || k === 'density') state.metric = k; // propensity/agro are off in the API
     if (mun && /^\d{7}$/.test(mun) && state.ids.includes(mun)) state.selected = mun;
@@ -159,25 +187,64 @@
 
   /* ---------- controls ---------- */
   function fillControls() {
-    const ySel = $('year');
-    clear(ySel);
-    for (let y = state.source.lastYear; y >= state.source.firstYear; y--) ySel.append(new Option(String(y), String(y)));
-    ySel.value = String(state.year);
+    if (periodKind(state.year, state.month) === 'none') { const e = edge(); if (e) { state.year = Math.floor(e.key / 100); state.month = e.key % 100; } }
     renderMonthOptions();
     $('metric').value = state.metric;
-    ySel.onchange = () => { state.year = Number(ySel.value); onPeriodChange(); };
-    $('month').onchange = () => { state.month = Number($('month').value); onPeriodChange(); };
     $('metric').onchange = () => { state.metric = $('metric').value; refreshMap(); if (state.calRows) renderCalendar(state.calRows); };
+    const btn = $('period-btn'), pop = $('period-pop');
+    const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+    btn.onclick = () => {
+      if (!pop.hidden) { close(); return; }
+      state.ppYear = state.year;
+      renderPeriodPicker();
+      pop.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      const cur = pop.querySelector('.period__m.is-current');
+      if (cur) cur.focus();
+    };
+    $('pp-prev').onclick = () => { state.ppYear -= 1; renderPeriodPicker(); };
+    $('pp-next').onclick = () => { state.ppYear += 1; renderPeriodPicker(); };
+    document.addEventListener('click', (e) => { if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden) { close(); btn.focus(); } });
+    state.closePeriod = close;
   }
+  /** Button text + tag (provisional, in progress, projection) for the selected month. */
   function renderMonthOptions() {
-    const mSel = $('month');
-    clear(mSel);
-    I.months().forEach((label, i) => mSel.append(new Option(label, String(i + 1))));
-    mSel.value = String(state.month);
+    $('period-text').textContent = `${monthName(state.month)} ${state.year}`;
+    const kind = periodKind(state.year, state.month), tag = $('period-tag');
+    const key = { prov: 'period.tagProv', partial: 'period.tagPartial', proj: 'period.tagProj' }[kind];
+    tag.hidden = !key;
+    tag.textContent = key ? t(key) : '';
+    tag.className = `period__tag period__tag--${kind}`;
+    if (!$('period-pop').hidden) renderPeriodPicker();
+  }
+  function renderPeriodPicker() {
+    const first = state.source.firstYear, last = lastPickYear();
+    if (!Number.isInteger(state.ppYear)) state.ppYear = state.year;
+    state.ppYear = Math.min(last, Math.max(first, state.ppYear));
+    const y = state.ppYear;
+    $('pp-year').textContent = String(y);
+    $('pp-prev').disabled = y <= first;
+    $('pp-next').disabled = y >= last;
+    const box = $('pp-months');
+    clear(box);
+    for (let m = 1; m <= 12; m++) {
+      const kind = periodKind(y, m);
+      const b = el('button', `period__m period__m--${kind}`, monthName(m));
+      b.type = 'button';
+      if (kind === 'none') b.disabled = true;
+      if (y === state.year && m === state.month) { b.classList.add('is-current'); b.setAttribute('aria-current', 'true'); }
+      b.title = kind === 'none' ? t('period.none') : t(`period.k${{ obs: 'Obs', prov: 'Prov', partial: 'Partial', proj: 'Proj' }[kind]}`);
+      b.onclick = () => { state.year = y; state.month = m; if (state.closePeriod) state.closePeriod(); onPeriodChange(); };
+      box.append(b);
+    }
+    const e = edge();
+    $('pp-range').textContent = e
+      ? t('period.range', { from: `${monthName(1)}/${first}`, to: fmtDay(e.date), prov: e.prov ? fmtDay(e.prov) : '–' })
+      : t('period.rangeNone');
   }
   function onPeriodChange() {
-    $('year').value = String(state.year);
-    $('month').value = String(state.month);
+    renderMonthOptions();
     refreshMap();
     if (state.sphereSelection) {
       renderSpherePanel(state.sphereSelection);
@@ -208,6 +275,30 @@
   async function refreshMap() {
     writeHash();
     const seq = ++state.reqSeq;
+    const future = isFuture();
+    document.querySelector('.map-wrap').classList.toggle('is-projection', future);
+    $('metric').disabled = future;
+    if (!future) $('proj-ribbon').hidden = true;
+    if (future) {
+      try {
+        const values = await state.source.mapValues(state.year, state.month, 'typical');
+        if (seq !== state.reqSeq) return;
+        state.values = values;
+        let max = 10;
+        for (const k of Object.keys(values)) { const v = values[k]; if (typeof v === 'number' && v > max) max = v; }
+        const scale = { type: 'sequential', min: 0, max };
+        map.setValues(values, scale);
+        drawLegend(scale);
+        if (state.selected) renderNeighborsList(state.selected);
+        setStatus(null);
+        renderRibbon(seq);
+      } catch (e) {
+        if (seq !== state.reqSeq) return;
+        console.error(e);
+        setStatus('status.valuesErr', null, true, refreshMap);
+      }
+      return;
+    }
     try {
       const isAnomaly = state.metric === 'anomaly';
       const [values, counts] = await Promise.all([
@@ -234,7 +325,7 @@
   }
 
   function drawLegend(scale) {
-    $('legend-title').textContent = t(`legend.${state.metric}`, { period: period() });
+    $('legend-title').textContent = t(`legend.${viewMetric()}`, { period: period() });
     const c = $('legend-canvas');
     const ctx = c.getContext('2d');
     for (let x = 0; x < c.width; x++) {
@@ -262,7 +353,9 @@
     const v = state.values[h.id];
     const muniName = state.names.get(h.id) || h.id;
     $('tt-name').textContent = muniName;
-    $('tt-value').textContent = state.metric === 'anomaly'
+    $('tt-value').textContent = viewMetric() === 'typical'
+      ? t('tt.typical', { n: fmtInt(v), m: monthName(state.month) })
+      : state.metric === 'anomaly'
       ? `${fmtZ(v)} · ${zText(v)}`
       : state.metric === 'density'
         ? t('tt.density', { v: fmt1(v), period: period() })
@@ -591,6 +684,8 @@
       state.sphereRows = rows;
 
       const cur = rows.find((r) => r.year === state.year && r.month === state.month) || null;
+      if (isFuture()) futureKpis(rows);
+      else {
       $('k-period').textContent = period();
       $('k-count').textContent = fmtInt(cur ? cur.harmonized : null);
       const z = cur ? cur.anomalyZ : null;
@@ -598,6 +693,7 @@
       kz.textContent = fmtZ(z);
       kz.className = z === null ? '' : z >= 1 ? 'z-up' : z <= -1 ? 'z-down' : '';
       $('k-z-text').textContent = zText(z);
+      }
 
       renderPattern(patternFromRows(rows));
       renderCalendar(rows);
@@ -643,7 +739,18 @@
     const rows = state.rows.get(state.selected) || [];
     return rows.find((r) => r.year === state.year && r.month === state.month) || null;
   }
+  /** KPI boxes for a future month: the historical band of that calendar month (P10–P90 of earlier years). */
+  function futureKpis(rows) {
+    const rg = rows ? global.FireData.rangeFromRows(rows, state.year, state.month) : null;
+    $('k-period').textContent = `${period()} · ${t('period.tagProj')}`;
+    $('k-count').textContent = rg ? `${fmtInt(rg.p10)}–${fmtInt(rg.p90)}` : '–';
+    const kz = $('k-z');
+    kz.textContent = rg ? fmtInt(rg.p50) : '–';
+    kz.className = '';
+    $('k-z-text').textContent = rg ? t('kpi.futureTypical', { n: rg.nYears }) : t('kpi.futureNone');
+  }
   function updateKpis() {
+    if (isFuture()) { futureKpis(state.rows.get(state.selected)); return; }
     const r = currentRow();
     $('k-period').textContent = period();
     $('k-count').textContent = fmtInt(r ? r.harmonized : null);
@@ -734,6 +841,31 @@
   }
 
 
+
+  /* ---------- Projection ribbon (a highlight, not an alert): from this point on it is projection ---------- */
+  let stateHorizons = null;
+  async function renderRibbon(seq) {
+    const rib = $('proj-ribbon'), txt = $('proj-ribbon-text');
+    const e = edge();
+    rib.hidden = false;
+    txt.textContent = t('ribbon.base', { d: e ? fmtDay(e.date) : '–', m: `${monthName(state.month)} ${state.year}` });
+    if (!state.source.horizons) return;
+    try {
+      if (!stateHorizons) stateHorizons = await state.source.horizons({ ibge: CFG.uf });
+    } catch (err) { console.warn('horizons:', err.message); return; }
+    if (seq !== state.reqSeq || !stateHorizons) return;
+    const h = stateHorizons, hc = h.hindcast || {};
+    const mo = h.months.find((x) => x.year === state.year && x.month === state.month);
+    const parts = [t('ribbon.base', { d: fmtDay(h.asOf), m: `${monthName(state.month)} ${state.year}` })];
+    // The model band only where the hindcast validated it (sums up to ~30 days ahead); further out, the historical pattern.
+    const monthEnd = Date.UTC(state.year, state.month, 0) / 86400000;
+    const ahead = monthEnd - Date.parse(`${h.asOf}T00:00:00Z`) / 86400000;
+    if (mo && hc.month && hc.month.published && ahead <= 31) parts.push(t('ribbon.model', { p10: fmtInt(mo.p10), p90: fmtInt(mo.p90) }));
+    else if (mo && mo.climatology) parts.push(t('ribbon.clim', { p10: fmtInt(mo.climatology.p10), p90: fmtInt(mo.climatology.p90) }));
+    if (h.fortnight && hc.fortnight && hc.fortnight.published) parts.push(t('ribbon.fortnight', { p10: fmtInt(h.fortnight.p10), p90: fmtInt(h.fortnight.p90) }));
+    txt.textContent = parts.join(' · ');
+  }
+
   /* ---------- History tab: a real calendar (year → months → days) ---------- */
   const dailyCache = new Map();
   let calSeq = 0;
@@ -749,7 +881,7 @@
     const tiles = $('cal-months'), detail = $('cal-month');
     clear(tiles);
     if (!rows || !rows.length) { clear(detail); $('cal-year').textContent = ''; return; }
-    const first = state.source.firstYear, last = state.source.lastYear;
+    const first = state.source.firstYear, last = lastPickYear();
     if (!Number.isInteger(state.calYear) || state.calYear < first || state.calYear > last) state.calYear = state.year;
     const y = state.calYear;
     $('cal-year').textContent = String(y);
@@ -763,7 +895,8 @@
       const b = el('button', 'cal-tile');
       b.type = 'button';
       const future = !r && y * 100 + m > lastKey;
-      if (future) { b.classList.add('is-future'); b.disabled = true; }
+      const proj = future && periodKind(y, m) === 'proj';
+      if (future) { b.classList.add(proj ? 'is-proj' : 'is-future'); b.disabled = !proj; }
       if (y === state.year && m === state.month) b.classList.add('is-current');
       if (r && (r.provisional || r.partial)) b.classList.add('is-provisional');
       const bar = el('i', 'cal-tile__bar');
@@ -773,8 +906,8 @@
       }
       const z = r ? r.anomalyZ : null;
       const zEl = el('small', z === null || z === undefined ? 'cal-tile__z' : z >= 1 ? 'cal-tile__z z-up' : z <= -1 ? 'cal-tile__z z-down' : 'cal-tile__z', future ? '' : fmtZ(z));
-      b.append(el('span', 'cal-tile__m', monthName(m)), el('strong', 'cal-tile__v', future ? '–' : r ? fmtInt(r.harmonized) : '–'), bar, zEl);
-      const label = future ? t('cal.future', { m: monthName(m), y }) : r
+      b.append(el('span', 'cal-tile__m', monthName(m)), el('strong', 'cal-tile__v', proj ? t('period.tagProj') : future ? '–' : r ? fmtInt(r.harmonized) : '–'), bar, zEl);
+      const label = proj ? t('cal.proj', { m: monthName(m), y }) : future ? t('cal.future', { m: monthName(m), y }) : r
         ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) }) + (r.provisional ? t('cal.provisional') : '') + (r.partial ? t('cal.partial') : '')
         : t('cal.empty', { m: monthName(m), y });
       b.title = label; b.setAttribute('aria-label', label);
@@ -794,6 +927,14 @@
     const base = rows.filter((x) => x.month === m && x.year >= 2002 && x.year <= 2024 && Number.isFinite(x.harmonized)).map((x) => x.harmonized);
     const typical = base.length ? base.reduce((s, v) => s + v, 0) / base.length : null;
     const sum = el('p', 'range-line');
+    if (periodKind(y, m) === 'proj') {
+      box.classList.add('is-proj');
+      const rg = global.FireData.rangeFromRows(rows, y, m);
+      sum.textContent = rg ? t('day.futureTypical', { p10: fmtInt(rg.p10), p50: fmtInt(rg.p50), p90: fmtInt(rg.p90), n: rg.nYears }) : t('kpi.futureNone');
+      box.append(sum, el('p', 'cal-month__facts', t('day.futureNote')));
+      return;
+    }
+    box.classList.remove('is-proj');
     sum.textContent = r
       ? t('day.summary', { n: fmtInt(r.harmonized), z: zText(r.anomalyZ), typ: typical === null ? '–' : fmtInt(typical) })
       : t('cal.empty', { m: monthName(m), y });
@@ -1723,6 +1864,7 @@
       loadDetail({ kind: 'muni', id: state.selected }, cur ? cur.harmonized : 0, seq);
     }
     if (state.horizonsShown) renderHorizons(state.horizonsShown);
+    if (isFuture()) renderRibbon(state.reqSeq);
     if (state.roots.on && state.roots.data) drawRoots();
   }
   function setupLanguage() {

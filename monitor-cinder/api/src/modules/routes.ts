@@ -233,7 +233,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       year: YearSchema.default(2024),
       month: MonthSchema.default(9),
       metric: z
-        .enum(['anomaly', 'count', 'density', 'propensity', 'agro_score'])
+        .enum(['anomaly', 'count', 'density', 'typical', 'propensity', 'agro_score'])
         .default('anomaly'),
     });
     const parsed = qSchema.safeParse(req.query);
@@ -242,6 +242,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     const { year, month, metric } = parsed.data;
     if (metric === 'propensity' || metric === 'agro_score') return disabledFeature(reply);
+    if (metric === 'typical') {
+      // future months: the map shows the historical pattern of that calendar month (median of earlier years)
+      if (!(await requireFirmsHistory(reply))) return reply;
+      return { year, month, metric, dataKind: store.getCalendarKind(), values: store.getMapValues(year, month, 'typical') };
+    }
     if (await history.hasHistory()) {
       return { year, month, metric, dataKind: 'firms_db', values: await history.mapValues(year, month, metric) };
     }

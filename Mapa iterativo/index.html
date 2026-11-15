@@ -24,8 +24,26 @@
           <option value="density" data-i18n="metric.density"></option>
         </select>
       </label>
-      <label class="field"><span data-i18n="field.year"></span> <select id="year"></select></label>
-      <label class="field"><span data-i18n="field.month"></span> <select id="month"></select></label>
+      <div class="field period">
+        <span id="period-label" data-i18n="field.period"></span>
+        <button id="period-btn" class="period__btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="period-pop" aria-labelledby="period-label period-btn">
+          <span id="period-text"></span><em id="period-tag" class="period__tag" hidden></em><span aria-hidden="true">▾</span>
+        </button>
+        <div id="period-pop" class="period__pop" role="dialog" data-i18n-attr="aria-label:period.aria" hidden>
+          <div class="cal-nav">
+            <button id="pp-prev" class="icon-btn" type="button" data-i18n-attr="aria-label:cal.prev;title:cal.prev">‹</button>
+            <strong id="pp-year" class="cal-nav__year"></strong>
+            <button id="pp-next" class="icon-btn" type="button" data-i18n-attr="aria-label:cal.next;title:cal.next">›</button>
+          </div>
+          <div id="pp-months" class="period__months"></div>
+          <div class="period__keys">
+            <span><i class="pk pk--obs"></i><span data-i18n="period.kObs"></span></span>
+            <span><i class="pk pk--prov"></i><span data-i18n="period.kProv"></span></span>
+            <span><i class="pk pk--proj"></i><span data-i18n="period.kProj"></span></span>
+          </div>
+          <p id="pp-range" class="period__range"></p>
+        </div>
+      </div>
       <div class="search">
         <input id="search" type="search" autocomplete="off" spellcheck="false" maxlength="60"
                data-i18n-attr="placeholder:search.ph;aria-label:search.aria"
@@ -98,6 +116,10 @@
         </div>
       </figure>
       <button id="reopen" class="reopen-chip" type="button" hidden></button>
+      <div id="proj-ribbon" class="proj-ribbon" role="status" hidden>
+        <strong class="proj-ribbon__tag" data-i18n="ribbon.tag"></strong>
+        <span id="proj-ribbon-text"></span>
+      </div>
       <div id="panel-empty" class="map-hint" role="note">
         <strong data-i18n="empty.title"></strong>
         <span data-i18n="empty.p1"></span>

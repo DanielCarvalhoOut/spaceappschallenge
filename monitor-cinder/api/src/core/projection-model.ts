@@ -347,7 +347,7 @@ export interface Projection {
   model: { family: string; features: readonly string[]; theta: number; trainedUntil: string; nTrain: number };
   daily: Array<{ date: string; pAnyPct: number; p50: number; p90: number }>;
   fortnight: { from: string; to: string; p10: number; p50: number; p90: number; climatology: { p10: number; p50: number; p90: number } | null };
-  months: Array<{ year: number; month: number; observedSoFar: number; p10: number; p50: number; p90: number; partial: boolean }>;
+  months: Array<{ year: number; month: number; observedSoFar: number; p10: number; p50: number; p90: number; partial: boolean; climatology: { p10: number; p50: number; p90: number } | null }>;
   semester: { from: string; to: string; p10: number; p50: number; p90: number; climatology: { p10: number; p50: number; p90: number } | null };
 }
 
@@ -382,7 +382,7 @@ export function projectFrom(input: DailyInput, paths = 500, widen: Widen = { for
     const observed = k === 0 ? windowSum({ first: input.first, values: input.values }, d0, origin) ?? 0 : 0;
     // remaining days widened by the month calibration, then the days already observed added back
     const b = band(widenEnsemble(sumH(h0, h1), widen.month).map((v) => v + observed));
-    months.push({ year: y, month: m + 1, observedSoFar: r1(observed), ...b, partial: k === 0 && d0 <= origin });
+    months.push({ year: y, month: m + 1, observedSoFar: r1(observed), ...b, partial: k === 0 && d0 <= origin, climatology: climBand(d0, d1) });
   }
   return {
     asOf: iso(origin),

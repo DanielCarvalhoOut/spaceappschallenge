@@ -130,6 +130,9 @@
         done: intIn(meta.historyLoad.done, 0, 1000) ? meta.historyLoad.done : 0,
         total: intIn(meta.historyLoad.total, 0, 1000) ? meta.historyLoad.total : 0,
       } : null,
+      // last day FIRMS served (YYYY-MM-DD) and first near-real-time day: the edge between observed data and projection
+      lastObservedDay: meta.chain && /^\d{4}-\d{2}-\d{2}$/.test(meta.chain.lastObservedDay) ? meta.chain.lastObservedDay : null,
+      provisionalFrom: meta.chain && /^\d{4}-\d{2}-\d{2}$/.test(meta.chain.provisionalFrom) ? meta.chain.provisionalFrom : null,
       firstYear: intIn(meta.period && meta.period.firstYear, 2000, 2100) ? meta.period.firstYear : CFG.firstYear,
       lastYear: intIn(meta.period && meta.period.lastYear, 2000, 2100) ? meta.period.lastYear : CFG.lastYear,
       sources,
@@ -242,7 +245,7 @@
           fortnight: win(j.fortnight),
           semester: win(j.semester),
           months: (Array.isArray(j.months) ? j.months : []).slice(0, 6).filter((m) => m && intIn(m.year, 2000, 2100) && intIn(m.month, 1, 12) && bandOf(m))
-            .map((m) => ({ year: m.year, month: m.month, observedSoFar: num(m.observedSoFar), partial: m.partial === true, ...bandOf(m) })),
+            .map((m) => ({ year: m.year, month: m.month, observedSoFar: num(m.observedSoFar), partial: m.partial === true, ...bandOf(m), climatology: bandOf(m.climatology) })),
           hindcast: h ? {
             period: typeof j.hindcast.period === 'string' ? j.hindcast.period.slice(0, 20) : '',
             calibrationPeriod: typeof j.hindcast.calibrationPeriod === 'string' ? j.hindcast.calibrationPeriod.slice(0, 20) : '',
@@ -352,7 +355,7 @@
   function offlineSource() {
     const fail = async () => { throw new Error('API offline'); };
     return {
-      kind: 'offline', dataKind: 'none', historyLoad: null,
+      kind: 'offline', dataKind: 'none', historyLoad: null, lastObservedDay: null, provisionalFrom: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
       mapValues: fail, calendar: fail, pattern: fail, context: fail, intelligence: fail,
       projection: fail, horizons: fail, daily: fail, areaHistory: fail, cells: fail, recurrence: fail,
