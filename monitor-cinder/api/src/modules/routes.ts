@@ -18,6 +18,7 @@ import {
 } from '../core/types.js';
 import { store } from '../db/store.js';
 import { historyStatus } from '../core/history-status.js';
+import { buildChain, isoDay } from '../core/cell-index.js';
 
 /** FIRMS history available (PostGIS or the cell index)? Otherwise answer 503 with the load progress. */
 async function requireFirmsHistory(reply: FastifyReply): Promise<boolean> {
@@ -120,7 +121,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const computed = fromDb ? history.readHarmonizationValidation() : store.ensureValidationArtifacts();
     const projectionCheck = history.readProjectionValidation();
     const index = store.getIndex();
-    const indexYears = index ? [...index.yearsLoaded.MODIS, ...index.yearsLoaded.VIIRS] : [];
+    const chain = index ? buildChain(index) : null;
+    const indexYears = chain && chain.last >= chain.first
+      ? [new Date(chain.first * 86_400_000).getUTCFullYear(), new Date(chain.last * 86_400_000).getUTCFullYear()] : [];
     return {
       service: 'monitor-cinder',
       // 'firms_db' = FIRMS history in PostGIS; 'firms_index' = FIRMS history in the local cell index;
@@ -131,6 +134,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         firstYear: !fromDb && indexYears.length ? Math.min(...indexYears) : 2001,
         lastYear: !fromDb && indexYears.length ? Math.max(...indexYears) : 2025,
       },
+      // Satellite chain behind the series (index mode): last observed day, provisional (NRT) days, error per link.
+      chain: chain && chain.last >= chain.first ? {
+        lastObservedDay: isoDay(chain.last),
+        provisionalFrom: chain.provisionalFrom === null ? null : isoDay(chain.provisionalFrom),
+        links: chain.links,
+      } : null,
       supportedSensors: [
         'MODIS_NRT',
         'MODIS_SP',
@@ -321,7 +330,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     const rows = store
       .getCalendar(muni.ibgeCode)
-      .filter((r) => (r.anomalyZ ?? 0) >= 1.5 && r.harmonized >= 10)
+      .filter((r) => (r.anomalyZ ?? 0) >= 1.5 && (r.harmonized ?? 0) >= 10)
       .sort((a, b) => b.year - a.year || b.month - a.month)
       .slice(0, 12);
 

@@ -18,13 +18,17 @@ import { runBuildCellIndex } from './jobs/build-cell-index.js';
 export function startHistoryLoadIfMissing(): void {
   if (historyStatus.phase === 'building') return;
   void (async () => {
-    if ((await hasHistory()) || loadCellIndex()) { historyStatus.phase = 'ready'; return; }
-    historyStatus.phase = 'building';
+    if (await hasHistory()) { historyStatus.phase = 'ready'; return; }
+    const existing = loadCellIndex();
+    // An index older than 6 h is refreshed in the background (only the current year is fetched again);
+    // meanwhile the API keeps serving it.
+    if (existing && Date.now() - Date.parse(existing.builtAt) < 6 * 3_600_000) { historyStatus.phase = 'ready'; return; }
+    historyStatus.phase = existing ? 'ready' : 'building';
     historyStatus.startedAt = new Date().toISOString();
     historyStatus.error = null;
-    logger.info('No FIRMS history yet: loading it in the background (job:build-cell-index 2001–2025)');
+    logger.info(existing ? 'Refreshing the FIRMS history up to today in the background' : 'No FIRMS history yet: loading it in the background (job:build-cell-index, 2001 to today)');
     try {
-      await runBuildCellIndex(2001, 2025);
+      await runBuildCellIndex(2001);
       store.reloadFromIndex();
       historyStatus.phase = 'ready';
     } catch (err) {

@@ -203,6 +203,32 @@ async function fetchWithRetry(url: string, signal: AbortSignal, maxAttempts = 3)
   throw lastErr ?? new Error('FIRMS request failed');
 }
 
+/** Date range FIRMS currently serves per stream (data_availability API), e.g. VIIRS_NOAA20_SP → 2018-04-01..2026-07-31. */
+const AvailabilityRow = z.object({
+  data_id: z.string().min(1).max(40),
+  min_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  max_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type FirmsAvailability = Map<string, { min: string; max: string }>;
+
+export async function fetchFirmsAvailability(signal: AbortSignal): Promise<FirmsAvailability> {
+  const key = config.FIRMS_MAP_KEY;
+  if (!key) throw new Error('FIRMS_MAP_KEY is not configured in .env');
+  const text = await fetchWithRetry(`https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/${key}/ALL`, signal);
+  const lines = text.trim().split(/\r?\n/);
+  const header = (lines.shift() ?? '').split(',').map((h) => h.trim());
+  const out: FirmsAvailability = new Map();
+  for (const line of lines) {
+    const cells = line.split(',');
+    const obj: Record<string, string> = {};
+    header.forEach((h, i) => { obj[h] = (cells[i] ?? '').trim(); });
+    const row = AvailabilityRow.safeParse(obj);
+    if (row.success) out.set(row.data.data_id, { min: row.data.min_date, max: row.data.max_date });
+  }
+  if (!out.size) throw new Error('FIRMS data_availability returned no rows');
+  return out;
+}
+
 export class FirmsConnector implements SourceConnector<FirmsQuery, FirmsHotspotRecord> {
   public readonly id = 'firms' as const;
   public readonly license = 'NASA Earthdata / FIRMS Open Data Policy (MODIS C6.1 & VIIRS 375m)';

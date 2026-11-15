@@ -171,6 +171,28 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
     }
   });
 
+  // Projection with a validated uncertainty band: next days, 15 days, months and 6 months from the last observed day.
+  app.get('/api/projection/horizons', async (req, reply) => {
+    const q = z
+      .object({
+        ibge: z.string().regex(/^(52|52\d{5})$/).optional(),
+        lon: lon.optional(),
+        lat: lat.optional(),
+        radiusKm: z.coerce.number().min(5).max(300).optional(),
+      })
+      .refine((v) => (v.ibge !== undefined) !== (v.lon !== undefined && v.lat !== undefined && v.radiusKm !== undefined), {
+        message: 'give either ibge or lon+lat+radiusKm',
+      })
+      .safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid projection query', q.error.message);
+    if (q.data.ibge && q.data.ibge !== '52' && !store.getMunicipality(q.data.ibge)) return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
+    const area = q.data.ibge ? { ibge: q.data.ibge } : { lon: q.data.lon!, lat: q.data.lat!, radiusKm: q.data.radiusKm! };
+    const out = store.getHorizons(area);
+    if (!out) return problem(reply, 503, 'History not loaded', 'The daily projection needs the FIRMS index (job:build-cell-index).');
+    reply.header('Cache-Control', 'public, max-age=1800');
+    return { ...out.projection, hindcast: out.hindcast };
+  });
+
   // Focos-raiz overlay: recurrence per cell inside the visible box, aggregated to the requested resolution.
   app.get('/api/layers/recurrence', async (req, reply) => {
     const q = z
