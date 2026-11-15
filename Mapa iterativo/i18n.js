@@ -9,7 +9,7 @@
   const DICT = {
     pt: {
       'doc.title': 'Monitor Cinder · Padrões históricos de fogo em Goiás',
-      'brand.sub': 'Padrões históricos de fogo · Goiás',
+      'brand.sub': 'Padrões históricos de fogo',
       'badge.loading': 'Carregando…',
       'badge.offline': 'API desligada · sem dados',
       'badge.historyLoading': 'Baixando histórico NASA FIRMS · ano {done} de {total}',
@@ -286,7 +286,7 @@
     },
     en: {
       'doc.title': 'Monitor Cinder · Historical fire patterns in Goiás',
-      'brand.sub': 'Historical fire patterns · Goiás, Brazil',
+      'brand.sub': 'Historical fire patterns',
       'badge.loading': 'Loading…',
       'badge.offline': 'API offline · no data',
       'badge.historyLoading': 'Downloading NASA FIRMS history · year {done} of {total}',

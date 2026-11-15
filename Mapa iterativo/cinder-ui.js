@@ -19,7 +19,7 @@
     info: new Map(),
     year: CFG.defaultYear,
     month: CFG.defaultMonth,
-    metric: 'anomaly',
+    metric: 'count', // default view: harmonized hotspots (cell-days)
     selected: null,
     sphereSelection: null, // { radiusKm, areaKm2, ids, centerId }
     sphereRows: null,
