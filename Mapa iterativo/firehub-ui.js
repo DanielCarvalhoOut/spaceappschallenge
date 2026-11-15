@@ -161,7 +161,7 @@
     $('metric').value = state.metric;
     ySel.onchange = () => { state.year = Number(ySel.value); onPeriodChange(); };
     $('month').onchange = () => { state.month = Number($('month').value); onPeriodChange(); };
-    $('metric').onchange = () => { state.metric = $('metric').value; refreshMap(); };
+    $('metric').onchange = () => { state.metric = $('metric').value; refreshMap(); if (state.calRows) renderCalendar(state.calRows); };
   }
   function renderMonthOptions() {
     const mSel = $('month');
@@ -627,7 +627,18 @@
   function renderCalendar(rows) {
     const box = $('calendar');
     clear(box);
+    state.calRows = rows || null;
     if (!rows) return;
+    // Same rule as the map: no hotspots in the month = white; otherwise the colour of the active metric
+    // (anomaly scale for "anomaly", the municipality's own count scale for the other metrics).
+    const seq = { type: 'sequential', min: 0, max: Math.max(1, ...rows.map((r) => (Number.isFinite(r.harmonized) ? r.harmonized : 0))) };
+    const white = map.colorFor(0, seq);
+    const cellColor = (r) => {
+      if (!r || !Number.isFinite(r.harmonized)) return null;
+      if (r.harmonized <= 0) return white;
+      if (state.metric === 'anomaly') return r.anomalyZ !== null ? map.colorFor(r.anomalyZ, Z_SCALE) : null;
+      return map.colorFor(r.harmonized, seq);
+    };
     box.append(el('span', 'cal-h', ''));
     I.months().forEach((m) => box.append(el('span', 'cal-h', m[0])));
     const byKey = new Map(rows.map((r) => [`${r.year}-${r.month}`, r]));
@@ -639,8 +650,8 @@
         const b = el('button', 'cal-cell');
         b.type = 'button';
         b.dataset.y = String(y); b.dataset.m = String(m);
-        if (r && r.anomalyZ !== null) b.style.background = map.colorFor(r.anomalyZ, Z_SCALE);
-        else if (r && r.harmonized === 0) b.style.background = map.colorFor(Z_SCALE.min, Z_SCALE); // no fire: start of the scale
+        const bg = cellColor(r);
+        if (bg) b.style.background = bg;
         if (r && r.daysMissing) b.classList.add('is-missing');
         const label = r ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) }) : t('cal.empty', { m: monthName(m), y });
         b.title = label; b.setAttribute('aria-label', label);

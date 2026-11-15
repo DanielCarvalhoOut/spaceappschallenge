@@ -152,7 +152,9 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .btn--primary:hover { background: var(--accent-2); color: var(--black); }
 
 /* layout */
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; transition: grid-template-columns .25s ease; }
+/* A municipality or area is open: the data panel takes half the screen so the numbers are easier to read. */
+.layout:has(#panel-body:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(400px, 50vw); }
 .map-wrap {
   position: relative; min-height: 420px;
   background-color: var(--map-bg);
@@ -523,7 +525,7 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 }
 
 @media (max-width: 980px) {
-  .layout { grid-template-columns: 1fr; grid-template-rows: 58vh auto; }
+  .layout, .layout:has(#panel-body:not([hidden])) { grid-template-columns: 1fr; grid-template-rows: 58vh auto; }
   .panel { border-left: 0; border-top: 1px solid var(--line); }
   .search input { width: 100%; }
   .controls { width: 100%; }
