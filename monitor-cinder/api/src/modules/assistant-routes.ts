@@ -25,8 +25,12 @@ function problem(reply: FastifyReply, status: number, title: string, detail: str
 }
 
 export async function registerAssistantRoutes(app: FastifyInstance): Promise<void> {
-  const llm: LlmClient | null = config.ANTHROPIC_API_KEY ? createLlmClient(config.ANTHROPIC_API_KEY) : null;
-  logger.info({ mode: llm ? 'llm' : 'template' }, 'assistant mode');
+  const llm: LlmClient | null = config.GEMINI_API_KEY
+    ? createLlmClient({ provider: 'gemini', apiKey: config.GEMINI_API_KEY, routerModel: config.GEMINI_ROUTER_MODEL, writerModel: config.GEMINI_WRITER_MODEL })
+    : config.ANTHROPIC_API_KEY
+      ? createLlmClient({ provider: 'anthropic', apiKey: config.ANTHROPIC_API_KEY })
+      : null;
+  logger.info({ mode: llm ? 'llm' : 'template', provider: llm?.provider ?? null, models: llm?.models ?? null }, 'assistant mode');
 
   app.post('/api/assistant', { config: { rateLimit: { max: 12, timeWindow: '1 minute' } } }, async (req, reply) => {
     const body = BodySchema.safeParse(req.body);

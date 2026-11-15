@@ -17,7 +17,9 @@ Monitor Cinder harmoniza os focos de calor MODIS e VIIRS (NASA FIRMS) de 2001 at
 - **Nunca atribuir causa.** "associated with" / "associado a" é permitido; "cause", "caused by" / "causado por" é proibido. INPE, Embrapa, POWER e ONI são contexto.
 - O agente nunca autoriza nem recomenda acender fogo; resposta sobre queima controlada sempre remete ao órgão ambiental (Lei 14.944/2024) e ao Corpo de Bombeiros.
 - Interface **bilíngue**: português por padrão (apresentação local) e inglês no botão `EN` (vídeo, capturas, júri global). Todo texto novo entra nos dois idiomas em `Mapa iterativo/i18n.js`. README do app e página do projeto em **inglês**.
-- Segredos (`FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY/SECRET`, `ANTHROPIC_API_KEY`) só em `monitor-cinder/api/.env` (fora do git; nunca como valor padrão no código). O front nunca chama FIRMS, Embrapa nem o LLM. Logger com redaction.
+- Segredos (`FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY/SECRET`, `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`) só em `monitor-cinder/api/.env` (fora do git; nunca como valor padrão no código, nunca em URL). O front nunca chama FIRMS, Embrapa nem o LLM. Logger com redaction.
+- LLM do agente: **Gemini** (`GEMINI_API_KEY`; `gemini-3.5-flash-lite` roteia, `gemini-3.5-flash` só redige ENSO e intervenções). Sem chave, o agente roda sem LLM. Resposta de queima controlada é sempre texto fixo, nunca do modelo. Tudo que o modelo escreve passa pela conferência determinística.
+- Série da previsão e do agente: PostGIS (`fire.calendar_monthly`) quando o histórico tem MODIS e VIIRS; senão o índice em memória. Depois de mudar a série, rodar `npm run job:forecast`.
 - TypeScript: sem `any`; zod em toda entrada HTTP e toda resposta externa; consultas parametrizadas; um endpoint = uma consulta (sem N+1); erros em problem+json sem stack; rate limit (mais restrito no CSV); CORS só para a origem do front; API com o papel `fire_api_ro`.
 - Front: `textContent` sempre (nunca `innerHTML` com dado externo); CSP sem `unsafe-inline`; se mudar `apiBase` em `config.js`, atualizar o `connect-src` do `index.html`.
 - Não altere tabelas sem atualizar os testes em `db/teste_*.sql`.

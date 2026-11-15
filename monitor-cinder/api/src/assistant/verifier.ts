@@ -21,6 +21,9 @@ export type CheckCode =
   | 'FIRE_BEHAVIOUR_CLAIM'
   | 'BURN_WITHOUT_SAFEGUARD'
   | 'BURN_RECOMMENDATION'
+  | 'SMALL_SAMPLE_WITHOUT_WARNING'
+  | 'ASSOCIATION_NOT_IN_TOOLS'
+  | 'BURN_TEXT_OUTSIDE_BURN_ANSWER'
   | 'TOO_LONG';
 
 export interface CheckFailure {
@@ -102,12 +105,29 @@ export function numbersInTools(tools: readonly ToolResult[]): number[] {
   return out;
 }
 
+/** True when a tool result flags a group with a small sample (e.g. an ENSO phase with n < 5). */
+function hasSmallSample(tools: readonly ToolResult[]): boolean {
+  const walk = (v: unknown): boolean =>
+    Array.isArray(v) ? v.some(walk) : !!v && typeof v === 'object' && (('smallSample' in v && (v as { smallSample: unknown }).smallSample === true) || Object.values(v).some(walk));
+  return tools.some((t) => walk(t.result));
+}
+
+/** Tools that compare groups carry a `note` saying the result is an association (and nothing more). */
+function toolsReportAssociation(tools: readonly ToolResult[]): boolean {
+  return tools.some((t) => typeof t.result.note === 'string' && /association/i.test(t.result.note));
+}
+
 function inTools(n: { value: number; decimals: number }, pool: readonly number[]): boolean {
   const f = 10 ** n.decimals;
   return pool.some((t) => Math.abs(Math.round(Math.abs(t) * f) / f - Math.abs(n.value)) < 1e-9);
 }
 
-export function verifyAnswer(text: string, tools: readonly ToolResult[], opts: { lang: Lang; intent: string; allowLong?: boolean }): Verification {
+export function verifyAnswer(
+  text: string,
+  tools: readonly ToolResult[],
+  /** scope 'notice' (freshness lines) and 'facts' (last-resort list) are not the comparison itself: no small-sample rule. */
+  opts: { lang: Lang; intent: string; allowLong?: boolean; scope?: 'answer' | 'notice' | 'facts' }
+): Verification {
   const failures: CheckFailure[] = [];
 
   // 1. numbers
@@ -139,7 +159,27 @@ export function verifyAnswer(text: string, tools: readonly ToolResult[], opts: {
     const hasAgency = /[óo]rg[ãa]o\s+ambiental|environmental\s+agency/i.test(text);
     const hasFire = /bombeiros|fire\s+department/i.test(text);
     const hasPlan = /plano\s+de\s+queima|burn\s+plan/i.test(text) && /aceiro|firebreak/i.test(text);
-    if (!(hasLaw && hasAgency && hasFire && hasPlan)) failures.push({ code: 'BURN_WITHOUT_SAFEGUARD', detail: 'law, agency, fire department, burn plan and firebreak are required' });
+    // The denial itself must be on the page: a list of requirements alone can read as "do this and you may burn".
+    const hasDenial = /n[ãa]o\s+autoriza\s+nem\s+recomenda|does\s+not\s+authori[sz]e\s+or\s+recommend/i.test(text);
+    if (!(hasLaw && hasAgency && hasFire && hasPlan && hasDenial)) {
+      failures.push({ code: 'BURN_WITHOUT_SAFEGUARD', detail: 'denial of authorisation, law, agency, fire department, burn plan and firebreak are required' });
+    }
+  }
+
+  // Burn guidance belongs only to the fixed controlled-burn answer; in a statistics, forecast, ENSO or ranking answer
+  // it is off-topic model text. (The help text lists the capability and an intervention may be a firebreak: exempt.)
+  if (['stats', 'forecast', 'enso', 'mobilization'].includes(opts.intent) && /queima\s+(controlada|prescrita)|plano\s+de\s+queima|\baceiro\b|controlled\s+burn|prescribed\s+burn|burn\s+plan|\bfirebreak\b/i.test(text)) {
+    failures.push({ code: 'BURN_TEXT_OUTSIDE_BURN_ANSWER', detail: 'burn guidance in an answer that is not about a controlled burn' });
+  }
+
+  // 5. a comparison with fewer than 5 cases in a group must say so
+  if ((opts.scope ?? 'answer') === 'answer' && hasSmallSample(tools) && !/amostra\s+pequena|small\s+sample|\bn\s*<\s*\d/i.test(text)) {
+    failures.push({ code: 'SMALL_SAMPLE_WITHOUT_WARNING', detail: 'a group has a small n and the answer does not warn about it' });
+  }
+
+  // 6. an association may be stated only when a tool reports one (ENSO, interventions); never as free interpretation
+  if (/\bassociad[oa]s?\b|\bassocia[çc][ãa]o\b|\bassociat(ed|ion)\b|\bcorrela\w+|\brelacionad[oa]s?\s+(a|à|ao|com)\b|\blinked\s+to\b/i.test(text) && !toolsReportAssociation(tools)) {
+    failures.push({ code: 'ASSOCIATION_NOT_IN_TOOLS', detail: 'the answer states an association that no tool reported' });
   }
 
   if (!opts.allowLong && text.trim().split(/\s+/).length > MAX_WORDS) failures.push({ code: 'TOO_LONG', detail: `more than ${MAX_WORDS} words` });

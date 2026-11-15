@@ -5,7 +5,8 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { ForecastValidation } from '../core/forecast.js';
-import { getForecast, getForecastContext, readForecastValidation } from '../db/forecast-service.js';
+import { logger } from '../core/logger.js';
+import { getForecast, getForecastContext, primeForecastContext, readForecastValidation } from '../db/forecast-service.js';
 import { store } from '../db/store.js';
 
 function problem(reply: FastifyReply, status: number, title: string, detail: string) {
@@ -33,6 +34,10 @@ export function validationSummary(v: ForecastValidation) {
 }
 
 export async function registerForecastRoutes(app: FastifyInstance): Promise<void> {
+  // PostGIS series when the history is complete, in-memory series otherwise (decided once, at start-up).
+  const ctx0 = await primeForecastContext();
+  logger.info({ dataKind: ctx0.dataKind, dataThrough: ctx0.dataThrough }, 'forecast series');
+
   app.get('/api/forecast/validation', async (_req, reply) => {
     const v = readForecastValidation();
     if (!v) return problem(reply, 503, 'Forecast not validated yet', 'Run: npm run job:forecast');

@@ -1,19 +1,19 @@
 /**
- * End-to-end assistant over the real in-memory series. Needs the local FIRMS cell index (data/, not in git) and
- * out/forecast_validation.json built from it; skipped otherwise, like the database tests. No network: POWER is off.
+ * End-to-end assistant over the real series: PostGIS (fire.calendar_monthly) when its history has both sensors, else
+ * the local FIRMS cell index (data/, not in git). Needs out/forecast_validation.json built from that same series;
+ * skipped otherwise, like the database tests. No LLM and no POWER call.
  */
-import fs from 'node:fs';
-import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { answerQuestion, clearAssistantCache } from '../assistant/agent.js';
 import type { LlmClient } from '../assistant/llm.js';
 import { numbersInTools, numbersInText } from '../assistant/verifier.js';
-import { config } from '../config.js';
-import { CELL_INDEX_FILE } from '../core/cell-index.js';
-import { readForecastValidation } from '../db/forecast-service.js';
+import { primeForecastContext, readForecastValidation } from '../db/forecast-service.js';
 import { store } from '../db/store.js';
 
-const ready = fs.existsSync(path.join(config.dataDir, CELL_INDEX_FILE)) && readForecastValidation()?.dataKind === 'firms_index';
+// Real series = PostGIS when its history is complete, else the local cell index. The artifact must describe that series.
+await store.init();
+const ctx = await primeForecastContext();
+const ready = ctx.dataKind !== 'synthetic' && readForecastValidation()?.dataKind === ctx.dataKind;
 const now = new Date('2026-11-15T12:00:00Z');
 const deps = { now, fetchPower: false, logFile: null };
 
@@ -71,6 +71,8 @@ describe.skipIf(!ready)('assistant over the real series (no LLM)', () => {
     clearAssistantCache();
     let writes = 0;
     const llm: LlmClient = {
+      provider: 'gemini',
+      models: { router: 'fake-router', writer: 'fake-writer' },
       route: async () => ({ intent: 'enso', municipality: null, year: null, month: 9, months: 1 }),
       write: async () => {
         writes++;
@@ -89,6 +91,8 @@ describe.skipIf(!ready)('assistant over the real series (no LLM)', () => {
     clearAssistantCache();
     let writes = 0;
     const llm: LlmClient = {
+      provider: 'gemini',
+      models: { router: 'fake-router', writer: 'fake-writer' },
       route: async () => ({ intent: 'forecast', municipality: 'Goiânia', year: 2026, month: 9, months: 1 }),
       write: async () => {
         writes++;

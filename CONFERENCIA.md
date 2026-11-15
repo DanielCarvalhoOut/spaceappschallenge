@@ -45,3 +45,10 @@ Cada linha tem evidência (`caminho:linha` ou saída de comando). Caminhos de c�
 - **Série harmonizada: agora Existe em memória.** `job:build-cell-index` concluiu com MODIS 2001–2025 e VIIRS S-NPP 2012–2025 (log do job: `years.MODIS` 25 anos, `years.VIIRS` 14 anos, 204.199 células, 106 fontes fixas removidas); `GET /api/meta` → `dataKind: "firms_index"`; último dia com detecção: 2025-12-31. Granularidade: município × mês, células-dia de 1 km. O banco continua fora do ar.
 - **ONI: agora Existe.** `src/connectors/oni.ts`, 921 linhas válidas baixadas (até o trimestre ASO 2026), cache em `data/oni.json`.
 - **Previsão: agora Existe.** `src/core/forecast.ts`, `out/forecast_validation.json`, `GET /api/forecast`.
+
+## Atualização da rodada 2 (12:40)
+
+- **PostGIS: no ar e completo.** `monitor-cinder-postgis` na porta 5433; `fire.loaded_year` tem MODIS 2001–2025 e VIIRS 2012–2025; `out/validation.json` e `out/projection_validation.json` deixaram de ser "pending" (calculados por `job:build-history`).
+- **Série harmonizada: Existe no banco.** `GET /api/meta` → `dataKind: firms_db`; previsão e agente leem `fire.calendar_monthly` (`src/db/forecast-service.ts`, `primeForecastContext`).
+- **Chamada a LLM: Existe e foi testada de verdade** com o Gemini (`src/assistant/llm.ts`).
+- **Intervenções: tabela criada no banco e teste SQL executado**; o cadastro real continua vazio.

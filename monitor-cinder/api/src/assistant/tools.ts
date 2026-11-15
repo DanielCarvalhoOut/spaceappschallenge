@@ -6,7 +6,7 @@
 import { ONI_THRESHOLD, ONI_URL, type EnsoPhase } from '../connectors/oni.js';
 import { nasaPowerConnector } from '../connectors/nasa-power.js';
 import { quantile } from '../core/forecast.js';
-import { getForecast, getForecastContext, readForecastValidation } from '../db/forecast-service.js';
+import { getForecast, getForecastContext, readForecastValidation, seriesMonth, seriesPattern } from '../db/forecast-service.js';
 import { store } from '../db/store.js';
 import { compareIntervention, loadInterventions, type Intervention } from './interventions.js';
 
@@ -17,6 +17,8 @@ export const MAX_WINDOW_MONTHS = 6;
 export const RANKING_TOP = 5;
 export const SMALL_N = 5;
 const FIRMS_SOURCE = 'NASA FIRMS (MODIS + VIIRS S-NPP), harmonized series';
+/** Peak month of a municipality in the active series (September when unknown). */
+export const peakMonthOf = (ibge: string): number => seriesPattern(ibge)?.season.peakMonth ?? 9;
 const UNIT = 'harmonized cell-days (1 km)';
 
 export type ToolName = 'data_status' | 'historical_stats' | 'forecast' | 'enso' | 'interventions' | 'mobilization' | 'burn_context';
@@ -68,14 +70,13 @@ export function dataStatus(now: Date): ToolResult {
 
 export function historicalStats(ibge: string, year?: number, month?: number): ToolResult {
   const name = store.getMunicipality(ibge)?.name;
-  const rows = store.getCalendar(ibge);
-  if (!name || !rows.length) return { name: 'historical_stats', result: noData('municipality not in Goiás or without data') };
-  const pattern = store.getPattern(ibge);
+  const pattern = seriesPattern(ibge);
+  if (!name || !pattern) return { name: 'historical_stats', result: noData('municipality not in Goiás or without data') };
   const m = month ?? pattern.season.peakMonth ?? 9;
-  const base = rows.filter((x) => x.month === m && x.year >= BASE_FROM && x.year <= BASE_TO).map((x) => x.harmonized);
-  const lastYear = Math.max(...rows.map((x) => x.year));
-  const y = year ?? lastYear;
-  const row = rows.find((x) => x.year === y && x.month === m);
+  const y = year ?? getForecastContext().input.lastYear;
+  const sm = seriesMonth(ibge, y, m);
+  const base = sm?.base ?? [];
+  const row = sm && sm.value !== null ? { harmonized: sm.value, anomalyZ: sm.z } : null;
   return {
     name: 'historical_stats',
     result: {
@@ -285,7 +286,8 @@ export async function burnContext(ibge: string, year: number, month: number, opt
   const ctx = getForecastContext();
   const name = store.getMunicipality(ibge)?.name;
   if (!name) return { name: 'burn_context', result: noData('municipality not in Goiás') };
-  const pattern = store.getPattern(ibge);
+  const pattern = seriesPattern(ibge);
+  if (!pattern) return { name: 'burn_context', result: noData('no series for this municipality') };
   const f = getForecast(ibge, year, month)?.forecast ?? null;
   const neighbors = (ctx.input.neighbors.get(ibge) ?? []).map((n) => {
     const nf = getForecast(n, year, month)?.forecast;

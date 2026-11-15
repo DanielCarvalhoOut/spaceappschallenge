@@ -17,6 +17,8 @@ import {
   type ForecastValidation,
 } from '../core/forecast.js';
 import { logger } from '../core/logger.js';
+import { hasHistory } from './history.js';
+import { getPool } from './pool.js';
 import { store } from './store.js';
 
 export const NEIGHBORS_K = 5;
@@ -27,7 +29,8 @@ export const TEST_TO = 2025;
 
 export interface ForecastContext {
   input: ForecastInput;
-  dataKind: 'firms_index' | 'synthetic';
+  /** 'firms_db' = fire.calendar_monthly in PostGIS; 'firms_index' = in-memory FIRMS cell index; 'synthetic' = demo. */
+  dataKind: 'firms_db' | 'firms_index' | 'synthetic';
   viirsYears: number[];
   factorYears: number[];
   source: string;
@@ -94,6 +97,106 @@ export function resetForecastCache(): void {
   validationCache = null;
 }
 
+/**
+ * Chooses the series the forecast and the assistant read, once, at start-up (call after store.init()):
+ *   1. PostGIS (fire.calendar_monthly, the same table the calendar routes serve) when the history is built AND both
+ *      sensors are loaded. A MODIS-only database is not a harmonized series, so it is not used.
+ *   2. otherwise the in-memory series (FIRMS cell index, or the synthetic demo).
+ * Read-only: three fixed queries, no per-municipality query. CINDER_SERIES=memory skips the database.
+ */
+export async function primeForecastContext(): Promise<ForecastContext> {
+  ctxCache = null;
+  const memory = getForecastContext();
+  if (process.env.CINDER_SERIES === 'memory' || !(await hasHistory())) return memory;
+  try {
+    const pool = getPool();
+    const loaded = await pool.query<{ instrument: string; year: number }>('SELECT instrument, year FROM fire.loaded_year ORDER BY 1, 2');
+    const modisYears = loaded.rows.filter((r) => r.instrument === 'MODIS').map((r) => Number(r.year));
+    const viirsYears = loaded.rows.filter((r) => r.instrument === 'VIIRS').map((r) => Number(r.year));
+    if (!modisYears.length || !viirsYears.length) {
+      logger.warn({ modisYears: modisYears.length, viirsYears: viirsYears.length }, 'PostGIS history has only one sensor: not a harmonized series; using the in-memory series');
+      return memory;
+    }
+    const rows = await pool.query<{ ibge: string; year: number; month: number; v: number }>(
+      `SELECT r.ibge_code AS ibge, c.year, c.month, c.harmonized_count::float8 AS v
+         FROM fire.calendar_monthly c JOIN fire.region r ON r.id = c.region_id
+        WHERE r.kind = 'municipio' AND c.method = $1 AND c.year >= $2`,
+      ['monthly_ratio', 2001]
+    );
+    const series = new Map<string, Map<string, number>>();
+    let firstYear = 9999;
+    let lastYear = 0;
+    for (const r of rows.rows) {
+      const y = Number(r.year);
+      let bucket = series.get(r.ibge);
+      if (!bucket) {
+        bucket = new Map();
+        series.set(r.ibge, bucket);
+      }
+      bucket.set(`${y}-${Number(r.month)}`, Number(r.v));
+      if (y < firstYear) firstYear = y;
+      if (y > lastYear) lastYear = y;
+    }
+    if (series.size < 2) return memory;
+    const through = await pool.query<{ d: string | null }>(`SELECT max(acq_ts)::date::text AS d FROM fire.hotspot`);
+    ctxCache = {
+      ...memory,
+      input: { ...memory.input, series, firstYear, lastYear },
+      dataKind: 'firms_db',
+      viirsYears,
+      factorYears: viirsYears.filter((y) => modisYears.includes(y)),
+      source: 'NASA FIRMS yearly country archives (Brazil) in PostGIS: fire.calendar_monthly, method monthly_ratio',
+      dataThrough: through.rows[0]?.d ?? null,
+    };
+    logger.info({ municipalities: series.size, firstYear, lastYear, viirsYears: viirsYears.length }, 'forecast series loaded from PostGIS');
+    return ctxCache;
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'PostGIS series not readable; using the in-memory series');
+    ctxCache = memory;
+    return memory;
+  }
+}
+
+const BASE_FROM = 2002;
+const BASE_TO = 2024;
+
+/** Seasonal pattern of a municipality from the active series (same rule as the /pattern route: base 2002–2024). */
+export function seriesPattern(ibge: string): { months: { month: number; mean: number; sharePct: number }[]; season: { months: number[]; coveredPct: number; peakMonth: number | null } } | null {
+  const bucket = getForecastContext().input.series.get(ibge);
+  if (!bucket) return null;
+  const sums = new Array<number>(12).fill(0);
+  for (let y = BASE_FROM; y <= BASE_TO; y++) for (let m = 1; m <= 12; m++) sums[m - 1]! += bucket.get(`${y}-${m}`) ?? 0;
+  const total = sums.reduce((a, b) => a + b, 0) || 1;
+  const years = BASE_TO - BASE_FROM + 1;
+  const months = sums.map((s, i) => ({ month: i + 1, mean: Math.round((s / years) * 10) / 10, sharePct: Math.round((s / total) * 1000) / 10 }));
+  const sorted = [...months].sort((a, b) => b.sharePct - a.sharePct);
+  const picked: number[] = [];
+  let acc = 0;
+  for (const m of sorted) {
+    if (acc >= 80) break;
+    picked.push(m.month);
+    acc += m.sharePct;
+  }
+  return { months, season: { months: picked.sort((a, b) => a - b), coveredPct: Math.round(acc * 10) / 10, peakMonth: sorted[0]?.month ?? null } };
+}
+
+/** Same-month values of the base period and the z-score of one month against them (null when there is no spread). */
+export function seriesMonth(ibge: string, year: number, month: number): { base: number[]; value: number | null; z: number | null } | null {
+  const ctx = getForecastContext();
+  const bucket = ctx.input.series.get(ibge);
+  if (!bucket) return null;
+  const base: number[] = [];
+  for (let y = Math.max(BASE_FROM, ctx.input.firstYear); y <= Math.min(BASE_TO, ctx.input.lastYear); y++) base.push(bucket.get(`${y}-${month}`) ?? 0);
+  const value = year >= ctx.input.firstYear && year <= ctx.input.lastYear ? (bucket.get(`${year}-${month}`) ?? 0) : null;
+  let z: number | null = null;
+  if (value !== null && base.length >= 2) {
+    const mean = base.reduce((a, b) => a + b, 0) / base.length;
+    const sd = Math.sqrt(base.reduce((a, b) => a + (b - mean) ** 2, 0) / (base.length - 1));
+    z = sd > 0 ? Math.round(((value - mean) / sd) * 100) / 100 : null;
+  }
+  return { base, value, z };
+}
+
 /** Runs the temporal validation and writes out/forecast_validation.json. Used by job:forecast only. */
 export function writeForecastValidation(): ForecastValidation {
   const ctx = getForecastContext();
@@ -107,7 +210,10 @@ export function writeForecastValidation(): ForecastValidation {
   if (ctx.dataKind === 'synthetic') notes.unshift('SYNTHETIC SERIES: FIRMS history not loaded. These metrics describe the demo generator, not real fire data.');
   const missingViirs: number[] = [];
   for (let y = 2012; y <= ctx.input.lastYear; y++) if (!ctx.viirsYears.includes(y)) missingViirs.push(y);
-  if (ctx.dataKind === 'firms_index' && missingViirs.length) {
+  if (ctx.dataKind === 'firms_db') {
+    notes.push('Series read from PostGIS (fire.calendar_monthly): VIIRS S-NPP cell-days from 2012, MODIS x municipal monthly factor with shrinkage before.');
+  }
+  if (ctx.dataKind !== 'synthetic' && missingViirs.length) {
     notes.push(
       `VIIRS S-NPP yearly archive not loaded for ${missingViirs.join(', ')}: those years use MODIS x monthly factor (factor calibrated on ${ctx.factorYears.join(', ')}).`
     );

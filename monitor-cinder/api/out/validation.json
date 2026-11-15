@@ -1,4 +1,31 @@
 {
-  "pending": true,
-  "note": "Not computed yet. Run: npm run job:db-load-regions && npm run job:ingest-firms-history && npm run job:build-history. This file is then overwritten with numbers computed from the NASA FIRMS data (source = firms_db). Never type numbers here."
+  "computedAt": "2026-11-15T15:36:51.483Z",
+  "source": "firms_db",
+  "calibrationPeriod": "2012-2019",
+  "testPeriod": "2020-2025",
+  "method": "monthly_ratio on 1 km cell-days (VIIRS S-NPP ÷ MODIS), shrinkage k=30 toward the state; static sources excluded",
+  "mapePct": 30.5,
+  "wapePct": 14.1,
+  "pearsonR": 0.978,
+  "biasPct": 3.7,
+  "nMonths": 72,
+  "municipalities": {
+    "n": 217,
+    "medianWapePct": 65.9,
+    "p90WapePct": 104.1
+  },
+  "monthlyRatioFactors": [
+    2.166,
+    1.535,
+    0.951,
+    1.713,
+    2.455,
+    2.397,
+    2.173,
+    2.19,
+    2.19,
+    2.896,
+    3.569,
+    2.833
+  ]
 }

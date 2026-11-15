@@ -11,7 +11,8 @@
 import { oniConnector } from '../connectors/oni.js';
 import { isMain } from '../core/entry.js';
 import { logger } from '../core/logger.js';
-import { resetForecastCache, writeForecastValidation } from '../db/forecast-service.js';
+import { primeForecastContext, resetForecastCache, writeForecastValidation } from '../db/forecast-service.js';
+import { getPool } from '../db/pool.js';
 import { store } from '../db/store.js';
 
 export async function runForecast(): Promise<void> {
@@ -22,7 +23,9 @@ export async function runForecast(): Promise<void> {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'ONI refresh failed; using the cached file if there is one');
   }
   resetForecastCache();
+  await primeForecastContext(); // PostGIS series when the history has both sensors, in-memory series otherwise
   const v = writeForecastValidation();
+  await getPool().end().catch(() => undefined);
   logger.info(
     {
       dataKind: v.dataKind,

@@ -60,7 +60,8 @@ describe('deterministic check', () => {
     expect(pt.failures.map((f) => f.code)).toContain('CAUSAL_CLAIM');
     const en = verifyAnswer('Hotspots rose due to drought.', TOOLS, { lang: 'en', intent: 'stats' });
     expect(en.failures.map((f) => f.code)).toContain('CAUSAL_CLAIM');
-    expect(verifyAnswer('Os focos estão associados a meses secos. É uma associação, não causa.', TOOLS, { lang: 'pt', intent: 'stats' }).ok).toBe(true);
+    const withNote: ToolResult[] = [...TOOLS, { name: 'enso', result: { note: 'association only: phase of the same month, no cause attributed' } }];
+    expect(verifyAnswer('Os focos estão associados à fase do ENSO. É uma associação, não causa.', withNote, { lang: 'pt', intent: 'enso' }).ok).toBe(true);
   });
 
   it('blocks a forecast without interval, without training period or without metric', () => {
@@ -82,6 +83,20 @@ describe('deterministic check', () => {
     );
     expect(verifyAnswer(BURN_SAFEGUARD.pt, TOOLS, { lang: 'pt', intent: 'burn' }).ok).toBe(true);
     expect(verifyAnswer(BURN_SAFEGUARD.en, TOOLS, { lang: 'en', intent: 'burn' }).ok).toBe(true);
+  });
+
+  it('requires the small-sample warning, the denial in a burn answer, and refuses associations no tool reported', () => {
+    const enso: ToolResult = {
+      name: 'enso',
+      result: { month: 8, phases: [{ phase: 'la_nina', n: 4, mean: 9084.1, smallSample: true }], smallSampleBelow: 5, note: 'association only: phase of the same month, no cause attributed' },
+    };
+    expect(verifyAnswer('La Niña (n = 4): mean 9084.1.', [enso], { lang: 'en', intent: 'enso' }).failures.map((f) => f.code)).toEqual(['SMALL_SAMPLE_WITHOUT_WARNING']);
+    expect(verifyAnswer('La Niña (n = 4): mean 9084.1. Caution: small sample (n < 5). This is an association, not a cause.', [enso], { lang: 'en', intent: 'enso' }).ok).toBe(true);
+    expect(verifyAnswer('Um valor alto de focos está associado a menor umidade.', TOOLS, { lang: 'pt', intent: 'forecast' }).failures.map((f) => f.code)).toEqual(['ASSOCIATION_NOT_IN_TOOLS']);
+    const offTopic = 'El Niño (n = 4): média 9084,1. Amostra pequena (n < 5). É uma associação, não causa. Para queima controlada é preciso plano de queima e aceiro.';
+    expect(verifyAnswer(offTopic, [enso], { lang: 'pt', intent: 'enso' }).failures.map((f) => f.code)).toEqual(['BURN_TEXT_OUTSIDE_BURN_ANSWER']);
+    const noDenial = BURN_SAFEGUARD.pt.replace('Esta resposta não autoriza nem recomenda queimar. ', '');
+    expect(verifyAnswer(noDenial, TOOLS, { lang: 'pt', intent: 'burn' }).failures.map((f) => f.code)).toEqual(['BURN_WITHOUT_SAFEGUARD']);
   });
 
   it('parses numbers with the decimal mark of the language and treats a hyphen between years as a range', () => {
@@ -182,7 +197,7 @@ describe('LLM layer (fake HTTP client, no network)', () => {
     };
 
   it('sends the cached system prompt, the small model for routing and only compact tool aggregates', async () => {
-    const llm = createLlmClient('sk-ant-test-key-0000000000', fake('{"intent":"forecast","municipality":"Goiânia","year":2026,"month":9,"months":1}'));
+    const llm = createLlmClient({ provider: 'anthropic', apiKey: 'sk-ant-test-key-0000000000' }, fake('{"intent":"forecast","municipality":"Goiânia","year":2026,"month":9,"months":1}'));
     expect(await llm.route('previsão Goiânia setembro 2026')).toMatchObject({ intent: 'forecast', month: 9 });
     const body = JSON.parse(calls[0]!.body) as { model: string; max_tokens: number; system: { cache_control: { type: string } }[] };
     expect(body.model).toBe('claude-haiku-5-5');
@@ -193,7 +208,7 @@ describe('LLM layer (fake HTTP client, no network)', () => {
   });
 
   it('an LLM answer with an invented number fails the same check', async () => {
-    const llm = createLlmClient('sk-ant-test-key-0000000000', fake(GOOD_PT.replace('28,8', '99,9')));
+    const llm = createLlmClient({ provider: 'anthropic', apiKey: 'sk-ant-test-key-0000000000' }, fake(GOOD_PT.replace('28,8', '99,9')));
     const text = await llm.write({ question: 'q', intent: 'forecast', lang: 'pt', tools: TOOLS });
     expect(verifyAnswer(text, TOOLS, { lang: 'pt', intent: 'forecast' }).ok).toBe(false);
   });
@@ -202,7 +217,27 @@ describe('LLM layer (fake HTTP client, no network)', () => {
     const failing: FetchLike = async () => {
       throw new Error('connect failed for key sk-ant-test-key-0000000000');
     };
-    await expect(createLlmClient('sk-ant-test-key-0000000000', failing).route('x')).rejects.toThrow(/REDACTED/);
+    await expect(createLlmClient({ provider: 'anthropic', apiKey: 'sk-ant-test-key-0000000000' }, failing).route('x')).rejects.toThrow(/REDACTED/);
     expect(redactSecrets('x-api-key: sk-ant-api03-abcdefgh12345')).not.toContain('abcdefgh');
+    expect(redactSecrets('x-goog-api-key: AIzaTESTtestTESTtestTESTtest0000')).not.toContain('TESTtest');
+  });
+
+  it('Gemini: key in a header (never in the URL), small model for routing, JSON answer parsed', async () => {
+    const seen: { url: string; headers: Record<string, string>; body: string }[] = [];
+    const gemini: FetchLike = async (url, init) => {
+      seen.push({ url, headers: init.headers, body: init.body });
+      return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"intent":"enso","municipality":null,"year":null,"month":9,"months":1}' }] } }] }) };
+    };
+    const llm = createLlmClient({ provider: 'gemini', apiKey: 'AIzaTESTtestTESTtestTESTtest0000' }, gemini);
+    expect(await llm.route('El Niño em setembro?')).toMatchObject({ intent: 'enso', month: 9 });
+    expect(seen[0]!.url).toContain('/models/gemini-3.5-flash-lite:generateContent');
+    expect(seen[0]!.url).not.toContain('AIza');
+    expect(seen[0]!.headers['x-goog-api-key']).toBe('AIzaTESTtestTESTtestTESTtest0000');
+    const body = JSON.parse(seen[0]!.body) as { systemInstruction: { parts: { text: string }[] }; contents: { parts: { text: string }[] }[] };
+    expect(body.systemInstruction.parts[0]!.text).toContain('Classify');
+    await llm.write({ question: 'q', intent: 'enso', lang: 'pt', tools: TOOLS }).catch(() => undefined);
+    expect(seen[1]!.url).toContain('/models/gemini-3.5-flash:generateContent');
+    const empty: FetchLike = async () => ({ ok: true, status: 200, json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS' }] }) });
+    await expect(createLlmClient({ provider: 'gemini', apiKey: 'AIzaTESTtestTESTtestTESTtest0000' }, empty).route('x')).rejects.toThrow(/MAX_TOKENS/);
   });
 });

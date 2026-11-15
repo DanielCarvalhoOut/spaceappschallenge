@@ -16,11 +16,14 @@ import { store } from '../db/store.js';
 import type { LlmClient } from './llm.js';
 import { findPlace, routeQuestion, type Intent, type Place, type Route } from './router.js';
 import { helpText, noDataText, noticesFor, renderTemplate, verifiableOnly } from './templates.js';
-import { burnContext, dataStatus, ensoComparison, forecastWindow, historicalStats, interventionsFor, mobilizationRanking, type ToolResult } from './tools.js';
+import { burnContext, dataStatus, ensoComparison, forecastWindow, historicalStats, interventionsFor, mobilizationRanking, peakMonthOf, type ToolResult } from './tools.js';
 import { verifyAnswer, type CheckFailure, type Lang } from './verifier.js';
 
-/** Intents that combine more than one source: the only ones the larger model is allowed to write. */
-export const MULTI_SOURCE: readonly Intent[] = ['enso', 'intervention', 'burn'];
+/**
+ * Intents that combine more than one source: the only ones the larger model is allowed to write.
+ * A controlled-burn answer is never written by a model: its safeguards are fixed text (template only).
+ */
+export const MULTI_SOURCE: readonly Intent[] = ['enso', 'intervention'];
 const CACHE_MAX = 500;
 
 export interface AssistantRequest {
@@ -80,7 +83,7 @@ async function runTools(route: Route, now: Date, deps: AgentDeps): Promise<ToolR
       if (muni) tools.push(forecastWindow(muni, y, m, route.months));
       break;
     case 'enso':
-      tools.push(ensoComparison(ibge ?? '52', route.month ?? (muni ? (store.getPattern(muni).season.peakMonth ?? 9) : 9)));
+      tools.push(ensoComparison(ibge ?? '52', route.month ?? (muni ? peakMonthOf(muni) : 9)));
       break;
     case 'intervention':
       if (muni) tools.push(interventionsFor(muni), forecastWindow(muni, y, m, 1));
@@ -154,8 +157,8 @@ export async function answerQuestion(req: AssistantRequest, deps: AgentDeps = {}
   const checks: AssistantReply['checks'] = [];
   const check = (text: string, attempt: number, writer: 'llm' | 'template' | 'verifiable_only'): boolean => {
     // Notices are checked together with the answer (their numbers also come from tools); the word limit is the answer's.
-    const v = verifyAnswer(text, tools, { lang, intent: route.intent });
-    const n = verifyAnswer(notices.join(' '), tools, { lang, intent: 'notice', allowLong: true });
+    const v = verifyAnswer(text, tools, { lang, intent: route.intent, scope: writer === 'verifiable_only' ? 'facts' : 'answer' });
+    const n = verifyAnswer(notices.join(' '), tools, { lang, intent: 'notice', allowLong: true, scope: 'notice' });
     const failures = [...v.failures, ...n.failures];
     checks.push({ attempt, writer, ok: failures.length === 0, failures });
     logDecision(deps.logFile, { ts: now.toISOString(), q: qHash, intent: route.intent, ibge: route.ibge, writer, attempt, ok: failures.length === 0, failures });

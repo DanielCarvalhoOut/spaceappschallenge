@@ -1,0 +1,43 @@
+{
+  "computedAt": "2026-11-15T15:36:55.821Z",
+  "period": "2015-2025",
+  "methods": [
+    {
+      "method": "all",
+      "nMonths": 132,
+      "coveragePct": 70.5,
+      "meanWidth": 3122.5,
+      "maeP50": 754.53,
+      "maePersistence": 1074.52,
+      "skillPct": 29.8
+    },
+    {
+      "method": "recent10",
+      "nMonths": 132,
+      "coveragePct": 65.9,
+      "meanWidth": 2692.1,
+      "maeP50": 731.45,
+      "maePersistence": 1074.52,
+      "skillPct": 31.9
+    },
+    {
+      "method": "analog5",
+      "nMonths": 121,
+      "coveragePct": 53.7,
+      "meanWidth": 1784.4,
+      "maeP50": 786.05,
+      "maePersistence": 1155.62,
+      "skillPct": 32
+    }
+  ],
+  "chosenMethod": "all",
+  "analogBeatsRange": false,
+  "recurrence": {
+    "testYear": 2025,
+    "windowYears": 10,
+    "minYears": 5,
+    "hitPct": 47.1,
+    "areaSharePct": 31.39,
+    "lift": 1.5
+  }
+}
