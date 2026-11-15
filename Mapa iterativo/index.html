@@ -34,6 +34,7 @@
                role="combobox" aria-expanded="false" aria-controls="search-list" aria-autocomplete="list">
         <ul id="search-list" class="search__list" role="listbox" hidden></ul>
       </div>
+      <button id="chat-toggle" class="icon-btn icon-btn--text" type="button" aria-expanded="false" aria-controls="chat-panel" data-i18n="chat.btn" data-i18n-attr="title:chat.btnTitle"></button>
       <button id="lang" class="icon-btn icon-btn--text" type="button" data-i18n="lang.btn" data-i18n-attr="aria-label:lang.aria;title:lang.aria"></button>
       <button id="theme" class="icon-btn" type="button" data-i18n-attr="aria-label:theme.aria;title:theme.aria">☾</button>
     </div>
@@ -208,10 +209,32 @@
     <span data-i18n="foot.power"></span>
   </footer>
 
+  <!-- Assistente: perguntas vão para POST {apiBase}/api/assistant (cinder-chat.js). Sem <form>: o CSP tem form-action 'none'. -->
+  <section id="chat-panel" class="chat" role="dialog" aria-modal="false" data-i18n-attr="aria-label:chat.title" hidden>
+    <header class="chat__head">
+      <h2 class="chat__title" data-i18n="chat.title"></h2>
+      <button id="chat-close" class="icon-btn" type="button" data-i18n-attr="aria-label:chat.close;title:chat.close">×</button>
+    </header>
+    <ul id="chat-log" class="chat__log" aria-live="polite">
+      <li class="chat__msg chat__msg--intro" data-i18n="chat.intro"></li>
+    </ul>
+    <div id="chat-chips" class="chat__chips" role="group" data-i18n-attr="aria-label:chat.chipsAria">
+      <button class="chat__chip" type="button" data-i18n="chat.chip1"></button>
+      <button class="chat__chip" type="button" data-i18n="chat.chip2"></button>
+      <button class="chat__chip" type="button" data-i18n="chat.chip3"></button>
+    </div>
+    <div class="chat__form">
+      <input id="chat-input" class="chat__input" type="text" maxlength="500" autocomplete="off"
+             data-i18n-attr="placeholder:chat.ph;aria-label:chat.inputAria">
+      <button id="chat-send" class="btn btn--primary" type="button" data-i18n="chat.send"></button>
+    </div>
+  </section>
+
   <script src="config.js"></script>
   <script src="i18n.js"></script>
   <script src="mapa-engine.js"></script>
   <script src="cinder-data.js"></script>
   <script src="cinder-ui.js"></script>
+  <script src="cinder-chat.js"></script>
 </body>
 </html>

@@ -91,3 +91,7 @@ Playwright + Chrome com malha sintética do IBGE (36 polígonos, incluindo `Mult
 - nomes com `<b>` e `<script>` aparecem como texto.
 
 Fontes de dados citadas no rodapé: NASA FIRMS, IBGE, INPE (Programa Queimadas, PRODES/DETER), Embrapa SATVeg, NASA POWER.
+
+## Painel do assistente (`cinder-chat.js`)
+
+Botão **Assistente** no topo. A pergunta vai para `POST {apiBase}/api/assistant` com `{ question, ibge?, lang }` (o `ibge` é o município selecionado no mapa; `lang` é o idioma da interface), com limite de 30 s. A resposta `{ answer, verified, mode, cached, municipality, notices[] }` é mostrada só com `textContent`: o texto, os avisos (por exemplo, dado com mais de 24 h) e os selos "Conferida / Não conferida", "sem LLM / com LLM" e "cache". Erros `application/problem+json` (400, 429, 500) viram mensagens traduzidas; em modo DEMO o painel avisa que precisa da API. Todos os textos estão em `i18n.js` (chaves `chat.*`) em pt e en. O `connect-src` da CSP não mudou: o POST usa o mesmo `apiBase`.

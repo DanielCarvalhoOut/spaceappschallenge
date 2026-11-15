@@ -36,3 +36,9 @@ Fonte: [Project Submission Guide](https://www.spaceappschallenge.org/resources/p
 ## Repositório
 
 O `.gitignore` já ignora `.env` e `data/raw/`: nunca suba a MAP_KEY do FIRMS, o token da Embrapa nem os CSV brutos do Brasil (dezenas a centenas de MB por ano). Suba só o recorte de Goiás e o SHA-256 de cada arquivo de origem.
+
+## Previsão e agente (15/11)
+
+Decisão da equipe: a previsão de focos por município e mês e o agente conversacional entraram no escopo. Como rodar, métricas contra climatologia e persistência, e limites: [`monitor-cinder/README.md`](monitor-cinder/README.md). O que existe de fato, com evidência: `CONFERENCIA.md`; plano e decisões: `PLANO.md`, `DECISOES.md`.
+
+**AI-assisted code:** parte do código (previsão, agente, testes e documentação) foi escrita com Claude Code e revisada pela equipe.

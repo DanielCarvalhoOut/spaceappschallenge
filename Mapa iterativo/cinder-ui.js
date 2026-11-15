@@ -1549,5 +1549,11 @@
     }
   }
 
+  /* Read-only view of the selection for sibling scripts (cinder-chat.js). No setters: this controller stays the owner. */
+  global.FireUI = Object.freeze({
+    selected: () => state.selected, // 7-digit IBGE code or null
+    sourceKind: () => (state.source ? state.source.kind : null), // 'api' | 'demo' | null while booting
+  });
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })(window);

@@ -6,7 +6,8 @@ import pino from 'pino';
 export function redactSecrets(input: string): string {
   return input
     .replace(/\/api\/(area|country|data_availability|missing_data)\/csv\/[0-9a-fA-F]{32}/g, '/api/$1/csv/[REDACTED_MAP_KEY]')
-    .replace(/[0-9a-fA-F]{32}/g, '[REDACTED_KEY]');
+    .replace(/[0-9a-fA-F]{32}/g, '[REDACTED_KEY]')
+    .replace(/sk-ant-[A-Za-z0-9_-]{8,}/g, '[REDACTED_LLM_KEY]');
 }
 
 export const logger = pino({
@@ -17,6 +18,9 @@ export const logger = pino({
       'FIRMS_MAP_KEY',
       'EMBRAPA_CONSUMER_KEY',
       'EMBRAPA_CONSUMER_SECRET',
+      'ANTHROPIC_API_KEY',
+      'apiKey',
+      'req.headers["x-api-key"]',
       'mapKey',
     ],
     censor: '[REDACTED]',

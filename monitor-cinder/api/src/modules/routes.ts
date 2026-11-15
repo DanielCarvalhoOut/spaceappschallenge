@@ -6,6 +6,7 @@ import { z } from 'zod';
 import * as history from '../db/history.js';
 import { registerHistoryRoutes } from './history-routes.js';
 import { registerForecastRoutes } from './forecast-routes.js';
+import { registerAssistantRoutes } from './assistant-routes.js';
 import { config } from '../config.js';
 import { firmsConnector } from '../connectors/firms.js';
 import { ibgeConnector } from '../connectors/ibge.js';
@@ -571,4 +572,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   // Forecast per municipality and month (validated against climatology and persistence)
   await registerForecastRoutes(app);
+
+  // Conversational assistant (read-only tools + deterministic check of every answer)
+  await registerAssistantRoutes(app);
 }

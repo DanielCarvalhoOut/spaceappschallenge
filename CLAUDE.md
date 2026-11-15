@@ -8,7 +8,7 @@ Monitor Cinder harmoniza os focos de calor MODIS e VIIRS (NASA FIRMS) de 2001 at
 ## Stack
 - Front: `Mapa iterativo/` — JavaScript puro + Canvas 2D, scripts clássicos, sem build. Já pronto e autoral; mudanças preservam a API `FireMap`/`FireData` e o contrato descrito no README da pasta.
 - Back: `monitor-cinder/api/` — Node 22 + TypeScript strict, Fastify, `pg`, `zod`. Conectores em `src/connectors/` (um por fonte), rotas em `src/modules/`, jobs em `src/jobs/`.
-- Banco: PostGIS. Aplicar `Tema_08_MODIS_VIIRS/db/schema.sql`, `schema_cinder.sql`, `schema_contexto.sql`, `schema_operacional.sql` e `schema_projecao.sql`, nesta ordem (o `docker-compose.yml` já faz). Dados do Postgres no D:\ (ver `IMPLEMENTACAO.md` F2b).
+- Banco: PostGIS. Aplicar `Tema_08_MODIS_VIIRS/db/schema.sql`, `schema_cinder.sql`, `schema_contexto.sql`, `schema_operacional.sql`, `schema_projecao.sql` e `schema_intervencao.sql`, nesta ordem (o `docker-compose.yml` já faz). Dados do Postgres no D:\ (ver `IMPLEMENTACAO.md` F2b).
 
 ## Regras
 - Trabalho original: não recriar nem trazer de volta nada dos arquivos antigos de terceiros do mapa (`assets/`, `painel-original.html`).

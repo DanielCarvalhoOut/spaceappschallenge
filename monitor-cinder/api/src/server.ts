@@ -15,7 +15,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(cors, {
     origin: config.CORS_ORIGIN === '*' ? true : config.CORS_ORIGIN,
-    methods: ['GET', 'OPTIONS'],
+    methods: ['GET', 'POST', 'OPTIONS'],
   });
 
   await app.register(rateLimit, {

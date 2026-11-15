@@ -57,3 +57,26 @@ Treino: anos-alvo 2003–2019 (dados desde 2001), n = 50.184. Ganho de MAE: 20,8
 - Traz as métricas das duas linhas de base: **passou** (`mae.climatology 6.683`, `mae.persistence 7.6`, `exceedance.brier.climatology 0.111`, `.persistence 0.1992`).
 - O treino não usou anos do teste: **passou** (`trainPeriod.to = 2019`; `validateForecast` lança erro se alguma linha de treino passar de `trainTo`; teste "the fitted model does not change when the test years change" em `src/tests/forecast.test.ts`).
 - Extra: `npx tsc --noEmit` sai 0; `npx vitest run` → 18 passam, 10 pulados (banco); `GET /api/meta` → `dataKind: firms_index`; `GET /api/forecast` responde 200 / 400 / 404 em problem+json.
+
+## Fase 3 (15/11, 10:17–10:50)
+
+- **D18 · As ferramentas do agente chamam, no mesmo processo, as funções de leitura que a API serve** — mesmos números das rotas, sem escrita e sem custo de HTTP interno — descartado: o agente chamar a própria API por HTTP.
+- **D19 · Com chave, o modelo pequeno roteia e o maior só redige ENSO, intervenções e queima controlada; estatística, previsão e ranking saem do modelo de texto (0 token)** — respostas de uma fonte só não ganham nada com LLM — descartado: LLM em toda resposta.
+- **D20 · Cliente do LLM por `fetch`, sem SDK** — nenhuma dependência nova a instalar no prazo; resposta validada com zod — descartado: instalar o SDK.
+- **D21 · [BLOQUEADO: sem `ANTHROPIC_API_KEY`]** — o caminho com LLM foi testado só com cliente HTTP falso; a chamada real não foi verificada — alternativa usada: modo sem LLM (padrão da demo).
+- **D22 · Probabilidade servida = frequência climatológica, com n e fonte; o ranking de mobilização desempata pela proximidade do valor esperado ao P90** — a probabilidade do modelo não superou a climatologia (D15), e a climatológica tem poucos valores distintos — descartado: ordenar pela probabilidade do modelo.
+- **D23 · Vento e umidade da queima controlada: chamada real ao NASA POWER (8 s) para o mesmo mês do último ano carregado; se falhar, "sem dados"** — o cache em disco cobre 3 municípios e a série de reserva do projeto é calculada, não medida — descartado: usar a série de reserva.
+- **D24 · Uso do solo fica como "sem dados conferidos"** — MCD12Q1 não está carregado para os 246 municípios (D05) — descartado: usar o valor de reserva do conector.
+- **D25 · Cadastro de intervenções começa vazio (`seed/interventions.json`)** — nenhuma intervenção real foi informada; inventar uma violaria o princípio — descartado: exemplo fictício no cadastro (fica só na fixture de teste).
+- **D26 · [BLOQUEADO: `teste_intervencao.sql` não executado]** — PostGIS fora do ar — alternativa: teste vitest da mesma comparação em memória.
+- **D27 · Painel de chat feito por um subagente e conferido por mim no navegador** — paralelizar com o backend; o subagente parou por limite de uso depois de entregar os arquivos, e o README do front foi completado à mão — descartado: fazer em série.
+- **D28 · Verificação no navegador numa cópia do front apontando para a porta 8788** — a porta 8787 estava ocupada por um servidor antigo da equipe, que não pude encerrar — descartado: alterar `config.js` e a CSP do projeto.
+- **D29 · Log de decisões guarda só o hash da pergunta** — a regra do projeto proíbe dado de contato em log — descartado: gravar o texto da pergunta.
+
+### Autochecagem da fase 3
+
+- `npm run typecheck`: **passou** (sai 0).
+- `npm test`: **passou** (45 testes passam, 10 pulados, que são os de banco).
+- Pergunta real ao `/api/assistant` com números que batem com as ferramentas: **passou**. "Qual a previsão de focos para Goiânia em setembro de 2026?" → 28,8 células-dia, P10–P90 6,2 a 103,7, probabilidade 8 % (n = 25), MAE 5,292 / 6,683 / 7,6; os mesmos valores estão em `tools[forecast].months[0]` e `.validation`, e o teste `assistant.agent.test.ts` compara número a número para as seis capacidades.
+- Testes da conferência: **passou** (número inventado, frase causal e previsão sem intervalo são barrados em `src/tests/assistant.test.ts`).
+- Chat no navegador: **passou** (três perguntas em pt e uma em en respondidas, selo "Conferida", console sem erros, zero `style` inline, `grep innerHTML cinder-chat.js` vazio).
