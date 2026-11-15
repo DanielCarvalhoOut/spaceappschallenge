@@ -17,7 +17,8 @@ import {
 import { logger } from '../core/logger.js';
 import { store } from '../db/store.js';
 
-const STATE_FILE = (): string => path.join(config.dataDir, 'goes_watch.json');
+// GOES_WATCH_FILE lets tests use a temporary file instead of the real state
+const STATE_FILE = (): string => process.env.GOES_WATCH_FILE || path.join(config.dataDir, 'goes_watch.json');
 const GOIAS_BOX: [number, number, number, number] = [-53.3, -19.55, -45.85, -12.35];
 const SCAN_EVERY_MS = 10 * 60_000;
 const CONFIRM_EVERY_MS = 60 * 60_000;

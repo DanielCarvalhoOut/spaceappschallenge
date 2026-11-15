@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { describe, expect, it } from 'vitest';
@@ -6,6 +8,7 @@ import { __setWatchState, registerWatchRoutes } from '../modules/watch-routes.js
 
 async function app() {
   process.env.GOES_WATCH = 'off';
+  process.env.GOES_WATCH_FILE = path.join(os.tmpdir(), `goes_watch_test_${process.pid}.json`);
   __setWatchState(emptyState());
   const a = Fastify();
   await a.register(rateLimit, { max: 300, timeWindow: '1 minute' });
