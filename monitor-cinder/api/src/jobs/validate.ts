@@ -22,6 +22,7 @@ import { logger } from '../core/logger.js';
 import { isMain } from '../core/entry.js';
 import { buildChain, dailySeries, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, withAnomaly, isoDay } from '../core/cell-index.js';
 import { hindcast, projectFrom } from '../core/projection-model.js';
+import { computeIndexValidation } from '../core/index-validation.js';
 import { fetchInpeStateMonthly, InpeReferenceSchema, type InpeReference } from '../connectors/inpe-stats.js';
 
 const r1 = (v: number): number => Math.round(v * 10) / 10;
@@ -81,6 +82,8 @@ export async function runValidate(inpePath?: string): Promise<void> {
     computedAt: new Date().toISOString(), source: 'firms_index', indexBuiltAt: index.builtAt,
     lastObservedDay: isoDay(chain.last), provisionalFrom: chain.provisionalFrom === null ? null : isoDay(chain.provisionalFrom),
     links: chain.links,
+    // per-municipality error of the MODIS→S-NPP link (2020–2025, municipalities with ≥ 50 cell-days)
+    municipalWape: computeIndexValidation(index).municipalities,
     // each municipal month is rounded to 0.1 cell-day, so the sum may differ from the state by at most 0.05 per municipality
     bookkeeping: { municipalities: byMuni.size, months, maxAbsDiffCellDays: r3(maxDiff), roundingBoundCellDays: r3(0.05 * byMuni.size), passed: maxDiff <= 0.05 * byMuni.size + 1e-9 },
     projection: hc,

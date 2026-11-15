@@ -1,5 +1,5 @@
 {
-  "computedAt": "2026-11-15T06:22:59.636Z",
+  "computedAt": "2026-11-15T06:30:26.990Z",
   "source": "firms_index",
   "indexBuiltAt": "2026-11-15T06:15:34.922Z",
   "lastObservedDay": "2026-11-14",
@@ -78,6 +78,11 @@
       ]
     }
   ],
+  "municipalWape": {
+    "n": 217,
+    "medianWapePct": 68.6,
+    "p90WapePct": 109.5
+  },
   "bookkeeping": {
     "municipalities": 246,
     "months": 311,
