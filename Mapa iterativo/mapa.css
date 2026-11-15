@@ -652,3 +652,45 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .day-chip.is-prov { border-style: dashed; border-color: var(--accent-2); }
 .cal-cell.is-future { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--line) 3px 5px) !important; opacity: .8; }
 .cal-cell.is-provisional { outline: 1px dashed var(--accent-2); outline-offset: -2px; }
+
+/* ---------- Larger text inside the details (side panel and full screen): the panels carry a lot of reading ---------- */
+.modal__card { font-size: 15.5px; }
+.modal__card .modal__head p { font-size: 13.5px; }
+.modal.is-side .modal__head h2 { font-size: 20px; }
+.modal__card .tab { font-size: 14px; }
+/* docked: the five tabs must fit even at the 360 px minimum width */
+.modal.is-side .tab { font-size: 13.5px; padding: 10px 7px; }
+.modal.is-side .tabs { padding: 0 6px; }
+.modal__card .block h3 { font-size: 14.5px; }
+.modal__card .kpi__label { font-size: 12.5px; }
+.modal__card .kpi strong { font-size: 27px; }
+.modal__card .kpi small { font-size: 13px; }
+.modal__card .subarea-pill { font-size: 13px; }
+.modal__card .subarea-pill__num { font-size: 12.5px; }
+.modal__card .subarea-pill__val { font-size: 12px; }
+.modal__card .bar-col span { font-size: 11.5px; }
+.modal__card .calendar { font-size: 11.5px; }
+.modal__card .compare text { font-size: 11.5px; }
+.modal__card .compare .legend-row { font-size: 13px; }
+.modal__card .context li small { font-size: 12.5px; }
+.modal__card .range-line { font-size: 14px; }
+.modal__card .range-meta { font-size: 12.5px; }
+.modal__card .intel-loading { font-size: 13.5px; }
+.modal__card .proj-note { font-size: 13.5px; }
+.modal__card .proj-day span { font-size: 11px; }
+.modal__card .proj-card h4 { font-size: 13px; }
+.modal__card .proj-card strong { font-size: 22px; }
+.modal__card .proj-card small { font-size: 12.5px; }
+.modal__card .proj-badge { font-size: 12px; }
+.modal__card .proj-months { font-size: 14px; }
+.modal__card .cal-month__title { font-size: 17px; }
+.modal__card .cal-month__facts { font-size: 13.5px; }
+.modal__card .cal-month__day { font-size: 14px; }
+.modal__card .cal-days__h { font-size: 12px; }
+.modal__card .cal-day__n { font-size: 12.5px; }
+.modal__card .cal-day__v { font-size: 11.5px; }
+.modal__card .roots-legend__keys { font-size: 12.5px; }
+.modal__card .places-item__head { font-size: 14.5px; }
+.modal__card .places-item__head span { font-size: 13px; }
+.modal__card .places-item__near { font-size: 13.5px; }
+.modal__card .day-chip { font-size: 12px; }
