@@ -27,7 +27,8 @@ export interface SourceConnector<TQuery, TRecord> {
     | 'inpe_terrabrasilis'
     | 'embrapa_satveg'
     | 'nasa_power'
-    | 'modis_mcd12q1';
+    | 'modis_mcd12q1'
+    | 'noaa_oni';
   readonly license: string;
   fetch(query: TQuery, signal: AbortSignal): AsyncIterable<TRecord>;
 }

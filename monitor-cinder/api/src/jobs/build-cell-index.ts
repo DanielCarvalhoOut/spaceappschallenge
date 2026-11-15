@@ -38,6 +38,8 @@ async function loadYear(sensor: ArchiveSensor, year: number): Promise<YearRows |
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${sensor}_${year}_goias.json`);
   if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')) as YearRows;
+  // CINDER_OFFLINE=1: rebuild the index from the years already cached, without calling FIRMS.
+  if (process.env.CINDER_OFFLINE === '1') return null;
 
   const query: FirmsQuery = { mode: 'country_archive', sensor, year, bbox: config.bbox };
   const ctrl = new AbortController();
@@ -116,11 +118,14 @@ export async function runBuildCellIndex(from: number, to: number): Promise<void>
     if (yearRound || typedStatic) { acc.delete(key); removed++; }
   }
 
-  // State monthly factor: Σ VIIRS cell-days ÷ Σ MODIS cell-days, 2012–2025 (fire.compute_harmonization default).
+  // State monthly factor: Σ VIIRS cell-days ÷ Σ MODIS cell-days over 2012–2025 (fire.compute_harmonization default),
+  // counting only the years loaded for BOTH sensors: a year with MODIS but no VIIRS file would bias the factor down.
+  const factorYears = loaded.VIIRS.filter((y) => y >= 2012 && y <= 2025 && loaded.MODIS.includes(y));
+  const inFactor = new Set(factorYears);
   const sumV = new Array<number>(12).fill(0), sumM = new Array<number>(12).fill(0);
   for (const a of acc.values()) {
-    for (const d of a.v) { const dt = new Date(d * 86_400_000); if (dt.getUTCFullYear() >= 2012 && dt.getUTCFullYear() <= 2025) sumV[dt.getUTCMonth()]!++; }
-    for (const d of a.m) { const dt = new Date(d * 86_400_000); if (dt.getUTCFullYear() >= 2012 && dt.getUTCFullYear() <= 2025) sumM[dt.getUTCMonth()]!++; }
+    for (const d of a.v) { const dt = new Date(d * 86_400_000); if (inFactor.has(dt.getUTCFullYear())) sumV[dt.getUTCMonth()]!++; }
+    for (const d of a.m) { const dt = new Date(d * 86_400_000); if (inFactor.has(dt.getUTCFullYear())) sumM[dt.getUTCMonth()]!++; }
   }
   const monthlyFactors = sumM.map((m, i) => (m > 0 ? Math.round((sumV[i]! / m) * 1000) / 1000 : null));
 
@@ -132,12 +137,13 @@ export async function runBuildCellIndex(from: number, to: number): Promise<void>
     builtAt: new Date().toISOString(),
     source: 'NASA FIRMS yearly country archives (Brazil): MODIS_SP, VIIRS_SNPP_SP',
     yearsLoaded: loaded,
+    factorYears,
     monthlyFactors,
     staticCellsRemoved: removed,
     cells,
   };
   fs.writeFileSync(path.join(config.dataDir, CELL_INDEX_FILE), JSON.stringify(index));
-  logger.info({ cells: cells.length, staticCellsRemoved: removed, monthlyFactors, years: loaded }, 'job:build-cell-index completed');
+  logger.info({ cells: cells.length, staticCellsRemoved: removed, monthlyFactors, factorYears, years: loaded }, 'job:build-cell-index completed');
 }
 
 if (isMain(import.meta.url)) {

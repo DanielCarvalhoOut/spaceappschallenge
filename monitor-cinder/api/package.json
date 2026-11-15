@@ -16,6 +16,7 @@
     "job:build-calendar": "tsx src/jobs/build-calendar.ts",
     "job:ingest-context": "tsx src/jobs/ingest-context.ts",
     "job:train-ml": "tsx src/jobs/train-ml.ts",
+    "job:forecast": "tsx src/jobs/forecast.ts",
     "job:pipeline": "tsx src/jobs/run-pipeline.ts",
     "job:db-load-regions": "tsx src/jobs/db-load-regions.ts",
     "job:ingest-firms-history": "tsx src/jobs/ingest-firms-history.ts",

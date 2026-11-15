@@ -39,3 +39,9 @@ Cada linha tem evidência (`caminho:linha` ou saída de comando). Caminhos de c�
 3. **Ciclo de decisão:** gerar → validar → gerar, no máximo 2 tentativas, contador no estado (`entrega5/agente.py:194-200`); verificador com códigos fixos de recusa (`entrega5/comum_agente.py:252-296`); se nada passa, sai marcado "NÃO VALIDADO" (`entrega5/comum_agente.py:373`).
 4. **Documentação:** regra registrada antes de rodar, lacunas marcadas e alternativas descartadas com motivo (`entrega4/regra_escolha_fluxo.md:3`, `entrega5/regra_agente.md:3`); seção "ajustes feitos olhando resultado" (`entrega4/README.md:222`).
 5. **Testes de encanamento sem modelo e sem rede**, com dublês (`entrega4/teste_plumbing_fluxo.py:2-3`, `entrega5/teste_plumbing_agente.py:117`); desenvolvimento escolhe, teste só relata (`entrega4/regra_escolha_fluxo.md:90`).
+
+## Atualização da fase 2 (10:07)
+
+- **Série harmonizada: agora Existe em memória.** `job:build-cell-index` concluiu com MODIS 2001–2025 e VIIRS S-NPP 2012–2025 (log do job: `years.MODIS` 25 anos, `years.VIIRS` 14 anos, 204.199 células, 106 fontes fixas removidas); `GET /api/meta` → `dataKind: "firms_index"`; último dia com detecção: 2025-12-31. Granularidade: município × mês, células-dia de 1 km. O banco continua fora do ar.
+- **ONI: agora Existe.** `src/connectors/oni.ts`, 921 linhas válidas baixadas (até o trimestre ASO 2026), cache em `data/oni.json`.
+- **Previsão: agora Existe.** `src/core/forecast.ts`, `out/forecast_validation.json`, `GET /api/forecast`.

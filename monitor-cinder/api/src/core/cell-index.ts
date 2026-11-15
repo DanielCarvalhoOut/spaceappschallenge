@@ -85,6 +85,8 @@ const IndexSchema = z.object({
   builtAt: z.string(),
   source: z.string(),
   yearsLoaded: z.object({ MODIS: z.array(z.number().int()), VIIRS: z.array(z.number().int()) }),
+  /** Years (both sensors loaded) used to calibrate the monthly factor. Absent in files built before 15/11. */
+  factorYears: z.array(z.number().int()).optional(),
   monthlyFactors: z.array(z.number().positive().nullable()).length(12),
   staticCellsRemoved: z.number().int().min(0),
   cells: z.array(z.tuple([z.number().int(), z.number().int(), z.string(), z.array(z.number().int()), z.array(z.number().int())])),
@@ -143,7 +145,9 @@ export function areaCellsFromIndex(
   const from = Date.UTC(q.year, q.month - 1, 1) / 86_400_000;
   const to = Date.UTC(q.year, q.month, 1) / 86_400_000;
   const factor = index.monthlyFactors[q.month - 1] ?? 1;
-  const useViirs = q.year >= 2012;
+  // VIIRS only in the years whose VIIRS archive was loaded; otherwise MODIS × factor (same rule as the calendar).
+  const viirsYears = new Set(index.yearsLoaded.VIIRS.filter((y) => y >= 2012));
+  const useViirs = viirsYears.has(q.year);
   const ratio = q.resM / 1000;
 
   let inArea: (c: IndexCell) => boolean;
@@ -161,8 +165,8 @@ export function areaCellsFromIndex(
     if (!inArea(c)) continue;
     // Same rule for the month value and for "years burned": VIIRS from 2012, MODIS before.
     const years = new Set<number>();
-    for (const d of c[3]) { const y = yearOfDay(d); if (y < 2012) years.add(y); }
-    for (const d of c[4]) { const y = yearOfDay(d); if (y >= 2012) years.add(y); }
+    for (const d of c[3]) { const y = yearOfDay(d); if (!viirsYears.has(y)) years.add(y); }
+    for (const d of c[4]) { const y = yearOfDay(d); if (viirsYears.has(y)) years.add(y); }
     if (!years.size) continue;
     const days = useViirs ? c[4] : c[3];
     let n = 0;
@@ -218,7 +222,7 @@ export function areaCellsFromIndex(
     cells.push([Math.round(lon * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5, cd, a.years.size, Math.max(...a.years)]);
   }
   cells.sort((p, r) => r[2] - p[2] || r[3] - p[3]);
-  const yearsObserved = new Set([...index.yearsLoaded.MODIS.filter((y) => y < 2012), ...index.yearsLoaded.VIIRS.filter((y) => y >= 2012)]).size;
+  const yearsObserved = new Set([...index.yearsLoaded.MODIS, ...viirsYears]).size;
   return { yearsObserved, total: Math.round(total * 10) / 10, cells: cells.slice(0, 20000) };
 }
 

@@ -471,6 +471,8 @@ class CinderDataStore {
     const years = [...index.yearsLoaded.MODIS, ...index.yearsLoaded.VIIRS];
     const firstYear = Math.min(...years);
     const lastYear = Math.max(...years);
+    // VIIRS only where its yearly archive was loaded; any other year is MODIS × factor (never a false zero).
+    const viirsYears = new Set(index.yearsLoaded.VIIRS.filter((y) => y >= 2012));
     for (const ibge of this.municipalities.keys()) {
       const byMonth = counts.get(ibge);
       const rows: CalendarRow[] = [];
@@ -478,7 +480,7 @@ class CinderDataStore {
         for (let m = 1; m <= 12; m++) {
           const c = byMonth?.get(`${y}-${m}`) ?? { modis: 0, viirs: 0 };
           const factor = index.monthlyFactors[m - 1] ?? 1;
-          const viirs = y >= 2012 ? c.viirs : null;
+          const viirs = viirsYears.has(y) ? c.viirs : null;
           const harmonized = viirs !== null ? viirs : Math.round(c.modis * factor * 10) / 10;
           rows.push({ year: y, month: m, modis: c.modis, viirs, harmonized, anomalyZ: null, daysMissing: 0, meanFrpMw: 0, maxFrpMw: 0 });
         }
