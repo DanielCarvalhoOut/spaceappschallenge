@@ -553,34 +553,8 @@
           observed: (rows.find((x) => x.year === year && x.month === month) || {}).harmonized ?? null, hindcast: null };
       },
       async areaHistory() { return null; }, // DEMO: the panel falls back to an area-weighted estimate
-      /**
-       * DEMO cells: synthetic and labelled as such. spec = { seed, bbox: [w, s, e, n], inside(lon, lat), total }.
-       * The month's total is spread over a fixed set of "habitual" cells so the cells add up to the area value.
-       */
-      async cells(area, year, month, res, spec) {
-        if (!spec || !Array.isArray(spec.bbox)) return null;
-        const [w, so, e, n] = spec.bbox;
-        const r = rng(hashCode(`${spec.seed}:cells`));
-        const stepDeg = (res / 1000) / 111;
-        const pool = [];
-        for (let i = 0; i < 4000 && pool.length < 900; i++) {
-          const lon = w + Math.floor(r() * (e - w) / stepDeg) * stepDeg + stepDeg / 2;
-          const lat = so + Math.floor(r() * (n - so) / stepDeg) * stepDeg + stepDeg / 2;
-          if (spec.inside(lon, lat)) pool.push([lon, lat, 1 + Math.floor(r() * (last - first + 1) * 0.8)]);
-        }
-        if (!pool.length) return { demo: true, res, total: 0, yearsObserved: last - first + 1, cells: [] };
-        pool.sort((a, b) => b[2] - a[2]);
-        const rm = rng(hashCode(`${spec.seed}:${year}:${month}`));
-        const counts = new Map();
-        let left = Math.max(0, Math.round(spec.total || 0));
-        while (left > 0) {   // habitual cells (higher years burned) receive fire more often
-          const c = pool[Math.floor(Math.pow(rm(), 2.2) * pool.length)];
-          counts.set(c, (counts.get(c) || 0) + 1);
-          left--;
-        }
-        const cells = pool.map((c) => [Math.round(c[0] * 1e5) / 1e5, Math.round(c[1] * 1e5) / 1e5, counts.get(c) || 0, c[2], last]);
-        return { demo: true, res, total: Math.round(spec.total || 0), yearsObserved: last - first + 1, cells };
-      },
+      /** DEMO has no FIRMS history: no cells are invented; the panel says per-cell detail needs the API. */
+      async cells() { return null; },
       async intelligence(id, year, month) {
         return computeClientIntelligence(series(id).rows, year, month, id);
       },

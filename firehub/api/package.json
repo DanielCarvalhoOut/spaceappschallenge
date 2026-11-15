@@ -20,6 +20,7 @@
     "job:db-load-regions": "tsx src/jobs/db-load-regions.ts",
     "job:ingest-firms-history": "tsx src/jobs/ingest-firms-history.ts",
     "job:build-history": "tsx src/jobs/build-history.ts",
+    "job:build-cell-index": "tsx src/jobs/build-cell-index.ts",
     "test:db": "vitest run src/tests/history.db.test.ts"
   },
   "dependencies": {

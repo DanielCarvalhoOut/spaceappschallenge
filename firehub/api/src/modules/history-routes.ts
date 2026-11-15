@@ -16,6 +16,8 @@ import {
   regionIdByIbge,
 } from '../db/history.js';
 import { store } from '../db/store.js';
+import { areaCellsFromIndex, loadCellIndex } from '../core/cell-index.js';
+import { pointInMunicipality } from '../connectors/ibge.js';
 
 const GOIAS = { west: -53.3, south: -19.55, east: -45.85, north: -12.35 };
 
@@ -113,7 +115,14 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
       if (q.data.ibge && !store.getMunicipality(q.data.ibge)) {
         return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
       }
-      const out = store.getAreaCells({
+      // Without PostGIS, cells come from the real FIRMS index (job:build-cell-index); never synthesized.
+      const index = loadCellIndex();
+      if (!index) {
+        return problem(reply, 503, 'History not loaded', 'Per-cell detail needs the FIRMS history (run job:build-cell-index or job:build-history).');
+      }
+      const muni = q.data.ibge ? store.getMunicipality(q.data.ibge) : undefined;
+      if (q.data.ibge && !muni) return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
+      const out = areaCellsFromIndex(index, {
         ibge: q.data.ibge,
         lon: q.data.lon,
         lat: q.data.lat,
@@ -121,8 +130,9 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
         year: q.data.year,
         month: q.data.month,
         resM: q.data.res as 1000 | 2000 | 5000,
-      });
+      }, muni ? { bbox: muni.bbox, inside: (lo, la) => pointInMunicipality(la, lo, muni) } : undefined);
       return {
+        source: 'firms_index',
         res: q.data.res,
         year: q.data.year,
         month: q.data.month,
