@@ -1,3 +1,5 @@
+<img src="logo-mark.png" alt="Monitor Cinder" width="96" height="96">
+
 # Monitor Cinder
 
 **NASA Space Apps Challenge 2026 · Goiânia · Challenge: Harmonization of MODIS and VIIRS Hot Spots**
