@@ -493,7 +493,8 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .horizons { display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
 .proj-note { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
 .proj-note--warn { color: var(--accent-2); }
-.proj-days { display: grid; grid-template-columns: repeat(15, minmax(0, 1fr)); gap: 3px; align-items: end; height: 96px; }
+.proj-days { display: grid; grid-template-columns: repeat(15, minmax(0, 1fr)); gap: 3px; align-items: end; height: 124px; }
+.proj-day__pct { font: 700 10.5px/1 var(--mono); color: var(--text); white-space: nowrap; min-height: 1em; }
 .proj-day { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 3px; }
 .proj-day i { display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--accent); min-height: 2px; }
 .proj-day span { font: 600 9.5px var(--mono); color: var(--muted); }
@@ -674,3 +675,16 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .modal__card .alerts__z { font-size: 13px; }
 .modal__card .alerts__item small { font-size: 12.5px; }
 .modal__card .dl-status { font-size: 13px; }
+
+/* ---------- Summary tab: expected range and next days as cards, notes in readable type ---------- */
+.info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.info-card strong { font-size: 22px; }
+.info-card small { font-size: 12.5px; line-height: 1.35; margin-top: 2px; }
+.info-card small.z-up, .info-card strong.z-up { color: var(--accent-2); }
+.info-notes { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.info-notes li { padding-left: 12px; position: relative; }
+.info-notes li::before { content: ""; position: absolute; left: 0; top: .6em; width: 4px; height: 4px; border-radius: 50%; background: var(--line-bright); }
+.modal__card .info-card strong { font-size: 25px; }
+.modal__card .info-card small { font-size: 13.5px; }
+.modal__card .info-notes { font-size: 15.5px; }
+.modal__card .proj-day__pct { font-size: 11px; }

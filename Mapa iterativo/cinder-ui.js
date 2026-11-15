@@ -1365,10 +1365,17 @@
     const next = $('next-box');
     clear(next);
     const f = h.fortnight;
-    if (f && hc.fortnight && hc.fortnight.published) next.append(el('p', 'range-line', t('next.line', { p10: bandNum(f.p10), p50: bandNum(f.p50), p90: bandNum(f.p90) })));
-    else if (f && f.climatology) next.append(el('p', 'range-line', t('next.clim', { p10: bandNum(f.climatology.p10), p90: bandNum(f.climatology.p90) })));
+    const nextCards = el('div', 'info-cards');
+    if (f && hc.fortnight && hc.fortnight.published) {
+      nextCards.append(infoCard(t('rc.nextExpected'), bandNum(f.p50), t('rc.nextBand', { p10: bandNum(f.p10), p90: bandNum(f.p90) })));
+    } else if (f && f.climatology) {
+      nextCards.append(infoCard(t('rc.nextClim'), `${bandNum(f.climatology.p10)} – ${bandNum(f.climatology.p90)}`, t('rc.nextClimSmall')));
+    }
+    if (nextCards.childElementCount) next.append(nextCards);
     else next.append(el('p', 'muted', t('proj.skillNa')));
-    next.append(el('small', 'range-meta muted', `${t('proj.asOf', { d: shortDate(h.asOf) })} ${t('next.more')}`));
+    const nextNotes = el('ul', 'info-notes');
+    nextNotes.append(el('li', '', `${t('proj.asOf', { d: shortDate(h.asOf) })} ${t('next.more')}`));
+    next.append(nextNotes);
 
     // Projection tab.
     const box = $('horizons-box');
@@ -1387,11 +1394,13 @@
     for (const d of h.daily) {
       const col = el('div', 'proj-day');
       const bar = el('i');
-      bar.style.height = `${Math.max(2, Math.round(d.pAnyPct * 0.8))}%`;
+      bar.style.height = `${Math.max(2, Math.round(d.pAnyPct * 0.62))}%`;
       bar.style.opacity = String(0.35 + 0.65 * (d.pAnyPct / 100));
       col.title = t('proj.dayTitle', { d: shortDate(d.date), p: fmtInt(d.pAnyPct), p50: bandNum(d.p50), p90: bandNum(d.p90) });
       col.setAttribute('aria-label', col.title);
-      col.append(bar, el('span', '', d.date.slice(8, 10)));
+      // the chance written on top of the column, so nobody needs the tooltip (only where there is a chance)
+      const pct = Math.round(d.pAnyPct);
+      col.append(el('b', 'proj-day__pct', pct >= 1 ? `${pct}%` : ''), bar, el('span', '', d.date.slice(8, 10)));
       days.append(col);
     }
     if (d1 && d1.published) {
@@ -1474,17 +1483,18 @@
     }
     box.append(bar);
 
-    box.append(el('p', 'range-line', t('range.p', { p10: fmt1(p10), p50: fmt1(p50), p90: fmt1(p90) })));
+    const cards = el('div', 'info-cards');
+    cards.append(infoCard(t('rc.typical'), `${fmt1(p10)} – ${fmt1(p90)}`, t('rc.median', { p50: fmt1(p50) })));
     if (obs !== null) {
       const where = obs > p90 ? 'range.above' : obs < p10 ? 'range.below' : 'range.within';
-      box.append(el('p', 'range-line ' + (obs > p90 ? 'z-up' : obs < p10 ? 'z-down' : ''),
-        `${t('range.obs', { period: period(), v: fmtInt(obs) })} · ${t(where)}`));
+      cards.append(infoCard(t('rc.observed', { period: period() }), fmtInt(obs), t(where), obs > p90 ? 'z-up' : obs < p10 ? 'z-down' : ''));
     } else {
-      box.append(el('p', 'range-line muted', t('range.obsNone', { period: period() })));
+      cards.append(infoCard(t('rc.observed', { period: period() }), '–', t('range.obsNone', { period: period() })));
     }
     if (p.analog) {
-      box.append(el('p', 'range-line', t('range.analog', { years: p.analog.years.join(', '), p10: fmt1(p.analog.p10), p90: fmt1(p.analog.p90) })));
+      cards.append(infoCard(t('rc.analog'), `${fmt1(p.analog.p10)} – ${fmt1(p.analog.p90)}`, p.analog.years.join(', ')));
     }
+    box.append(cards);
     const meta = [];
     if (Number.isFinite(p.range.nYears)) meta.push(t('range.years', { n: p.range.nYears, method: t(`range.method.${p.method}`) }));
     if (p.hindcast && Number.isFinite(p.hindcast.coveragePct)) {
@@ -1493,7 +1503,16 @@
       meta.push(t('range.noHindcast'));
     }
     meta.push(t('range.note'));
-    for (const m of meta) box.append(el('small', 'range-meta muted', m));
+    const notes = el('ul', 'info-notes');
+    for (const m of meta) notes.append(el('li', '', m));
+    box.append(notes);
+  }
+  /** Card like the KPIs above it: label, value in large type, a short line under it (tone: 'z-up' | 'z-down' | ''). */
+  function infoCard(label, value, small, tone) {
+    const c = el('div', 'kpi info-card');
+    c.append(el('span', 'kpi__label', label), el('strong', tone || '', value));
+    if (small) c.append(el('small', tone || '', small));
+    return c;
   }
 
   /* ---------- Focos-raiz layer (cells that burned in many years; computed in PostGIS) ---------- */
