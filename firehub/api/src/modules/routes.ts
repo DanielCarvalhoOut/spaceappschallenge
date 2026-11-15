@@ -132,9 +132,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         },
         {
           id: 'embrapa_satveg',
-          name: 'Embrapa SATVeg (MOD13Q1/MYD13Q1 NDVI)',
+          name: 'Embrapa SATVeg & NASA LP DAAC MOD13Q1 (250m NDVI/EVI)',
           url: 'https://www.satveg.cnptia.embrapa.br/',
-          role: 'Dry-season vegetation vigor (NDVI) context',
+          role: 'Biomass vigor (NDVI/EVI), dry fuel load (t/ha) & curing rate for Agro-Insurance',
+        },
+        {
+          id: 'modis_mcd12q1',
+          name: 'NASA LP DAAC MODIS MCD12Q1 v6.1 (IGBP 500m Land Cover)',
+          url: 'https://lpdaac.usgs.gov/products/mcd12q1v061/',
+          role: 'Cropland, pasture, savanna & Reserva Legal/APP exposure for B2B underwriting & credit audit',
         },
       ],
       validation: computed && fromDb
@@ -180,20 +186,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return mesh;
   });
 
-  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count|density|propensity
+  // 3. GET /api/map?year=2024&month=9&metric=anomaly|count|density|propensity|agro_score
   app.get('/api/map', async (req: FastifyRequest, reply: FastifyReply) => {
     const qSchema = z.object({
       year: YearSchema.default(2024),
       month: MonthSchema.default(9),
-      metric: z.enum(['anomaly', 'count', 'density', 'propensity']).default('anomaly'),
+      metric: z
+        .enum(['anomaly', 'count', 'density', 'propensity', 'agro_score'])
+        .default('anomaly'),
     });
     const parsed = qSchema.safeParse(req.query);
     if (!parsed.success) {
       return sendProblem(reply, 400, 'Invalid map query parameters', parsed.error.message);
     }
     const { year, month, metric } = parsed.data;
-    // The propensity model is trained on the in-memory store (job:train-ml), not on the PostGIS history.
-    if (metric === 'propensity') {
+    // The propensity model and multi-sensor agro_score are computed on the in-memory store.
+    if (metric === 'propensity' || metric === 'agro_score') {
       return { year, month, metric, dataKind: 'synthetic', values: store.getMapValues(year, month, metric) };
     }
     if (await history.hasHistory()) {
@@ -478,7 +486,42 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ============================================================================
-  // Unified Intelligence Endpoint (A + B + C in a single round-trip)
+  // D. Score Agrícola para Seguros & Inteligência B2B
+  //    (FIRMS + NASA POWER + MOD13Q1 Biomassa/Safra + MCD12Q1 Uso do Solo)
+  // ============================================================================
+  const handleAgroScore = async (req: FastifyRequest, reply: FastifyReply) => {
+    const pSchema = z.object({ ibge: IbgeCodeSchema });
+    const qSchema = z.object({
+      year: YearSchema.default(2024),
+      month: MonthSchema.default(9),
+    });
+    const pParsed = pSchema.safeParse(req.params);
+    const qParsed = qSchema.safeParse(req.query);
+    if (!pParsed.success || !qParsed.success) {
+      return sendProblem(reply, 400, 'Invalid parameters', 'Valid 7-digit IBGE, year, and month required');
+    }
+    const muni = store.getMunicipality(pParsed.data.ibge);
+    if (!muni) {
+      return sendProblem(reply, 404, 'Municipality not found', `IBGE ${pParsed.data.ibge} not found`);
+    }
+    const report = await store.getAgroB2BRiskReport(
+      muni.ibgeCode,
+      qParsed.data.year,
+      qParsed.data.month
+    );
+    return {
+      ibge: muni.ibgeCode,
+      name: muni.name,
+      year: qParsed.data.year,
+      month: qParsed.data.month,
+      ...report,
+    };
+  };
+  app.get('/api/municipalities/:ibge/agro-score', handleAgroScore);
+  app.get('/api/municipalities/:ibge/b2b-risk', handleAgroScore);
+
+  // ============================================================================
+  // Unified Intelligence Endpoint (A + B + C + D in a single round-trip)
   // ============================================================================
   app.get('/api/municipalities/:ibge/intelligence', async (req: FastifyRequest, reply: FastifyReply) => {
     const pSchema = z.object({ ibge: IbgeCodeSchema });
@@ -496,10 +539,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return sendProblem(reply, 404, 'Municipality not found', `IBGE ${pParsed.data.ibge} not found`);
     }
     const { year, month } = qParsed.data;
-    const [resources, rootFires, predictability] = await Promise.all([
+    const [resources, rootFires, predictability, agroB2B] = await Promise.all([
       Promise.resolve(store.getMunicipalityResourcesAndClusters(muni.ibgeCode, year, month)),
       Promise.resolve(store.getRootFireAnalysis(muni.ibgeCode)),
       store.getPredictabilityAndWeather(muni.ibgeCode, year, month),
+      store.getAgroB2BRiskReport(muni.ibgeCode, year, month),
     ]);
 
     return {
@@ -510,6 +554,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       resources,
       rootFires,
       predictability,
+      agroB2B,
     };
   });
 

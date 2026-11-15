@@ -1,11 +1,18 @@
 import type {
+  AgroB2BRiskReport,
+  AgroInsuranceUnderwriting,
   ClusteredFireEvent,
+  FinancialRiskAnalysis,
   FirePredictabilityReport,
   FirmsHotspotRecord,
+  Mcd12q1LandCoverProfile,
+  Mod13q1BiomassProfile,
   NasaPowerDailyRecord,
   ResourceScalingEstimate,
   RootFireMonthProfile,
   RootFireSummary,
+  RuralCreditAuditReport,
+  TransmissionLineRowPriority,
 } from './types.js';
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -496,5 +503,239 @@ export function computeFirePredictability(
       reachRadius6hKm,
     },
     dailySeries: [...dailySeries],
+  };
+}
+
+/**
+ * D. Multi-Sensor B2B SaaS Fusion Engine:
+ * Combines Fogo (FIRMS) + Clima (NASA POWER) + Biomassa/Safra (MOD13Q1) + Uso do Solo (MCD12Q1)
+ * to compute the Agricultural Insurance Score (Score Agrícola para Seguros) and 4 B2B Verticals:
+ * 1) Subscrição de Seguro Agrícola (Underwriting Rating AAA..CCC, Pure Risk Rate, Loading, Deductible)
+ * 2) Análise de Risco Financeiro (EAL %, PML 95% %, VaR R$/ha)
+ * 3) Priorização de Roçada de Linhas de Transmissão (ROW Clearing Priority, Smoke Flashover Risk, Buffer m)
+ * 4) Auditoria de Crédito Rural & Compliance (BACEN Sicor / PROAGRO, RL/APP Exposure, Anthropogenic Flag)
+ */
+export function computeAgroB2BRiskReport(params: {
+  harmonizedCount: number;
+  anomalyZ: number | null;
+  meanFrpMw: number;
+  maxFrpMw: number;
+  rootFires: RootFireSummary;
+  month: number;
+  predictability: FirePredictabilityReport;
+  mod13q1: Mod13q1BiomassProfile;
+  mcd12q1: Mcd12q1LandCoverProfile;
+}): AgroB2BRiskReport {
+  const {
+    harmonizedCount,
+    anomalyZ,
+    meanFrpMw,
+    maxFrpMw,
+    rootFires,
+    month,
+    predictability,
+    mod13q1,
+    mcd12q1,
+  } = params;
+
+  const monthRoot = rootFires.months.find((m) => m.month === month);
+  const monthRecurrencePct = monthRoot?.recurrencePct ?? rootFires.persistenceScorePct;
+
+  // 1. Pillar 1: Fogo · NASA FIRMS (0..100, weight 30%)
+  const zClamped = Math.max(-1.5, Math.min(3.5, anomalyZ ?? 0));
+  const zPts = Math.max(0, (zClamped + 0.5) * 9.5); // 0..38
+  const recPts = Math.min(34, monthRecurrencePct * 0.22 + rootFires.persistenceScorePct * 0.14); // 0..34
+  const frpPts = Math.min(28, Math.log1p(Math.max(0, harmonizedCount)) * 3.8 + Math.min(14, maxFrpMw / 14)); // 0..28
+  const firmsFireScore =
+    Math.round(Math.min(100, Math.max(4, zPts + recPts + frpPts)) * 10) / 10;
+
+  // 2. Pillar 2: Clima · NASA POWER + ML Propensity (0..100, weight 25%)
+  const mlScore = predictability.mlPropensity?.propensityScore ?? predictability.ignitionRiskScore;
+  const spreadBoost = Math.min(15, predictability.propagation.spreadRateKmh * 6.5);
+  const powerClimateScore =
+    Math.round(Math.min(100, Math.max(5, mlScore * 0.85 + spreadBoost)) * 10) / 10;
+
+  // 3. Pillar 3: Biomassa / Safra · MODIS MOD13Q1 (0..100, weight 25%)
+  const curingPts = Math.min(48, mod13q1.curingRatePct * 0.52);
+  const fuelPts = Math.min(34, mod13q1.fuelLoadTonsHa * 2.35);
+  const stressPts = Math.min(18, Math.max(0, -mod13q1.ndviAnomalyPct * 0.85));
+  const mod13q1BiomassScore =
+    Math.round(Math.min(100, Math.max(6, curingPts + fuelPts + stressPts)) * 10) / 10;
+
+  // 4. Pillar 4: Uso do Solo & Interface · MODIS MCD12Q1 + PRODES (0..100, weight 20%)
+  const interfacePts = mcd12q1.interfaceRiskIndex * 0.58;
+  const agroExposurePts = Math.min(28, (mcd12q1.croplandPct * 0.42 + mcd12q1.pastureGrasslandPct * 0.28));
+  const prodesPts = Math.min(16, mcd12q1.prodesDeforestationKm2 * 0.9);
+  const mcd12q1LandUseScore =
+    Math.round(Math.min(100, Math.max(8, interfacePts + agroExposurePts + prodesPts)) * 10) / 10;
+
+  // Composite Agricultural Insurance Risk Score (0..100)
+  const agroInsuranceScore =
+    Math.round(
+      Math.min(
+        100,
+        Math.max(
+          5,
+          firmsFireScore * 0.3 +
+            powerClimateScore * 0.25 +
+            mod13q1BiomassScore * 0.25 +
+            mcd12q1LandUseScore * 0.2
+        )
+      ) * 10
+    ) / 10;
+
+  const insurabilityScore = Math.round((100 - agroInsuranceScore) * 10);
+
+  let underwritingRating: AgroInsuranceUnderwriting['underwritingRating'] = 'BBB';
+  if (agroInsuranceScore < 20) underwritingRating = 'AAA';
+  else if (agroInsuranceScore < 32) underwritingRating = 'AA';
+  else if (agroInsuranceScore < 45) underwritingRating = 'A';
+  else if (agroInsuranceScore < 58) underwritingRating = 'BBB';
+  else if (agroInsuranceScore < 70) underwritingRating = 'BB';
+  else if (agroInsuranceScore < 82) underwritingRating = 'B';
+  else underwritingRating = 'CCC';
+
+  let riskTier: AgroInsuranceUnderwriting['riskTier'] = 'low';
+  if (agroInsuranceScore >= 75) riskTier = 'extreme';
+  else if (agroInsuranceScore >= 55) riskTier = 'high';
+  else if (agroInsuranceScore >= 35) riskTier = 'moderate';
+
+  // Actuarial pure risk rate (% p.a. of sum insured)
+  const pureRiskRatePct =
+    Math.round((0.55 + Math.pow(agroInsuranceScore / 100, 1.65) * 5.85) * 100) / 100;
+  // Technical loading/discount vs neutral benchmark (score = 42)
+  const recommendedLoadingPct = Math.round((agroInsuranceScore - 42) * 1.45 * 10) / 10;
+  const suggestedDeductiblePct =
+    agroInsuranceScore >= 75
+      ? 22
+      : agroInsuranceScore >= 55
+        ? 15
+        : agroInsuranceScore >= 35
+          ? 10
+          : 8;
+
+  let underwritingDecision: AgroInsuranceUnderwriting['underwritingDecision'] = 'auto_approve';
+  if (agroInsuranceScore >= 75) underwritingDecision = 'decline_or_reinsurance';
+  else if (agroInsuranceScore >= 56) underwritingDecision = 'manual_inspection_required';
+  else if (agroInsuranceScore >= 35) underwritingDecision = 'approve_with_firebreak_covenant';
+
+  // Vertical 2: Financial Risk Analysis
+  const expectedAnnualLossPct =
+    Math.round(Math.min(35, pureRiskRatePct * 0.84) * 100) / 100;
+  const probableMaximumLossP95Pct =
+    Math.round(
+      Math.min(
+        85,
+        expectedAnnualLossPct * (2.6 + predictability.propagation.spreadRateKmh * 0.95) +
+          mod13q1.fuelLoadTonsHa * 0.55
+      ) * 10
+    ) / 10;
+  // Average crop/pasture capital exposure per hectare in Goiás (~R$ 7,400/ha weighted by cropland share)
+  const capitalPerHaBrl = 4200 + mcd12q1.croplandPct * 68;
+  const valueAtRiskBrlPerHa = Math.round(capitalPerHaBrl * (probableMaximumLossP95Pct / 100));
+
+  let burnSeverityPotential: FinancialRiskAnalysis['burnSeverityPotential'] = 'low';
+  if (probableMaximumLossP95Pct >= 26 || maxFrpMw >= 140) burnSeverityPotential = 'catastrophic';
+  else if (probableMaximumLossP95Pct >= 16 || maxFrpMw >= 65) burnSeverityPotential = 'high';
+  else if (probableMaximumLossP95Pct >= 8 || meanFrpMw >= 20) burnSeverityPotential = 'moderate';
+
+  // Vertical 3: Transmission Line Right-of-Way (ROW) Clearing Priority
+  const rowClearingPriorityScore =
+    Math.round(
+      Math.min(
+        100,
+        Math.max(
+          5,
+          mod13q1BiomassScore * 0.36 +
+            powerClimateScore * 0.32 +
+            firmsFireScore * 0.32
+        )
+      ) * 10
+    ) / 10;
+
+  let priorityTier: TransmissionLineRowPriority['priorityTier'] = 'routine';
+  if (rowClearingPriorityScore >= 76) priorityTier = 'immediate_dispatch';
+  else if (rowClearingPriorityScore >= 56) priorityTier = 'urgent_7d';
+  else if (rowClearingPriorityScore >= 36) priorityTier = 'scheduled_30d';
+
+  let smokeOutageRiskClass: TransmissionLineRowPriority['smokeOutageRiskClass'] = 'low';
+  if (rowClearingPriorityScore >= 75 || (maxFrpMw >= 110 && mod13q1.fuelLoadTonsHa >= 9)) {
+    smokeOutageRiskClass = 'extreme';
+  } else if (rowClearingPriorityScore >= 55 || maxFrpMw >= 55) {
+    smokeOutageRiskClass = 'high';
+  } else if (rowClearingPriorityScore >= 35) {
+    smokeOutageRiskClass = 'moderate';
+  }
+
+  const recommendedBufferWidthM = Math.round(
+    Math.min(85, Math.max(30, 28 + mod13q1.fuelLoadTonsHa * 2.4 + predictability.propagation.spreadRateKmh * 14))
+  );
+
+  // Vertical 4: Rural Credit Audit & Compliance (BACEN Sicor / PROAGRO)
+  const anthroPenalty =
+    monthRecurrencePct * 0.22 +
+    rootFires.persistenceScorePct * 0.2 +
+    rootFires.anthropogenicSharePct * 0.32 +
+    Math.min(25, mcd12q1.prodesDeforestationKm2 * 1.4);
+  const complianceScore =
+    Math.round(Math.max(8, Math.min(98, 100 - anthroPenalty)) * 10) / 10;
+
+  const anthropogenicBurnFlag =
+    rootFires.dominantRegime === 'anthropogenic_root' ||
+    rootFires.persistenceScorePct >= 65 ||
+    (rootFires.rootMonths.length >= 1 && rootFires.anthropogenicSharePct >= 55);
+
+  let creditAuditStatus: RuralCreditAuditReport['creditAuditStatus'] = 'compliant';
+  if (complianceScore < 48 || (anthropogenicBurnFlag && mcd12q1.prodesDeforestationKm2 >= 8)) {
+    creditAuditStatus = 'non_compliant_high_recurrence';
+  } else if (complianceScore < 70 || anthropogenicBurnFlag) {
+    creditAuditStatus = 'attention_seasonal_burn';
+  }
+
+  const rlAppExposurePct =
+    Math.round(
+      Math.min(
+        100,
+        Math.max(4, mcd12q1.forestRlAppPct * (0.45 + (firmsFireScore / 100) * 0.85))
+      ) * 10
+    ) / 10;
+
+  return {
+    pillars: {
+      firmsFireScore,
+      powerClimateScore,
+      mod13q1BiomassScore,
+      mcd12q1LandUseScore,
+    },
+    mod13q1,
+    mcd12q1,
+    insurance: {
+      agroInsuranceScore,
+      insurabilityScore,
+      underwritingRating,
+      riskTier,
+      pureRiskRatePct,
+      recommendedLoadingPct,
+      suggestedDeductiblePct,
+      underwritingDecision,
+    },
+    financialRisk: {
+      expectedAnnualLossPct,
+      probableMaximumLossP95Pct,
+      valueAtRiskBrlPerHa,
+      burnSeverityPotential,
+    },
+    transmissionLine: {
+      rowClearingPriorityScore,
+      priorityTier,
+      smokeOutageRiskClass,
+      recommendedBufferWidthM,
+    },
+    creditAudit: {
+      complianceScore,
+      creditAuditStatus,
+      anthropogenicBurnFlag,
+      rlAppExposurePct,
+    },
   };
 }

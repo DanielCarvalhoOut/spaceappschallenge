@@ -61,7 +61,9 @@
         ? fmt1(v)
         : state.metric === 'propensity'
           ? (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(v, 1) + '%')
-          : fmtInt(v)
+          : state.metric === 'agro_score'
+            ? (v === null || v === undefined || !Number.isFinite(v) ? '–' : I.num(v, 1) + '/100')
+            : fmtInt(v)
   );
   const period = () => `${monthName(state.month)}/${state.year}`;
   function zText(z) {
@@ -78,7 +80,7 @@
     const y = Number(p.get('y')), m = Number(p.get('m')), k = p.get('k'), mun = p.get('mun');
     if (Number.isInteger(y) && y >= state.source.firstYear && y <= state.source.lastYear) state.year = y;
     if (Number.isInteger(m) && m >= 1 && m <= 12) state.month = m;
-    if (k === 'anomaly' || k === 'count' || k === 'density' || k === 'propensity') state.metric = k;
+    if (k === 'anomaly' || k === 'count' || k === 'density' || k === 'propensity' || k === 'agro_score') state.metric = k;
     if (mun && /^\d{7}$/.test(mun) && state.ids.includes(mun)) state.selected = mun;
   }
   function writeHash() {
@@ -190,7 +192,7 @@
   const PROPENSITY_SCALE = { type: 'sequential', min: 0, max: 100 };
   function scaleFor(values) {
     if (state.metric === 'anomaly') return Object.assign({}, Z_SCALE);
-    if (state.metric === 'propensity') return PROPENSITY_SCALE;
+    if (state.metric === 'propensity' || state.metric === 'agro_score') return PROPENSITY_SCALE;
     let max = 10;
     for (const k of Object.keys(values)) { const v = values[k]; if (typeof v === 'number' && v > max) max = v; }
     return { type: 'sequential', min: 0, max };
@@ -240,7 +242,9 @@
         ? ['−3σ', '−1σ', t('legend.normal'), '+1σ', '+3σ']
         : state.metric === 'propensity'
           ? ['0%', '50%', '100%']
-          : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
+          : state.metric === 'agro_score'
+            ? ['0 (AAA)', '50 (BBB)', '100 (CCC)']
+            : ['0', fmtInt(Math.sqrt(scale.max)), fmtInt(scale.max)];
     for (const s of labels) ticks.append(el('span', '', s));
   }
 
@@ -256,7 +260,9 @@
         ? t('tt.density', { v: fmt1(v), period: period() })
         : state.metric === 'propensity'
           ? t('tt.propensity', { n: v === null || v === undefined ? '–' : I.num(v, 1), period: period() })
-          : t('tt.count', { n: fmtInt(v), period: period() });
+          : state.metric === 'agro_score'
+            ? t('tt.agro_score', { n: v === null || v === undefined ? '–' : I.num(v, 1), period: period() })
+            : t('tt.count', { n: fmtInt(v), period: period() });
     tip.hidden = false;
     const x = Math.min(h.x + 14, $('map').clientWidth - 250);
     const y = Math.max(8, h.y - 38);
@@ -564,6 +570,7 @@
       renderResourcesBox(sphereIntel.resources);
       renderRootFiresBox(sphereIntel.rootFires);
       renderPredictabilityBox(sphereIntel.predictability);
+      renderAgroB2BBox(sphereIntel.agroB2B);
       if (sphere.centerId) loadContext(sphere.centerId, seq);
       if (Number.isFinite(sphere.lon) && sphere.radiusKm >= 5) {
         loadDetail({ kind: 'circle', lon: sphere.lon, lat: sphere.lat, radiusKm: sphere.radiusKm }, cur ? cur.harmonized : 0, seq);
@@ -910,7 +917,7 @@
       : '';
   }
 
-  /* ---------- A, B & C Operational & ML Intelligence Renderers ---------- */
+  /* ---------- A, B, C & D Operational, ML & Agro-Insurance B2B Intelligence Renderers ---------- */
   async function loadIntelligence(id, seq) {
     try {
       const intel = state.source.intelligence
@@ -920,12 +927,14 @@
       if (intel.resources) renderResourcesBox(intel.resources);
       if (intel.rootFires) renderRootFiresBox(intel.rootFires);
       if (intel.predictability) renderPredictabilityBox(intel.predictability);
+      if (intel.agroB2B) renderAgroB2BBox(intel.agroB2B);
     } catch (err) {
       if (seq !== state.panelSeq) return;
       const fallback = global.FireData.computeClientIntelligence(state.rows.get(id) || [], state.year, state.month, id);
       renderResourcesBox(fallback.resources);
       renderRootFiresBox(fallback.rootFires);
       renderPredictabilityBox(fallback.predictability);
+      renderAgroB2BBox(fallback.agroB2B);
     }
   }
 
@@ -1148,6 +1157,139 @@
       varsList.append(li);
     }
     box.append(varsList);
+  }
+
+  function renderAgroB2BBox(agro) {
+    const box = $('agro-b2b-box');
+    if (!box) return;
+    clear(box);
+    if (!agro || !agro.insurance) return;
+
+    const ins = agro.insurance;
+    const fin = agro.financialRisk || {};
+    const tx = agro.transmissionLine || {};
+    const cred = agro.creditAudit || {};
+    const m13 = agro.mod13q1 || {};
+    const m12 = agro.mcd12q1 || {};
+    const pil = agro.pillars || {};
+
+    const head = el('div', 'intel-head');
+    const tier = ins.riskTier || 'moderate';
+    head.append(
+      el(
+        'span',
+        `intel-badge intel-badge--${tier}`,
+        t('agro.ratingBadge', { rating: ins.underwritingRating || 'BBB', tier: t(`pred.risk.${tier}`) })
+      ),
+      el('strong', 'intel-mono', `${I.num(ins.agroInsuranceScore || 0, 1)} / 100`)
+    );
+    box.append(head);
+
+    box.append(
+      el(
+        'p',
+        'intel-note',
+        `${t('agro.scoreSummary', {
+          score: I.num(ins.agroInsuranceScore || 0, 1),
+          ins: fmtInt(ins.insurabilityScore || 0),
+        })} · ${t(`agro.decision.${ins.underwritingDecision || 'approve_with_firebreak_covenant'}`)}`
+      )
+    );
+
+    box.append(el('p', 'intel-subhead', t('agro.pillarsTitle')));
+    const pillarsBox = el('div', 'ml-drivers');
+    const pillarRows = [
+      [t('agro.pillar.firms'), pil.firmsFireScore || 0],
+      [t('agro.pillar.power'), pil.powerClimateScore || 0],
+      [t('agro.pillar.mod13q1'), pil.mod13q1BiomassScore || 0],
+      [t('agro.pillar.mcd12q1'), pil.mcd12q1LandUseScore || 0],
+    ];
+    for (const [label, val] of pillarRows) {
+      const row = el('div', 'ml-driver-row');
+      const top = el('div', 'ml-driver-top');
+      top.append(el('span', '', label), el('strong', 'intel-mono', `${I.num(val, 1)}/100`));
+      const track = el('div', 'ml-driver-track');
+      const fill = el('div', 'ml-driver-fill');
+      fill.style.width = `${Math.max(4, Math.min(100, Math.round(val)))}%`;
+      track.append(fill);
+      row.append(top, track);
+      pillarsBox.append(row);
+    }
+    box.append(pillarsBox);
+
+    const grid = el('div', 'res-grid');
+    const loadSign = (ins.recommendedLoadingPct || 0) >= 0 ? '+' : '';
+    const cards = [
+      {
+        label: t('agro.v1.title'),
+        val: `${ins.underwritingRating || 'BBB'} · ${I.num(ins.pureRiskRatePct || 0, 2)}%`,
+        sub: t('agro.v1.sub', {
+          rate: I.num(ins.pureRiskRatePct || 0, 2),
+          ded: fmtInt(ins.suggestedDeductiblePct || 10),
+          load: `${loadSign}${I.num(ins.recommendedLoadingPct || 0, 1)}`,
+        }),
+      },
+      {
+        label: t('agro.v2.title'),
+        val: `R$ ${fmtInt(fin.valueAtRiskBrlPerHa || 0)}/ha`,
+        sub: t('agro.v2.sub', {
+          eal: I.num(fin.expectedAnnualLossPct || 0, 2),
+          pml: I.num(fin.probableMaximumLossP95Pct || 0, 1),
+        }),
+      },
+      {
+        label: t('agro.v3.title'),
+        val: `${I.num(tx.rowClearingPriorityScore || 0, 1)}/100`,
+        sub: t('agro.v3.sub', {
+          buf: fmtInt(tx.recommendedBufferWidthM || 40),
+          smoke: t(`pred.risk.${tx.smokeOutageRiskClass || 'moderate'}`),
+        }),
+      },
+      {
+        label: t('agro.v4.title'),
+        val: `${I.num(cred.complianceScore || 0, 1)}/100`,
+        sub: t('agro.v4.sub', {
+          rl: I.num(cred.rlAppExposurePct || 0, 1),
+          status: t(`agro.status.${cred.creditAuditStatus || 'compliant'}`),
+        }),
+      },
+    ];
+    for (const c of cards) {
+      const card = el('div', 'res-card');
+      card.append(
+        el('span', 'res-card__label', c.label),
+        el('strong', 'res-card__val', c.val),
+        el('small', 'res-card__sub', c.sub)
+      );
+      grid.append(card);
+    }
+    box.append(grid);
+
+    const anomSign = (m13.ndviAnomalyPct || 0) >= 0 ? '+' : '';
+    box.append(
+      el(
+        'p',
+        'intel-note',
+        t('agro.mod13q1.line', {
+          ndvi: I.num(m13.ndviMean || 0, 2),
+          anom: `${anomSign}${I.num(m13.ndviAnomalyPct || 0, 1)}`,
+          evi: I.num(m13.eviMean || 0, 2),
+          curing: I.num(m13.curingRatePct || 0, 1),
+          fuel: I.num(m13.fuelLoadTonsHa || 0, 1),
+        })
+      ),
+      el(
+        'p',
+        'intel-note',
+        t('agro.mcd12q1.line', {
+          crop: I.num(m12.croplandPct || 0, 1),
+          past: I.num(m12.pastureGrasslandPct || 0, 1),
+          sav: I.num(m12.savannaCerradoPct || 0, 1),
+          for: I.num(m12.forestRlAppPct || 0, 1),
+          iface: I.num(m12.interfaceRiskIndex || 0, 1),
+        })
+      )
+    );
   }
 
   async function loadContext(id, seq) {

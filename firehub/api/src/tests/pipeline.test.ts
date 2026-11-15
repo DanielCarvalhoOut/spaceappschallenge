@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { computeMod13q1BiomassProfile } from '../connectors/embrapa-satveg.js';
 import { buildFirmsAreaUrl, parseFirmsCsv } from '../connectors/firms.js';
+import { computeMcd12q1LandCoverProfile } from '../connectors/modis-landcover.js';
 import { buildNasaPowerDailyUrl, parseNasaPowerDailyJson } from '../connectors/nasa-power.js';
 import {
   analyzeRootFires,
   clusterHotspotsDbscan,
+  computeAgroB2BRiskReport,
   computeFirePredictability,
   estimateResourcesByFrp,
   normalizeConfidence,
@@ -203,5 +206,109 @@ describe('C. Clima e Previsibilidade de Ocorrência (NASA POWER Daily Point)', (
     expect(highPred.propensityScore).toBeGreaterThan(75);
     expect(lowPred.propensityScore).toBeLessThan(25);
     expect(highPred.contributions.length).toBe(8);
+  });
+});
+
+describe('D. Score Agrícola para Seguros & Inteligência B2B (FIRMS + POWER + MOD13Q1 + MCD12Q1)', () => {
+  it('fuses FIRMS + POWER + MOD13Q1 + MCD12Q1 into Agricultural Insurance Score and 4 B2B SaaS verticals', () => {
+    const highRiskSeries: Array<{
+      year: number;
+      month: number;
+      harmonized: number;
+      anomalyZ: number;
+    }> = [];
+    for (let y = 2001; y <= 2025; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const isSep = m === 8 || m === 9;
+        highRiskSeries.push({
+          year: y,
+          month: m,
+          harmonized: isSep ? 165 : 5,
+          anomalyZ: isSep && y === 2024 ? 2.4 : 0.3,
+        });
+      }
+    }
+    const rootFires = analyzeRootFires(highRiskSeries, 2001, 2025);
+    const predictability = computeFirePredictability(
+      [
+        {
+          date: '2024-09-10',
+          t2mMaxC: 39.2,
+          rh2mPct: 16.5,
+          prectotcorrMm: 0,
+          ws10mMs: 5.8,
+          wd10mDeg: 85,
+        },
+        {
+          date: '2024-09-11',
+          t2mMaxC: 40.1,
+          rh2mPct: 15.0,
+          prectotcorrMm: 0,
+          ws10mMs: 6.1,
+          wd10mDeg: 88,
+        },
+      ],
+      95,
+      90
+    );
+
+    const mod13q1 = computeMod13q1BiomassProfile({
+      ndviMean: 0.29,
+      eviMean: 0.2,
+      ndviWetPeak: 0.82,
+      historicalNdviBaseline: 0.44,
+      consecutiveDryDays: 28,
+    });
+    expect(mod13q1.curingRatePct).toBeGreaterThan(65);
+    expect(mod13q1.fuelLoadTonsHa).toBeGreaterThan(10);
+    expect(mod13q1.cropVigorClass).toBe('severe_senescence');
+
+    const mcd12q1 = computeMcd12q1LandCoverProfile({
+      croplandPct: 46,
+      pastureGrasslandPct: 26,
+      savannaCerradoPct: 18,
+      forestRlAppPct: 10,
+      prodesDeforestationKm2: 14.5,
+    });
+    expect(mcd12q1.interfaceRiskIndex).toBeGreaterThan(60);
+
+    const b2b = computeAgroB2BRiskReport({
+      harmonizedCount: 185,
+      anomalyZ: 2.4,
+      meanFrpMw: 58.0,
+      maxFrpMw: 195.0,
+      rootFires,
+      month: 9,
+      predictability,
+      mod13q1,
+      mcd12q1,
+    });
+
+    // 1. Insurance Underwriting Score
+    expect(b2b.insurance.agroInsuranceScore).toBeGreaterThan(68);
+    expect(['BB', 'B', 'CCC']).toContain(b2b.insurance.underwritingRating);
+    expect(b2b.insurance.pureRiskRatePct).toBeGreaterThan(2.5);
+    expect(b2b.insurance.recommendedLoadingPct).toBeGreaterThan(25);
+    expect(['manual_inspection_required', 'decline_or_reinsurance']).toContain(
+      b2b.insurance.underwritingDecision
+    );
+
+    // 2. Financial Risk Analysis
+    expect(b2b.financialRisk.expectedAnnualLossPct).toBeGreaterThan(2.0);
+    expect(b2b.financialRisk.probableMaximumLossP95Pct).toBeGreaterThan(15);
+    expect(b2b.financialRisk.valueAtRiskBrlPerHa).toBeGreaterThan(1000);
+
+    // 3. Transmission Line ROW Clearing Priority
+    expect(b2b.transmissionLine.rowClearingPriorityScore).toBeGreaterThan(65);
+    expect(['urgent_7d', 'immediate_dispatch']).toContain(b2b.transmissionLine.priorityTier);
+    expect(['high', 'extreme']).toContain(b2b.transmissionLine.smokeOutageRiskClass);
+    expect(b2b.transmissionLine.recommendedBufferWidthM).toBeGreaterThanOrEqual(55);
+
+    // 4. Rural Credit Audit & Compliance
+    expect(b2b.creditAudit.anthropogenicBurnFlag).toBe(true);
+    expect(b2b.creditAudit.complianceScore).toBeLessThan(55);
+    expect(['attention_seasonal_burn', 'non_compliant_high_recurrence']).toContain(
+      b2b.creditAudit.creditAuditStatus
+    );
   });
 });
