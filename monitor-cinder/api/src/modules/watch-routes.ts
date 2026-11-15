@@ -29,6 +29,7 @@ const st = (): WatchState => (state ??= loadState(STATE_FILE()));
 
 function inArea(area: WatchArea, lon: number, lat: number): boolean {
   if ('ibge' in area) {
+    if (area.ibge === '52') return true; // whole state: the scans are already cut to Goiás municipalities
     const m = store.getMunicipality(area.ibge);
     return !!m && pointInMunicipality(lat, lon, m);
   }
@@ -53,7 +54,8 @@ export async function runWatchCycle(now = new Date()): Promise<{ newScans: numbe
     newAlerts = updateAlerts(s, { inArea, context: (lon, lat, month) => store.alertContext(lon, lat, month) }).length;
     if (config.FIRMS_MAP_KEY && now.getTime() - lastConfirm >= CONFIRM_EVERY_MS && s.alerts.some((a) => a.status === 'persistent')) {
       lastConfirm = now.getTime();
-      const pts = await firmsConnector.fetchMultiSensorArea(GOIAS_BOX, 2, ['VIIRS_NOAA20_NRT', 'VIIRS_NOAA21_NRT']);
+      // 3 days back covers alerts up to 30 h old (their day and the next one)
+      const pts = await firmsConnector.fetchMultiSensorArea(GOIAS_BOX, 3, ['VIIRS_NOAA20_NRT', 'VIIRS_NOAA21_NRT']);
       confirmed = confirmAlerts(s, pts.map((p) => ({ lon: p.longitude, lat: p.latitude, date: p.acqDate })), now);
     }
     s.lastRun = now.toISOString();
@@ -82,7 +84,7 @@ function problem(reply: FastifyReply, status: number, title: string, detail: str
 }
 
 const AreaBody = z.union([
-  z.object({ ibge: z.string().regex(/^52\d{5}$/), label: z.string().max(80).default('') }).strict(),
+  z.object({ ibge: z.string().regex(/^52(\d{5})?$/), label: z.string().max(80).default('') }).strict(), // '52' = whole state
   z.object({
     lon: z.number().min(GOIAS_BOX[0]).max(GOIAS_BOX[2]), lat: z.number().min(GOIAS_BOX[1]).max(GOIAS_BOX[3]),
     radiusKm: z.number().min(5).max(300), label: z.string().max(80).default(''),
@@ -110,7 +112,7 @@ export async function registerWatchRoutes(app: FastifyInstance): Promise<void> {
     const s = st();
     if (s.watches.length >= MAX_WATCHES) return problem(reply, 429, 'Too many watches', `At most ${MAX_WATCHES} areas can be watched.`);
     const { label, ...area } = b.data;
-    if ('ibge' in area && !store.getMunicipality(area.ibge)) return problem(reply, 404, 'Region not found', `IBGE ${area.ibge}`);
+    if ('ibge' in area && area.ibge !== '52' && !store.getMunicipality(area.ibge)) return problem(reply, 404, 'Region not found', `IBGE ${area.ibge}`);
     const w = newWatch(area as WatchArea, label);
     s.watches.push(w);
     saveState(STATE_FILE(), s);

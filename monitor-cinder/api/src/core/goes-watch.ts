@@ -22,7 +22,7 @@ const WatchSchema = z.object({
   id: z.string().uuid(),
   createdAt: z.string(),
   area: z.union([
-    z.object({ ibge: z.string().regex(/^52\d{5}$/) }),
+    z.object({ ibge: z.string().regex(/^52(\d{5})?$/) }), // '52' = the whole state of Goiás
     z.object({ lon: z.number(), lat: z.number(), radiusKm: z.number().min(5).max(300) }),
   ]),
   label: z.string().max(80),
@@ -136,10 +136,12 @@ export function updateAlerts(state: WatchState, deps: WatchDeps): Alert[] {
   for (const w of state.watches) {
     for (const p of pix) {
       if (!deps.inArea(w.area, p.lon, p.lat)) continue;
-      const id = `${w.id}:${pixelKey(p)}:${p.firstSeen.slice(0, 10)}`;
-      const cur = state.alerts.find((a) => a.id === id);
+      // the same fire keeps its alert while it persists: same watch, same pixel (≤ MATCH_KM), seen in the last hour
+      const cur = state.alerts.find((a) => a.watchId === w.id && kmBetween(a.lon, a.lat, p.lon, p.lat) <= MATCH_KM
+        && Date.parse(p.lastSeen) - Date.parse(a.lastSeen) <= 3_600_000);
+      const id = `${w.id}:${pixelKey(p)}:${p.firstSeen}`;
       if (cur) {
-        cur.lastSeen = p.lastSeen;
+        if (cur.lastSeen < p.lastSeen) cur.lastSeen = p.lastSeen;
         cur.scansSeen = Math.max(cur.scansSeen, p.scansSeen);
         if (p.frpMw !== null) cur.frpMw = Math.max(cur.frpMw ?? 0, p.frpMw);
         continue;

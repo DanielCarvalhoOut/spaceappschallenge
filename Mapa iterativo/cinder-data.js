@@ -305,7 +305,7 @@
       /* ---- opt-in GOES-19 watch (early notice) ---- */
       async watchCreate(area, label) {
         const body = area && area.ibge
-          ? (IBGE_CODE.test(area.ibge) ? { ibge: area.ibge, label: String(label || '').slice(0, 80) } : null)
+          ? (IBGE_CODE.test(area.ibge) || area.ibge === CFG.uf ? { ibge: area.ibge, label: String(label || '').slice(0, 80) } : null)
           : (area && numIn(area.lon, -54, -45) && numIn(area.lat, -20, -12) && numIn(area.radiusKm, 5, 300)
             ? { lon: area.lon, lat: area.lat, radiusKm: area.radiusKm, label: String(label || '').slice(0, 80) } : null);
         if (!body) throw new Error('Invalid area');

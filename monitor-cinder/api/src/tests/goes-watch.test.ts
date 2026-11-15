@@ -127,6 +127,21 @@ describe('GOES-19 fire product (early notice for watched areas)', () => {
     expect(s.alerts[0]!.status).toBe('confirmed');
   });
 
+  it('keeps one alert for a fire that lasts for hours (no duplicate as the 3-scan window slides)', () => {
+    const s = emptyState();
+    s.watches.push(newWatch({ ibge: '52' }, 'Goiás'));
+    const deps = { inArea: () => true, context: () => ({ municipality: null, ibge: null, yearsWithFire: null, yearsObserved: null, anomalyZ: null, monthCellDays: null }) };
+    const t0 = Date.parse('2026-11-14T23:00:21Z');
+    for (let k = 0; k < 12; k++) { // two hours, crossing midnight UTC
+      s.scans.push(scan(new Date(t0 + k * 600_000).toISOString().replace('.000Z', 'Z'), [GOIANIA]));
+      s.scans = s.scans.slice(-6);
+      updateAlerts(s, deps);
+    }
+    expect(s.alerts).toHaveLength(1);
+    expect(s.alerts[0]!.scansSeen).toBe(3);
+    expect(s.alerts[0]!.lastSeen).toBe('2026-11-15T00:50:21Z');
+  });
+
   it('marks an alert not confirmed when no VIIRS detection comes within 30 h', () => {
     const s = emptyState();
     const w = newWatch({ lon: -49.3, lat: -16.7, radiusKm: 20 }, 'x');

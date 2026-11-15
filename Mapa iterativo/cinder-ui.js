@@ -1684,9 +1684,12 @@
     clear(list);
     if (!cur || isFuture()) { $('watch-block').hidden = true; return; }
     $('watch-block').hidden = false;
-    const w = watches().find((x) => x.key === cur.key);
-    btn.textContent = t(w ? 'watch.off' : 'watch.on');
-    btn.classList.toggle('btn--primary', !w);
+    const sw = watches().find((x) => x.key === STATE_WATCH.key);
+    $('watch-state').textContent = t(sw ? 'watch.stateOff' : 'watch.stateOn');
+    const own = watches().find((x) => x.key === cur.key);
+    btn.textContent = t(own ? 'watch.off' : 'watch.on');
+    btn.classList.toggle('btn--primary', !own);
+    const w = own || sw; // without a watch for this area, show the whole-state notices
     $('watch-run').hidden = !w;
     if (!w) { renderWatchFeed(null); return; }
     try {
@@ -1703,11 +1706,12 @@
       renderWatchFeed({ lastError: t('watch.apiErr') });
     }
   }
-  async function toggleWatch() {
-    const cur = currentWatchArea();
+  const STATE_WATCH = { key: `ibge:${CFG.uf}`, area: { ibge: CFG.uf }, label: CFG.ufName || 'Goiás' };
+  async function toggleWatch(which) {
+    const cur = which === 'state' ? STATE_WATCH : currentWatchArea();
     if (!cur) return;
     const w = watches().find((x) => x.key === cur.key);
-    $('watch-toggle').disabled = true;
+    $('watch-toggle').disabled = true; $('watch-state').disabled = true;
     try {
       if (w) {
         await state.source.watchDelete(w.id).catch(() => {});
@@ -1720,7 +1724,7 @@
     } catch (_) {
       renderWatchFeed({ lastError: t('watch.apiErr') });
     } finally {
-      $('watch-toggle').disabled = false;
+      $('watch-toggle').disabled = false; $('watch-state').disabled = false;
       renderWatchBlock();
     }
   }
@@ -2028,7 +2032,8 @@
     setupModal();
     $('csv').addEventListener('click', downloadCsv);
     $('csv-fires').addEventListener('click', downloadFiresCsv);
-    $('watch-toggle').addEventListener('click', toggleWatch);
+    $('watch-toggle').addEventListener('click', () => toggleWatch('area'));
+    $('watch-state').addEventListener('click', () => toggleWatch('state'));
     $('watch-run').addEventListener('click', async () => {
       $('watch-run').disabled = true;
       try { renderWatchFeed(await state.source.goesRun()); await pollWatches(); } catch (_) { renderWatchFeed({ lastError: t('watch.apiErr') }); }

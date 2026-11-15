@@ -29,6 +29,13 @@ describe('watch routes (opt-in GOES-19 notices)', () => {
     expect((await a.inject({ method: 'GET', url: `/api/watch/${watch.id}/alerts` })).statusCode).toBe(404);
   });
 
+  it('accepts the whole state (52) and refuses an unknown municipality code', async () => {
+    const a = await app();
+    expect((await a.inject({ method: 'POST', url: '/api/watch', payload: { ibge: '52', label: 'Goiás' } })).statusCode).toBe(201);
+    expect((await a.inject({ method: 'POST', url: '/api/watch', payload: { ibge: '5299999' } })).statusCode).toBe(404);
+    expect((await a.inject({ method: 'POST', url: '/api/watch', payload: { ibge: '35' } })).statusCode).toBe(400);
+  });
+
   it('refuses areas outside Goiás, unknown fields and malformed ids', async () => {
     const a = await app();
     expect((await a.inject({ method: 'POST', url: '/api/watch', payload: { lon: -46.6, lat: -23.5, radiusKm: 20 } })).statusCode).toBe(400);
