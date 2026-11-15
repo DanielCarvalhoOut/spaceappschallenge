@@ -14,6 +14,7 @@ import {
   estimateResourcesByFrp,
 } from '../core/analytics.js';
 import { logger } from '../core/logger.js';
+import { loadCellIndex, monthlyCountsByMunicipality, type CellIndex } from '../core/cell-index.js';
 import {
   predictFirePropensity,
   trainPropensityModel,
@@ -453,7 +454,56 @@ class FireHubDataStore {
     return out;
   }
 
+  private calendarKind: 'firms_index' | 'synthetic' = 'synthetic';
+
+  /** 'firms_index' when the calendars come from the real FIRMS cell index (job:build-cell-index), else 'synthetic'. */
+  public getCalendarKind(): 'firms_index' | 'synthetic' {
+    return this.calendarKind;
+  }
+
+  /**
+   * Real calendars from the FIRMS cell index: harmonized = VIIRS S-NPP cell-days from 2012, MODIS cell-days × the
+   * state's monthly factor before. Same numbers as the sum of /api/layers/cells for the municipality.
+   * The index carries no FRP, so meanFrpMw/maxFrpMw are 0 here.
+   */
+  private buildCalendarsFromIndex(index: CellIndex): void {
+    const counts = monthlyCountsByMunicipality(index);
+    const years = [...index.yearsLoaded.MODIS, ...index.yearsLoaded.VIIRS];
+    const firstYear = Math.min(...years);
+    const lastYear = Math.max(...years);
+    for (const ibge of this.municipalities.keys()) {
+      const byMonth = counts.get(ibge);
+      const rows: CalendarRow[] = [];
+      for (let y = firstYear; y <= lastYear; y++) {
+        for (let m = 1; m <= 12; m++) {
+          const c = byMonth?.get(`${y}-${m}`) ?? { modis: 0, viirs: 0 };
+          const factor = index.monthlyFactors[m - 1] ?? 1;
+          const viirs = y >= 2012 ? c.viirs : null;
+          const harmonized = viirs !== null ? viirs : Math.round(c.modis * factor * 10) / 10;
+          rows.push({ year: y, month: m, modis: c.modis, viirs, harmonized, anomalyZ: null, daysMissing: 0, meanFrpMw: 0, maxFrpMw: 0 });
+        }
+      }
+      for (let m = 1; m <= 12; m++) {
+        const base = rows.filter((x) => x.month === m && x.year >= 2002 && x.year <= 2024).map((x) => x.harmonized);
+        if (base.length < 2) continue;
+        const mean = base.reduce((a, b) => a + b, 0) / base.length;
+        const sd = Math.sqrt(base.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (base.length - 1));
+        for (const x of rows) {
+          if (x.month === m) x.anomalyZ = sd > 0 ? Math.round(((x.harmonized - mean) / sd) * 100) / 100 : null;
+        }
+      }
+      this.calendars.set(ibge, rows);
+    }
+    this.calendarKind = 'firms_index';
+    logger.info({ municipalities: this.calendars.size, firstYear, lastYear }, 'calendars built from the real FIRMS cell index');
+  }
+
   private buildAllCalendars(): void {
+    const index = loadCellIndex();
+    if (index) {
+      this.buildCalendarsFromIndex(index);
+      return;
+    }
     const firstYear = 2000;
     const lastYear = 2025;
     for (const [ibge, muni] of this.municipalities.entries()) {
@@ -1526,92 +1576,6 @@ class FireHubDataStore {
         pctOfCircle,
       })),
     };
-  }
-
-  public getAreaCells(q: {
-    ibge?: string;
-    lon?: number;
-    lat?: number;
-    radiusKm?: number;
-    year: number;
-    month: number;
-    resM: 1000 | 2000 | 5000;
-  }): { yearsObserved: number; total: number; cells: number[][] } {
-    const yearsObserved = 26;
-    const stepDeg = q.resM / 1000 / 111;
-
-    if (q.ibge) {
-      const muni = this.municipalities.get(q.ibge);
-      if (!muni) return { yearsObserved, total: 0, cells: [] };
-      const cal = this.getCalendar(q.ibge);
-      const cur = cal.find((r) => r.year === q.year && r.month === q.month);
-      const targetTotal = Math.max(0, Math.round(cur?.harmonized ?? 0));
-      const [w, s, e, n] = muni.bbox;
-      const r = createRng(hashSeed(`cells:${q.ibge}:${q.resM}`));
-      const pool: Array<[number, number, number]> = [];
-      for (let i = 0; i < 3200 && pool.length < 650; i++) {
-        const lon = w + Math.floor((r() * (e - w)) / stepDeg) * stepDeg + stepDeg / 2;
-        const lat = s + Math.floor((r() * (n - s)) / stepDeg) * stepDeg + stepDeg / 2;
-        if (pointInMunicipality(lat, lon, muni)) {
-          pool.push([lon, lat, 1 + Math.floor(r() * 20)]);
-        }
-      }
-      if (!pool.length) {
-        pool.push([muni.centroidLon, muni.centroidLat, 8]);
-      }
-      pool.sort((a, b) => b[2] - a[2]);
-      const rm = createRng(hashSeed(`cells:${q.ibge}:${q.year}:${q.month}`));
-      const counts = new Map<number, number>();
-      let left = targetTotal;
-      while (left > 0) {
-        const idx = Math.floor(Math.pow(rm(), 2.2) * pool.length);
-        counts.set(idx, (counts.get(idx) ?? 0) + 1);
-        left--;
-      }
-      const cells = pool.map((c, idx) => [
-        Math.round(c[0] * 1e5) / 1e5,
-        Math.round(c[1] * 1e5) / 1e5,
-        counts.get(idx) ?? 0,
-        c[2],
-        (counts.get(idx) ?? 0) > 0 ? q.year : Math.min(2025, 2018 + (idx % 7)),
-      ]);
-      return { yearsObserved, total: targetTotal, cells };
-    }
-
-    const cLon = q.lon ?? -49.25;
-    const cLat = q.lat ?? -16.68;
-    const radKm = q.radiusKm ?? 50;
-    const circleHist = this.getCircleHistory(cLon, cLat, radKm, 'harmonized1k');
-    const cur = circleHist.rows.find((r) => r.year === q.year && r.month === q.month);
-    const targetTotal = Math.max(0, Math.round(cur?.harmonized ?? 0));
-    const dLat = radKm / 111;
-    const dLon = dLat / Math.cos((cLat * Math.PI) / 180);
-    const r = createRng(hashSeed(`circle:${cLon.toFixed(2)}:${cLat.toFixed(2)}:${radKm}:${q.resM}`));
-    const pool: Array<[number, number, number]> = [];
-    for (let i = 0; i < 3600 && pool.length < 750; i++) {
-      const lon = cLon - dLon + Math.floor((r() * (2 * dLon)) / stepDeg) * stepDeg + stepDeg / 2;
-      const lat = cLat - dLat + Math.floor((r() * (2 * dLat)) / stepDeg) * stepDeg + stepDeg / 2;
-      if (Math.hypot((lon - cLon) / dLon, (lat - cLat) / dLat) <= 1) {
-        pool.push([lon, lat, 1 + Math.floor(r() * 20)]);
-      }
-    }
-    pool.sort((a, b) => b[2] - a[2]);
-    const rm = createRng(hashSeed(`circle:${cLon.toFixed(2)}:${cLat.toFixed(2)}:${q.year}:${q.month}`));
-    const counts = new Map<number, number>();
-    let left = targetTotal;
-    while (left > 0 && pool.length > 0) {
-      const idx = Math.floor(Math.pow(rm(), 2.2) * pool.length);
-      counts.set(idx, (counts.get(idx) ?? 0) + 1);
-      left--;
-    }
-    const cells = pool.map((c, idx) => [
-      Math.round(c[0] * 1e5) / 1e5,
-      Math.round(c[1] * 1e5) / 1e5,
-      counts.get(idx) ?? 0,
-      c[2],
-      (counts.get(idx) ?? 0) > 0 ? q.year : Math.min(2025, 2018 + (idx % 7)),
-    ]);
-    return { yearsObserved, total: targetTotal, cells };
   }
 
   public getRecurrenceCells(q: {

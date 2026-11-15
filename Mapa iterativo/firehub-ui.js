@@ -106,9 +106,10 @@
     const b = $('source-badge');
     if (!state.source) { b.textContent = t('badge.loading'); b.className = 'badge'; return; }
     const demo = state.source.kind === 'demo';
-    const synthetic = !demo && state.source.dataKind !== 'firms_db';
+    const kind = state.source.dataKind;
+    const synthetic = !demo && kind !== 'firms_db' && kind !== 'firms_index';
     b.className = 'badge ' + (demo || synthetic ? 'badge--demo' : 'badge--live');
-    b.textContent = t(demo ? 'badge.demo' : synthetic ? 'badge.synthetic' : 'badge.firms');
+    b.textContent = t(demo ? 'badge.demo' : synthetic ? 'badge.synthetic' : kind === 'firms_index' ? 'badge.firmsIndex' : 'badge.firms');
   }
 
   /* ---------- Lateral Scale & Proportion HUD ---------- */
@@ -212,7 +213,8 @@
       state.values = values;
       const scale = scaleFor(values);
       if (isAnomaly && counts) {
-        scale.noFireIds = Object.keys(values).filter((id) => values[id] === null && counts[id] === 0);
+        // Colour must say whether the area burned this month: zero hotspots is white even when its anomaly is near normal.
+        scale.noFireIds = Object.keys(counts).filter((id) => counts[id] === 0);
       }
       map.setValues(values, scale);
       drawLegend(scale);
@@ -700,8 +702,10 @@
   }
 
   /* ---------- Detail inside the selected area: grid cells (municipality or circle) ---------- */
+  // Colour says only whether the cell burned in the month being viewed: white = no fire this month (whatever happened
+  // in other years), reds = fire this month by number of days.
   const DETAIL_CLASSES = [
-    { key: 'detail.k0', color: '#f5f5f5', test: (v) => v <= 0 },
+    { key: 'detail.k0', color: '#ffffff', test: (v) => v <= 0 },
     { key: 'detail.k1', color: '#f26d6d', test: (v) => v > 0 && v <= 1.5 },
     { key: 'detail.k2', color: '#c62828', test: (v) => v > 1.5 && v <= 4 },
     { key: 'detail.k3', color: '#6d0a0a', test: (v) => v > 4 },
@@ -751,7 +755,7 @@
       if (c[2] > 0) withFire++;
     }
     map.setPointLayer({
-      cellKm: d.res / 1000, classes, hover: true, grid: true, alpha: 0.92,
+      cellKm: d.res / 1000, classes, hover: true, grid: true, alpha: 1,
       clip: area.kind === 'muni' ? { kind: 'feature', id: area.id } : { kind: 'sphere' },
     }, 'detail');
 
@@ -761,7 +765,8 @@
       n: I.num(withFire), res: I.num(d.res / 1000), period: period(), m: I.num(d.cells.length),
       from: state.source.firstYear, to: state.source.lastYear,
     })));
-    if (Number.isFinite(d.total)) box.append(el('p', 'range-line', t('detail.sum', { v: fmt1(d.total) })));
+    // "Cells add up to the area's value" only holds when the area values also come from the FIRMS database.
+    if (Number.isFinite(d.total) && (state.source.dataKind === 'firms_db' || state.source.dataKind === 'firms_index')) box.append(el('p', 'range-line', t('detail.sum', { v: fmt1(d.total) })));
     const keys = el('div', 'roots-legend__keys');
     keys.append(el('span', 'muted', t('detail.legend')));
     for (const c of DETAIL_CLASSES) {

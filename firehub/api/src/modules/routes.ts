@@ -80,15 +80,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // 1. GET /api/meta
   app.get('/api/meta', async () => {
     const fromDb = await history.hasHistory();
+    const calKind = store.getCalendarKind();
     const hasLiveSat = store.hasAnyLiveSatelliteSnapshot();
     const computed = history.readHarmonizationValidation();
     const projectionCheck = history.readProjectionValidation();
     const mlModel = store.getMlModel();
     return {
       service: 'firehub',
-      // 'firms_db' when PostGIS or live NASA FIRMS/MODIS satellite telemetry is active
-      dataKind: fromDb || hasLiveSat ? 'firms_db' : 'synthetic',
-      period: { firstYear: 2000, lastYear: 2025 },
+      // 'firms_db' = real NASA FIRMS history in PostGIS or live satellite snapshot;
+      // 'firms_index' = real FIRMS calendars/cells from the local cell index (no PostGIS)
+      dataKind: fromDb ? 'firms_db' : calKind === 'firms_index' ? 'firms_index' : hasLiveSat ? 'firms_db' : 'synthetic',
+      period: { firstYear: !fromDb && calKind === 'firms_index' ? 2001 : 2000, lastYear: 2025 },
       supportedSensors: [
         'MODIS_NRT',
         'MODIS_SP',
@@ -212,7 +214,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       year,
       month,
       metric,
-      dataKind: 'synthetic',
+      dataKind: store.getCalendarKind(),
       values: store.getMapValues(year, month, metric),
     };
   });
@@ -236,7 +238,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return {
       ibge: muni.ibgeCode,
       name: muni.name,
-      dataKind: 'synthetic',
+      dataKind: store.getCalendarKind(),
       rows: store.getCalendar(muni.ibgeCode),
     };
   });

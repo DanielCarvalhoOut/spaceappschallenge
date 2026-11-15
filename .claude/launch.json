@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mapa-estatico",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-I", ".claude/serve_nocache.py", "5500"],
+      "port": 5500
+    },
+    {
+      "name": "firehub-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "firehub/api", "run", "start"],
+      "port": 8787
+    }
+  ]
+}
