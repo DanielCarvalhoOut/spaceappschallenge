@@ -13,14 +13,21 @@ import type { Intent } from './router.js';
 import type { ToolResult } from './tools.js';
 import type { CheckFailure, Lang } from './verifier.js';
 
-export type LlmProvider = 'gemini' | 'anthropic';
+export const LLM_PROVIDERS = ['gemini', 'openai', 'anthropic'] as const;
+export type LlmProvider = (typeof LLM_PROVIDERS)[number];
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 
 export const DEFAULT_MODELS: Record<LlmProvider, { router: string; writer: string }> = {
   // Checked against the live API on 15/11/2026: 2.5-flash-lite is closed to new keys (404) and "gemini-flash-latest"
   // was answering 503. 3.5-flash-lite routes in ~1 s; 3.5-flash writes in under 1 s with thinking switched off.
   gemini: { router: 'gemini-3.5-flash-lite', writer: 'gemini-3.5-flash' },
   anthropic: { router: 'claude-haiku-5-5', writer: 'claude-sonnet-5-5' },
+  // Not checked against the live API (no OpenAI key on 15/11/2026): override with OPENAI_ROUTER_MODEL / OPENAI_WRITER_MODEL.
+  openai: { router: 'gpt-4o-mini', writer: 'gpt-4o' },
 };
+const OpenAiResponseSchema = z.object({
+  choices: z.array(z.object({ message: z.object({ content: z.string().nullable().optional() }) })),
+});
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 export const MAX_TOOL_BYTES = 2048;
@@ -133,6 +140,17 @@ export function createLlmClient(opts: LlmOptions, fetchImpl: FetchLike = fetch a
         .content.filter((c) => c.type === 'text')
         .map((c) => c.text ?? '')
         .join('');
+    } else if (opts.provider === 'openai') {
+      const raw = await post(OPENAI_URL, { authorization: `Bearer ${opts.apiKey}` }, {
+        model,
+        max_completion_tokens: maxTokens * 3, // room for reasoning models; the answer itself is short
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        ...(json ? { response_format: { type: 'json_object' } } : {}),
+      });
+      text = OpenAiResponseSchema.parse(raw).choices[0]?.message.content ?? '';
     } else {
       const raw = await post(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent`, { 'x-goog-api-key': opts.apiKey }, {
         systemInstruction: { parts: [{ text: system }] },
@@ -169,5 +187,32 @@ export function createLlmClient(opts: LlmOptions, fetchImpl: FetchLike = fetch a
       const user = `LANGUAGE: ${lang === 'pt' ? 'Brazilian Portuguese' : 'English'}\nINTENT: ${intent}\nQUESTION: ${question.slice(0, 500)}\nTOOLS:\n${toolsForModel(tools)}${retry}`;
       return call(models.writer, WRITER_SYSTEM, user, 450, false);
     },
+  };
+}
+
+/**
+ * Several providers in order of preference: the first one answers; when it fails (quota, outage, bad model name) the
+ * next one is tried. If all fail the error goes up and the agent serves the keyword route / template answer.
+ */
+export function createLlmChain(clients: readonly LlmClient[]): LlmClient | null {
+  const first = clients[0];
+  if (!first) return null;
+  if (clients.length === 1) return first;
+  async function firstThatWorks<T>(run: (c: LlmClient) => Promise<T>): Promise<T> {
+    let last: unknown;
+    for (const c of clients) {
+      try {
+        return await run(c);
+      } catch (err) {
+        last = err;
+      }
+    }
+    throw last instanceof Error ? last : new Error('all LLM providers failed');
+  }
+  return {
+    provider: first.provider,
+    models: first.models,
+    route: (question) => firstThatWorks((c) => c.route(question)),
+    write: (input) => firstThatWorks((c) => c.write(input)),
   };
 }

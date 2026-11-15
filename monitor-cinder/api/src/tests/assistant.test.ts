@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { compareIntervention, parseInterventions } from '../assistant/interventions.js';
-import { createLlmClient, MAX_TOOL_BYTES, toolsForModel, type FetchLike } from '../assistant/llm.js';
+import { createLlmChain, createLlmClient, MAX_TOOL_BYTES, toolsForModel, type FetchLike } from '../assistant/llm.js';
 import { findPlace, routeQuestion, type Place } from '../assistant/router.js';
 import { BURN_SAFEGUARD, noticesFor, renderTemplate, verifiableOnly } from '../assistant/templates.js';
 import type { ToolResult } from '../assistant/tools.js';
@@ -239,5 +239,35 @@ describe('LLM layer (fake HTTP client, no network)', () => {
     expect(seen[1]!.url).toContain('/models/gemini-3.5-flash:generateContent');
     const empty: FetchLike = async () => ({ ok: true, status: 200, json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS' }] }) });
     await expect(createLlmClient({ provider: 'gemini', apiKey: 'AIzaTESTtestTESTtestTESTtest0000' }, empty).route('x')).rejects.toThrow(/MAX_TOKENS/);
+  });
+});
+
+describe('several LLM providers', () => {
+  const route = '{"intent":"enso","municipality":null,"year":null,"month":9,"months":1}';
+
+  it('OpenAI: bearer header, chat completions, JSON route parsed', async () => {
+    const seen: { url: string; headers: Record<string, string>; body: string }[] = [];
+    const openai: FetchLike = async (url, init) => {
+      seen.push({ url, headers: init.headers, body: init.body });
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: route } }] }) };
+    };
+    const llm = createLlmClient({ provider: 'openai', apiKey: 'sk-test-00000000000000000000', routerModel: 'my-small-model' }, openai);
+    expect(await llm.route('El Niño?')).toMatchObject({ intent: 'enso' });
+    expect(seen[0]!.url).toBe('https://api.openai.com/v1/chat/completions');
+    expect(seen[0]!.headers.authorization).toBe('Bearer sk-test-00000000000000000000');
+    expect((JSON.parse(seen[0]!.body) as { model: string }).model).toBe('my-small-model');
+    expect(redactSecrets('Bearer sk-test-00000000000000000000')).not.toContain('0000000000');
+  });
+
+  it('falls back to the next provider when the first fails, and fails only when all do', async () => {
+    const down: FetchLike = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    const up: FetchLike = async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: route } }] }) });
+    const gemini = createLlmClient({ provider: 'gemini', apiKey: 'AIzaTESTtestTESTtestTESTtest0000' }, down);
+    const openai = createLlmClient({ provider: 'openai', apiKey: 'sk-test-00000000000000000000' }, up);
+    const chain = createLlmChain([gemini, openai])!;
+    expect(chain.provider).toBe('gemini');
+    expect(await chain.route('x')).toMatchObject({ intent: 'enso' });
+    await expect(createLlmChain([gemini, gemini])!.route('x')).rejects.toThrow(/LLM HTTP 500/);
+    expect(createLlmChain([])).toBeNull();
   });
 });

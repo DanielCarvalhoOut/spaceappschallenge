@@ -5,7 +5,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { answerQuestion } from '../assistant/agent.js';
-import { createLlmClient, type LlmClient } from '../assistant/llm.js';
+import { createLlmChain, createLlmClient, type LlmClient, type LlmProvider } from '../assistant/llm.js';
 import { config } from '../config.js';
 import { logger } from '../core/logger.js';
 
@@ -25,12 +25,19 @@ function problem(reply: FastifyReply, status: number, title: string, detail: str
 }
 
 export async function registerAssistantRoutes(app: FastifyInstance): Promise<void> {
-  const llm: LlmClient | null = config.GEMINI_API_KEY
-    ? createLlmClient({ provider: 'gemini', apiKey: config.GEMINI_API_KEY, routerModel: config.GEMINI_ROUTER_MODEL, writerModel: config.GEMINI_WRITER_MODEL })
-    : config.ANTHROPIC_API_KEY
-      ? createLlmClient({ provider: 'anthropic', apiKey: config.ANTHROPIC_API_KEY })
-      : null;
-  logger.info({ mode: llm ? 'llm' : 'template', provider: llm?.provider ?? null, models: llm?.models ?? null }, 'assistant mode');
+  // Every provider with a key in .env, in the order of LLM_PROVIDERS: the first answers, the others are fallbacks.
+  const settings: Record<LlmProvider, { apiKey?: string; routerModel?: string; writerModel?: string }> = {
+    gemini: { apiKey: config.GEMINI_API_KEY, routerModel: config.GEMINI_ROUTER_MODEL, writerModel: config.GEMINI_WRITER_MODEL },
+    openai: { apiKey: config.OPENAI_API_KEY, routerModel: config.OPENAI_ROUTER_MODEL, writerModel: config.OPENAI_WRITER_MODEL },
+    anthropic: { apiKey: config.ANTHROPIC_API_KEY, routerModel: config.ANTHROPIC_ROUTER_MODEL, writerModel: config.ANTHROPIC_WRITER_MODEL },
+  };
+  const clients: LlmClient[] = [];
+  for (const provider of [...new Set(config.LLM_PROVIDERS.split(','))] as LlmProvider[]) {
+    const s = settings[provider];
+    if (s.apiKey) clients.push(createLlmClient({ provider, apiKey: s.apiKey, routerModel: s.routerModel, writerModel: s.writerModel }));
+  }
+  const llm = createLlmChain(clients);
+  logger.info({ mode: llm ? 'llm' : 'template', providers: clients.map((c) => ({ provider: c.provider, ...c.models })) }, 'assistant mode');
 
   app.post('/api/assistant', { config: { rateLimit: { max: 12, timeWindow: '1 minute' } } }, async (req, reply) => {
     const body = BodySchema.safeParse(req.body);

@@ -61,8 +61,10 @@ Body: `{ "question": string (3–500), "ibge"?: "52xxxxx", "lang"?: "pt" | "en" 
 2. **Tools** — read-only aggregates of at most ~2 KB, each with n, base period and source.
 3. **Write** — a text template; the larger model (`gemini-3.5-flash`, thinking off, low `maxOutputTokens`) only for
    multi-source answers (ENSO, interventions). A controlled-burn answer is always the fixed template, never a model.
-   The system prompt goes first and never changes, so the provider can cache the prefix. `ANTHROPIC_API_KEY` is still
-   accepted as an alternative provider (untested with a real key); Gemini wins when both are set.
+   The system prompt goes first and never changes, so the provider can cache the prefix. Three providers are supported: `GEMINI_API_KEY`,
+   `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. `LLM_PROVIDERS` (default `gemini,openai,anthropic`) sets the order among
+   the keys that are set; when the first fails, the next answers. Model names can be overridden per provider
+   (`*_ROUTER_MODEL`, `*_WRITER_MODEL`). Only Gemini was tested with a real key.
 4. **Check (deterministic, zero tokens)** — every number must exist in a tool result; every forecast needs interval,
    training period and metric; every probability needs n and source; no causal sentence; no fire-behaviour claim; a
    controlled-burn answer must deny authorisation, cite Lei 14.944/2024, the environmental agency and the Fire
