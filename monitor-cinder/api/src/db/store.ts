@@ -14,7 +14,7 @@ import {
   estimateResourcesByFrp,
 } from '../core/analytics.js';
 import { logger } from '../core/logger.js';
-import { buildChain, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex } from '../core/cell-index.js';
+import { buildChain, dailyOfMonth, dailySeries, emptyRows, inCircle, loadCellIndex, monthlyRows, monthlyRowsByMunicipality, recurrenceFromIndex, toPolyconic, fromPolyconic, withAnomaly, type CellIndex, type DayRow } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 import { hindcast, projectFrom, type Hindcast, type Projection } from '../core/projection-model.js';
 import {
@@ -1243,6 +1243,15 @@ class CinderDataStore {
       }
     }
     return out;
+  }
+
+  /** One month, day by day, for a municipality, the state ('52') or a circle (null without the FIRMS index). */
+  public getDaily(area: { ibge: string } | { lon: number; lat: number; radiusKm: number }, year: number, month: number): DayRow[] | null {
+    if (!this.index) return null;
+    const keep = 'ibge' in area
+      ? (area.ibge === '52' ? () => true : (c: { 2: string }) => c[2] === area.ibge)
+      : inCircle(area.lon, area.lat, area.radiusKm);
+    return dailyOfMonth(this.index, keep as Parameters<typeof dailyOfMonth>[1], year, month);
   }
 
   /** Focos-raiz from the FIRMS index (null without it). */

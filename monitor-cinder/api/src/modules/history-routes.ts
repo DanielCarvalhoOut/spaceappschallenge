@@ -193,6 +193,30 @@ export async function registerHistoryRoutes(app: FastifyInstance): Promise<void>
     return { ...out.projection, hindcast: out.hindcast };
   });
 
+  // One month day by day (calendar of the History tab): municipality, state or circle.
+  app.get('/api/daily', async (req, reply) => {
+    const q = z
+      .object({
+        ibge: z.string().regex(/^(52|52\d{5})$/).optional(),
+        lon: lon.optional(),
+        lat: lat.optional(),
+        radiusKm: z.coerce.number().min(5).max(300).optional(),
+        year: z.coerce.number().int().min(2001).max(2100),
+        month: z.coerce.number().int().min(1).max(12),
+      })
+      .refine((v) => (v.ibge !== undefined) !== (v.lon !== undefined && v.lat !== undefined && v.radiusKm !== undefined), {
+        message: 'give either ibge or lon+lat+radiusKm',
+      })
+      .safeParse(req.query);
+    if (!q.success) return problem(reply, 400, 'Invalid daily query', q.error.message);
+    if (q.data.ibge && q.data.ibge !== '52' && !store.getMunicipality(q.data.ibge)) return problem(reply, 404, 'Region not found', `IBGE ${q.data.ibge}`);
+    const area = q.data.ibge ? { ibge: q.data.ibge } : { lon: q.data.lon!, lat: q.data.lat!, radiusKm: q.data.radiusKm! };
+    const days = store.getDaily(area, q.data.year, q.data.month);
+    if (!days) return problem(reply, 503, 'History not loaded', 'The daily calendar needs the FIRMS index (job:build-cell-index).');
+    reply.header('Cache-Control', 'public, max-age=600');
+    return { year: q.data.year, month: q.data.month, unit: 'cell-days (VIIRS S-NPP scale)', days };
+  });
+
   // Focos-raiz overlay: recurrence per cell inside the visible box, aggregated to the requested resolution.
   app.get('/api/layers/recurrence', async (req, reply) => {
     const q = z

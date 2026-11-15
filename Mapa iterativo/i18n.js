@@ -239,6 +239,21 @@
       'foot.power': 'Clima: NASA POWER',
       'tabs.aria': 'Seções dos detalhes',
       'tab.summary': 'Resumo',
+      'cal.title': 'Calendário',
+      'cal.titleSmall': 'escolha o ano e clique num mês para ver os dias',
+      'cal.prev': 'Ano anterior',
+      'cal.next': 'Próximo ano',
+      'cal.allYears': 'Todos os anos lado a lado',
+      'day.summary': '{n} células-dia · {z} · média do mês em 2002–2024: {typ}',
+      'day.fire': 'fogo em {n} de {total} dias',
+      'day.peak': 'pico no dia {d} ({v})',
+      'day.sat': 'satélite: {s}',
+      'day.prov': 'provisório (NRT)',
+      'day.loading': 'Carregando os dias do mês…',
+      'day.unavailable': 'Os dias aparecem quando o histórico do FIRMS terminar de carregar na API.',
+      'day.hint': 'Clique num dia para ver os detalhes.',
+      'day.title': '{d} de {m} de {y}: {v} células-dia, {c} células de 1 km com fogo · satélite {s}',
+      'day.noSat': '{d} de {m} de {y}: nenhum satélite observou este dia',
       'panel.showMap': 'Ver no mapa',
       'panel.showMapTitle': 'Esconde os detalhes e mostra a área selecionada no mapa',
       'panel.reopen': 'Detalhes de {name}',
@@ -521,6 +536,21 @@
       'intel.source.fallback': 'LP DAAC · Tile h13v10 (Snapshot)',
       'tabs.aria': 'Detail sections',
       'tab.summary': 'Summary',
+      'cal.title': 'Calendar',
+      'cal.titleSmall': 'pick a year and click a month to see its days',
+      'cal.prev': 'Previous year',
+      'cal.next': 'Next year',
+      'cal.allYears': 'All years side by side',
+      'day.summary': '{n} cell-days · {z} · month average 2002–2024: {typ}',
+      'day.fire': 'fire on {n} of {total} days',
+      'day.peak': 'peak on day {d} ({v})',
+      'day.sat': 'satellite: {s}',
+      'day.prov': 'provisional (NRT)',
+      'day.loading': 'Loading the days of the month…',
+      'day.unavailable': 'Days appear once the FIRMS history finishes loading in the API.',
+      'day.hint': 'Click a day to see its details.',
+      'day.title': '{m} {d}, {y}: {v} cell-days, {c} 1 km cells with fire · satellite {s}',
+      'day.noSat': '{m} {d}, {y}: no satellite observed this day',
       'panel.showMap': 'Show on map',
       'panel.showMapTitle': 'Hides the details and shows the selected area on the map',
       'panel.reopen': 'Details of {name}',
@@ -576,6 +606,7 @@
     pt: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
     en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
   };
+  const WEEKDAYS = { pt: ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], en: ['S', 'M', 'T', 'W', 'T', 'F', 'S'] };
   const LOCALE = { pt: 'pt-BR', en: 'en-US' };
 
   let lang = 'pt';
@@ -612,5 +643,6 @@
     t, has, num, apply, setLang,
     lang: () => lang,
     months: () => MONTHS[lang].slice(),
+    weekdays: () => WEEKDAYS[lang].slice(),
   });
 })(window);

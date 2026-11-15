@@ -90,7 +90,7 @@ npm run dev                 # API on http://localhost:8787; first start download
 npm run job:validate        # rewrites the evidence in api/out/
 ```
 
-Open `Mapa iterativo/index.html` through any static server (e.g. `npx serve "Mapa iterativo"`). The front never calls FIRMS; it only talks to the API.
+Open `Mapa iterativo/index.html` through a static server on the origin allowed by `CORS_ORIGIN` (default `.env.example`: `npx serve -l 8080 "Mapa iterativo"`, then http://localhost:8080). The front never calls FIRMS; it only talks to the API.
 
 ## Stack
 

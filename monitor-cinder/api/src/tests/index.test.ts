@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChain, cellOf, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
+import { buildChain, cellOf, dailyOfMonth, dayNumber, inCircle, monthlyRows, recurrenceFromIndex, withAnomaly, type CellIndex, type IndexCell } from '../core/cell-index.js';
 import { computeIndexValidation } from '../core/index-validation.js';
 
 /**
@@ -71,5 +71,20 @@ describe('satellite chain (FIRMS index, no PostGIS)', () => {
     expect(out.yearsObserved).toBe(22);
     expect(out.cells[0]![3]).toBe(22);   // cell a burned every year
     expect(out.cells[1]![3]).toBe(11);   // cell b: even years 2006–2026
+  });
+
+  it('the daily calendar adds up to the month and names the satellite of each day', () => {
+    const idx = fixture();
+    for (const [y, m] of [[2015, 8], [2026, 9]] as const) {
+      const days = dailyOfMonth(idx, () => true, y, m);
+      const month = monthlyRows(idx, () => true).find((r) => r.year === y && r.month === m)!;
+      const sum = days.reduce((a, d) => a + (d.harmonized ?? 0), 0);
+      expect(Math.abs(sum - (month.harmonized ?? 0))).toBeLessThan(0.05 * days.length + 1e-9);
+    }
+    const sep26 = dailyOfMonth(idx, () => true, 2026, 9);
+    expect(sep26.every((d) => d.provisional)).toBe(true);
+    expect(sep26.some((d) => d.sensor === 'NOAA20')).toBe(true);
+    expect(dailyOfMonth(idx, () => true, 2026, 11)).toHaveLength(10); // stops at the last observed day
+    expect(dailyOfMonth(idx, () => true, 2026, 12)).toHaveLength(0);
   });
 });

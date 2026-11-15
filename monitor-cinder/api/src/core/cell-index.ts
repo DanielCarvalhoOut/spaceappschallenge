@@ -385,6 +385,40 @@ export function dailySeries(index: CellIndex, keep: (c: IndexCell) => boolean): 
   return { first: chain.first, values };
 }
 
+export interface DayRow { date: string; harmonized: number | null; sensor: Sensor | null; provisional: boolean; cells: number }
+
+/**
+ * One calendar month of an area, day by day: harmonized cell-days, the satellite that served the day,
+ * whether the day is near-real-time (provisional) and how many distinct 1 km cells burned. Days after the last
+ * observed day are left out; days no satellite observed come back with harmonized = null.
+ */
+export function dailyOfMonth(index: CellIndex, keep: (c: IndexCell) => boolean, year: number, month: number): DayRow[] {
+  const chain = buildChain(index);
+  const d0 = Date.UTC(year, month - 1, 1) / DAY, d1 = Math.min(Date.UTC(year, month, 1) / DAY - 1, chain.last);
+  if (d1 < d0) return [];
+  const sum = new Float64Array(d1 - d0 + 1), cells = new Int32Array(d1 - d0 + 1);
+  for (const c of index.cells) {
+    if (!keep(c)) continue;
+    const seen = new Set<number>();
+    forEachContribution(c, chain, (d, w) => {
+      if (d < d0 || d > d1) return;
+      sum[d - d0]! += w;
+      if (!seen.has(d)) { seen.add(d); cells[d - d0]!++; }
+    });
+  }
+  const out: DayRow[] = [];
+  for (let d = d0; d <= d1; d++) {
+    const sensor = sensorOnDay(chain, d);
+    out.push({
+      date: isoDay(d), sensor,
+      harmonized: sensor ? Math.round(sum[d - d0]! * 10) / 10 : null,
+      provisional: chain.provisionalFrom !== null && d >= chain.provisionalFrom,
+      cells: cells[d - d0]!,
+    });
+  }
+  return out;
+}
+
 interface AreaAcc { daily: Float64Array; raw: Map<string, { m: number; v: number; n: number }> }
 
 function newAcc(chain: Chain): AreaAcc { return { daily: new Float64Array(chain.sensorOn.length), raw: new Map() }; }

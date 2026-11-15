@@ -251,6 +251,25 @@
           } : null,
         };
       },
+      /** One month day by day: { days: [{ date, harmonized|null, sensor, provisional, cells }] } (null while loading: 503). */
+      async daily(area, year, month) {
+        if (!intIn(year, 2001, 2100) || !intIn(month, 1, 12)) throw new Error('Invalid month');
+        const q = new URLSearchParams({ year: String(year), month: String(month) });
+        if (area && area.ibge) {
+          if (!(IBGE_CODE.test(area.ibge) || area.ibge === CFG.uf)) throw new Error('Invalid IBGE code');
+          q.set('ibge', area.ibge);
+        } else {
+          if (!area || !numIn(area.lon, -54, -45) || !numIn(area.lat, -20, -12) || !numIn(area.radiusKm, 5, 300)) throw new Error('Invalid circle');
+          q.set('lon', String(area.lon)); q.set('lat', String(area.lat)); q.set('radiusKm', String(area.radiusKm));
+        }
+        let j;
+        try { j = await fetchJson(`${base}/api/daily?${q}`); } catch (e) { if (/HTTP 503/.test(e.message)) return null; throw e; }
+        const SENSORS = ['MODIS', 'SNPP', 'NOAA20', 'NOAA21'];
+        return (Array.isArray(j && j.days) ? j.days : []).slice(0, 31)
+          .filter((d) => d && typeof d.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.date))
+          .map((d) => ({ date: d.date, harmonized: num(d.harmonized), sensor: SENSORS.includes(d.sensor) ? d.sensor : null,
+            provisional: d.provisional === true, cells: intIn(d.cells, 0, 1e6) ? d.cells : 0 }));
+      },
       /** Exact circle: only cells whose centre lies inside the radius (null if history not built). */
       async areaHistory(lon, lat, radiusKm) {
         if (!numIn(lon, -54, -45) || !numIn(lat, -20, -12) || !numIn(radiusKm, 1, 300)) throw new Error('Invalid circle');
@@ -336,7 +355,7 @@
       kind: 'offline', dataKind: 'none', historyLoad: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
       mapValues: fail, calendar: fail, pattern: fail, context: fail, intelligence: fail,
-      projection: fail, horizons: fail, areaHistory: fail, cells: fail, recurrence: fail,
+      projection: fail, horizons: fail, daily: fail, areaHistory: fail, cells: fail, recurrence: fail,
       csvUrl() { return null; },
     };
   }

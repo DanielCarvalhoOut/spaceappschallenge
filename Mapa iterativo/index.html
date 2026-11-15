@@ -160,14 +160,24 @@
 
           <section id="tab-history" class="tabpane" role="tabpanel" aria-labelledby="t-history" hidden>
             <section class="block">
+              <h3><span data-i18n="cal.title"></span> <small data-i18n="cal.titleSmall"></small></h3>
+              <div class="cal-nav">
+                <button id="cal-prev" class="icon-btn" type="button" data-i18n-attr="aria-label:cal.prev;title:cal.prev">‹</button>
+                <strong id="cal-year" class="cal-nav__year"></strong>
+                <button id="cal-next" class="icon-btn" type="button" data-i18n-attr="aria-label:cal.next;title:cal.next">›</button>
+              </div>
+              <div id="cal-months" class="cal-months"></div>
+              <div id="cal-month" class="cal-month" aria-live="polite"></div>
+            </section>
+            <section class="block">
               <h3><span data-i18n="block.pattern"></span> <small data-i18n="block.patternSmall"></small></h3>
               <p id="season-text" class="lead"></p>
               <div id="pattern" class="pattern"></div>
             </section>
-            <section class="block">
-              <h3><span data-i18n="block.calendar"></span> <small data-i18n="block.calendarSmall"></small></h3>
+            <details class="block cal-all">
+              <summary><span data-i18n="cal.allYears"></span> <small data-i18n="block.calendarSmall"></small></summary>
               <div id="calendar" class="calendar"></div>
-            </section>
+            </details>
             <section class="block">
               <h3><span data-i18n="block.compare"></span> <small data-i18n="block.compareSmall"></small></h3>
               <div id="compare" class="compare"></div>

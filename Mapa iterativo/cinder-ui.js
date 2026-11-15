@@ -32,7 +32,8 @@
     reqSeq: 0,
     panelSeq: 0,
     minimized: false, // details hidden with "show on map"; selection kept
-    horizonsShown: null, // projection currently rendered (re-rendered on language change)
+    horizonsShown: null,
+    calYear: null, // year shown in the History calendar // projection currently rendered (re-rendered on language change)
   };
 
   let map = null;
@@ -680,7 +681,7 @@
     const box = $('calendar');
     clear(box);
     state.calRows = rows || null;
-    if (!rows) return;
+    if (!rows) { renderCalView(); return; }
     // Same rule as the map: no hotspots in the month = white; otherwise the colour of the active metric
     // (anomaly scale for "anomaly", the municipality's own count scale for the other metrics).
     const seq = { type: 'sequential', min: 0, max: Math.max(1, ...rows.map((r) => (Number.isFinite(r.harmonized) ? r.harmonized : 0))) };
@@ -728,6 +729,134 @@
     for (const c of box.querySelectorAll('.cal-cell.is-current')) c.classList.remove('is-current');
     const cur = box.querySelector(`.cal-cell[data-y="${state.year}"][data-m="${state.month}"]`);
     if (cur) cur.classList.add('is-current');
+    state.calYear = state.year;
+    renderCalView();
+  }
+
+
+  /* ---------- History tab: a real calendar (year → months → days) ---------- */
+  const dailyCache = new Map();
+  let calSeq = 0;
+  const SENSOR_LABEL = { MODIS: 'MODIS', SNPP: 'S-NPP', NOAA20: 'NOAA-20', NOAA21: 'NOAA-21' };
+  function calArea() {
+    const s = state.sphereSelection;
+    if (s && Number.isFinite(s.lon) && s.radiusKm >= 5) return { key: `c${s.lon.toFixed(3)},${s.lat.toFixed(3)},${s.radiusKm}`, area: { lon: s.lon, lat: s.lat, radiusKm: s.radiusKm } };
+    if (state.selected) return { key: state.selected, area: { ibge: state.selected } };
+    return null;
+  }
+  function renderCalView() {
+    const rows = state.calRows;
+    const tiles = $('cal-months'), detail = $('cal-month');
+    clear(tiles);
+    if (!rows || !rows.length) { clear(detail); $('cal-year').textContent = ''; return; }
+    const first = state.source.firstYear, last = state.source.lastYear;
+    if (!Number.isInteger(state.calYear) || state.calYear < first || state.calYear > last) state.calYear = state.year;
+    const y = state.calYear;
+    $('cal-year').textContent = String(y);
+    $('cal-prev').disabled = y <= first;
+    $('cal-next').disabled = y >= last;
+    const byKey = new Map(rows.map((r) => [r.year * 100 + r.month, r]));
+    const lastKey = Math.max(...rows.map((r) => r.year * 100 + r.month));
+    const seq = { type: 'sequential', min: 0, max: Math.max(1, ...rows.map((r) => (Number.isFinite(r.harmonized) ? r.harmonized : 0))) };
+    for (let m = 1; m <= 12; m++) {
+      const r = byKey.get(y * 100 + m);
+      const b = el('button', 'cal-tile');
+      b.type = 'button';
+      const future = !r && y * 100 + m > lastKey;
+      if (future) { b.classList.add('is-future'); b.disabled = true; }
+      if (y === state.year && m === state.month) b.classList.add('is-current');
+      if (r && (r.provisional || r.partial)) b.classList.add('is-provisional');
+      const bar = el('i', 'cal-tile__bar');
+      if (r && Number.isFinite(r.harmonized)) {
+        bar.style.background = r.harmonized > 0 ? map.colorFor(r.harmonized, seq) : map.colorFor(0, seq);
+        bar.style.width = `${Math.max(4, Math.round((Math.sqrt(r.harmonized) / Math.sqrt(seq.max)) * 100))}%`;
+      }
+      const z = r ? r.anomalyZ : null;
+      const zEl = el('small', z === null || z === undefined ? 'cal-tile__z' : z >= 1 ? 'cal-tile__z z-up' : z <= -1 ? 'cal-tile__z z-down' : 'cal-tile__z', future ? '' : fmtZ(z));
+      b.append(el('span', 'cal-tile__m', monthName(m)), el('strong', 'cal-tile__v', future ? '–' : r ? fmtInt(r.harmonized) : '–'), bar, zEl);
+      const label = future ? t('cal.future', { m: monthName(m), y }) : r
+        ? t('cal.cell', { m: monthName(m), y, n: fmtInt(r.harmonized), z: fmtZ(r.anomalyZ) }) + (r.provisional ? t('cal.provisional') : '') + (r.partial ? t('cal.partial') : '')
+        : t('cal.empty', { m: monthName(m), y });
+      b.title = label; b.setAttribute('aria-label', label);
+      b.addEventListener('click', () => { state.year = y; state.month = m; onPeriodChange(); });
+      tiles.append(b);
+    }
+    renderMonthDetail(rows);
+  }
+  async function renderMonthDetail(rows) {
+    const box = $('cal-month');
+    const y = state.year, m = state.month;
+    const a = calArea();
+    clear(box);
+    const r = rows.find((x) => x.year === y && x.month === m) || null;
+    box.append(el('h4', 'cal-month__title', `${monthName(m)} ${y}`));
+    // month summary from the monthly row (same numbers as the map and the KPIs)
+    const base = rows.filter((x) => x.month === m && x.year >= 2002 && x.year <= 2024 && Number.isFinite(x.harmonized)).map((x) => x.harmonized);
+    const typical = base.length ? base.reduce((s, v) => s + v, 0) / base.length : null;
+    const sum = el('p', 'range-line');
+    sum.textContent = r
+      ? t('day.summary', { n: fmtInt(r.harmonized), z: zText(r.anomalyZ), typ: typical === null ? '–' : fmtInt(typical) })
+      : t('cal.empty', { m: monthName(m), y });
+    box.append(sum);
+    if (!a || !state.source.daily) return;
+    const key = `${a.key}|${y}|${m}`;
+    const seq = ++calSeq; // own token: a period change also bumps panelSeq while this request is in flight
+    let days = dailyCache.get(key);
+    if (!days) {
+      const wait = el('p', 'muted', t('day.loading'));
+      box.append(wait);
+      try { days = await state.source.daily(a.area, y, m); } catch (e) { console.warn('daily:', e.message); days = null; }
+      if (seq !== calSeq) return;
+      wait.remove();
+      if (!days) { box.append(el('p', 'muted', t('day.unavailable'))); return; }
+      if (dailyCache.size > 200) dailyCache.clear();
+      dailyCache.set(key, days);
+    }
+    if (!days.length) { box.append(el('p', 'muted', t('cal.future', { m: monthName(m), y }))); return; }
+    const withFire = days.filter((d) => (d.harmonized || 0) > 0);
+    const peak = withFire.slice().sort((p, q) => q.harmonized - p.harmonized)[0] || null;
+    const sensors = [...new Set(days.map((d) => d.sensor).filter(Boolean))].map((s) => SENSOR_LABEL[s]);
+    const facts = el('p', 'cal-month__facts');
+    facts.textContent = [
+      t('day.fire', { n: withFire.length, total: days.length }),
+      peak ? t('day.peak', { d: Number(peak.date.slice(8, 10)), v: fmt1(peak.harmonized) }) : null,
+      sensors.length ? t('day.sat', { s: sensors.join(', ') }) : null,
+      days.some((d) => d.provisional) ? t('day.prov') : null,
+    ].filter(Boolean).join(' · ');
+    box.append(facts);
+
+    const grid = el('div', 'cal-days');
+    I.weekdays().forEach((w) => grid.append(el('span', 'cal-days__h', w)));
+    const lead = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    for (let i = 0; i < lead; i++) grid.append(el('span', 'cal-days__pad'));
+    const max = Math.max(1, ...days.map((d) => d.harmonized || 0));
+    const dseq = { type: 'sequential', min: 0, max };
+    const info = el('p', 'cal-month__day muted', t('day.hint'));
+    for (const d of days) {
+      const b = el('button', 'cal-day');
+      b.type = 'button';
+      const dn = Number(d.date.slice(8, 10));
+      b.append(el('span', 'cal-day__n', String(dn)));
+      if (d.harmonized === null) b.classList.add('is-nodata');
+      else {
+        b.style.background = map.colorFor(d.harmonized, dseq);
+        if (d.harmonized > 0) b.append(el('small', 'cal-day__v', fmt1(d.harmonized)));
+        if (d.harmonized > max * 0.12) b.classList.add('is-dark'); // the red ramp darkens fast: light ink early
+      }
+      if (d.provisional) b.classList.add('is-provisional');
+      const text = d.harmonized === null
+        ? t('day.noSat', { d: dn, m: monthName(m), y })
+        : t('day.title', { d: dn, m: monthName(m), y, v: fmt1(d.harmonized), c: I.num(d.cells), s: SENSOR_LABEL[d.sensor] || '–' }) + (d.provisional ? ` · ${t('day.prov')}` : '');
+      b.title = text; b.setAttribute('aria-label', text);
+      b.addEventListener('click', () => {
+        for (const o of grid.querySelectorAll('.cal-day.is-picked')) o.classList.remove('is-picked');
+        b.classList.add('is-picked');
+        info.textContent = text;
+        info.classList.remove('muted');
+      });
+      grid.append(b);
+    }
+    box.append(grid, info);
   }
 
   function renderCompare(rows) {
@@ -1671,6 +1800,8 @@
 
     $('p-close').addEventListener('click', dismissDetails);
     $('p-min').addEventListener('click', minimizeModal);
+    $('cal-prev').addEventListener('click', () => { state.calYear -= 1; renderCalView(); });
+    $('cal-next').addEventListener('click', () => { state.calYear += 1; renderCalView(); });
     $('reopen').addEventListener('click', openModal);
     setupModal();
     $('csv').addEventListener('click', downloadCsv);
