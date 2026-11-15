@@ -218,57 +218,26 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
   font-size: 11px; color: var(--muted);
 }
 
-/* Lateral Scale & Proportion HUD */
-.scale-lateral {
-  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-  z-index: 5; pointer-events: none;
-  background: var(--hud-glass);
-  border: 1px solid var(--hud-border);
-  border-radius: 10px;
-  padding: 9px 10px;
-  box-shadow: var(--hud-shadow);
-  display: flex; flex-direction: column; gap: 5px;
-  min-width: 78px;
+/* Map scale and proportion: horizontal, centred under the map */
+.scale-bar {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5; pointer-events: none;
+  display: flex; align-items: center; gap: 14px;
+  background: var(--hud-glass); border: 1px solid var(--hud-border); border-radius: 10px;
+  padding: 7px 12px; box-shadow: var(--hud-shadow);
+  font: 600 10.5px var(--mono); color: var(--muted); white-space: nowrap;
 }
-.scale-lateral__head {
-  display: flex; justify-content: space-between; align-items: center; gap: 6px;
-}
-.scale-lateral__title {
-  font: 600 9.5px var(--mono); text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
-}
-.scale-lateral__zoom {
-  font: 700 11px var(--mono); color: var(--accent-2);
-}
-.scale-lateral__ratio {
-  font: 700 11px var(--mono); color: var(--text);
-  padding-bottom: 4px; border-bottom: 1px solid var(--line);
-}
-.scale-lateral__body {
-  display: flex; align-items: stretch; gap: 7px; height: 108px; margin: 2px 0;
-}
-.scale-lateral__track {
-  width: 6px; height: 108px;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 99px;
-  position: relative;
-  display: flex; align-items: flex-end;
-  overflow: hidden;
-}
-.scale-lateral__fill {
-  width: 100%; height: 64px;
-  background: linear-gradient(180deg, var(--red-300), var(--red-600));
-  border-radius: 99px;
-  transition: height .1s ease-out;
-}
-.scale-lateral__ticks {
-  display: flex; flex-direction: column; justify-content: space-between;
-  font: 600 10px var(--mono); color: var(--muted);
-}
-.scale-lateral__foot {
-  font: 600 10px var(--mono); color: var(--muted);
-  padding-top: 4px; border-top: 1px solid var(--line);
-}
+.scale-bar__meta { display: flex; align-items: baseline; gap: 6px; }
+.scale-bar__title { text-transform: uppercase; letter-spacing: .5px; font-size: 9.5px; }
+.scale-bar__zoom { color: var(--accent-2); font-size: 11px; }
+.scale-bar__ratio { color: var(--text); font-size: 11px; }
+.scale-bar__ruler { display: flex; flex-direction: column; gap: 3px; width: 160px; }
+.scale-bar__track { height: 6px; width: 160px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 99px; overflow: hidden; }
+.scale-bar__fill { height: 100%; width: 64px; background: linear-gradient(90deg, var(--red-300), var(--red-600)); border-radius: 99px; transition: width .1s ease-out; }
+.scale-bar__ticks { display: flex; justify-content: space-between; width: 64px; min-width: 18px; font-size: 10px; }
+.scale-bar__ticks span { width: 0; display: flex; justify-content: center; }
+.scale-bar__ticks span:first-child { justify-content: flex-start; }
+.scale-bar__ticks span:last-child { justify-content: flex-end; }
+.scale-bar__foot { padding-left: 12px; border-left: 1px solid var(--line); }
 
 .tooltip {
   left: 0; top: 0;
@@ -302,22 +271,21 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
   color: var(--accent-2);
 }
 
-/* The metric legend shows only while nothing is selected (no municipality, no circle); with the details open,
-   the box stays only for the focos-raiz key. */
-.layout:has(#panel:not([hidden])) .legend > figcaption, .layout:has(#panel:not([hidden])) .legend > canvas,
-.layout:has(#panel:not([hidden])) .legend__ticks, .layout:has(#panel:not([hidden])) .legend__nodata { display: none; }
-.layout:has(#panel:not([hidden])) .legend:not(:has(#roots-legend:not([hidden]))) { display: none; }
-.legend {
-  position: absolute; left: 12px; bottom: 12px; z-index: 5; margin: 0; padding: 9px 11px;
-  background: var(--hud-glass);
-  border: 1px solid var(--hud-border); border-radius: var(--radius);
-  box-shadow: var(--hud-shadow);
-  font-size: 11px; color: var(--muted);
+/* Metric legend in the header bar (always visible) */
+.legend { margin: 0; font-size: 11px; color: var(--muted); }
+.legend--head { display: flex; flex-direction: column; gap: 3px; min-width: 220px; max-width: 360px; flex: 0 1 320px; margin: 0 auto; }
+.legend--head figcaption { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--text); font-weight: 600; letter-spacing: .2px; }
+.legend--head figcaption > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legend canvas { width: 100%; height: 10px; border-radius: 3px; display: block; }
+.legend__ticks { display: flex; justify-content: space-between; font-family: var(--mono); }
+.legend__nodata { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+/* focos-raiz key floats on the map only while that layer is on */
+.legend--roots {
+  position: absolute; left: 12px; bottom: 12px; z-index: 5; padding: 9px 11px;
+  background: var(--hud-glass); border: 1px solid var(--hud-border); border-radius: var(--radius); box-shadow: var(--hud-shadow);
 }
-.legend figcaption { color: var(--text); font-weight: 600; margin-bottom: 5px; letter-spacing: .2px; }
-.legend canvas { width: 240px; height: 10px; border-radius: 3px; display: block; }
-.legend__ticks { display: flex; justify-content: space-between; font-family: var(--mono); margin-top: 3px; }
-.legend__nodata { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.legend--roots:not(:has(#roots-legend:not([hidden]))) { display: none; }
+.legend--roots .roots-legend { margin-top: 0; padding-top: 0; border-top: 0; }
 .swatch { width: 12px; height: 12px; border-radius: 3px; background: var(--map-nodata); border: 1px solid var(--line); display: inline-block; }
 
 .status {
@@ -381,7 +349,7 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 
 /* empty-state hint floating on the map */
 .map-hint {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
+  position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 5;
   display: flex; gap: 8px; align-items: baseline; max-width: min(560px, 90%);
   background: var(--hud-glass); border: 1px solid var(--hud-border); border-radius: 999px;
   padding: 7px 14px; font-size: 12.5px; box-shadow: var(--hud-shadow); pointer-events: none;
@@ -501,6 +469,8 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
   .modal.is-side .modal__card { border-width: 1px 0 0; }
   .modal__card { width: 100%; height: 88vh; border-radius: 14px 14px 0 0; }
   .map-hint { display: none; }
+  .legend--head { order: 3; width: 100%; max-width: none; }
+  .scale-bar__foot { display: none; }
   .search input { width: 100%; }
   .controls { width: 100%; }
   .sphere-hint { display: none; }

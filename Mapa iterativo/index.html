@@ -17,6 +17,14 @@
       <img class="brand__mark" src="img/logo-mark-64.png" alt="" width="32" height="32">
       <div class="brand__text"><strong>Monitor Cinder</strong><span data-i18n="brand.sub"></span></div>
     </div>
+    <figure class="legend legend--head">
+      <figcaption>
+        <span id="legend-title"></span>
+        <span class="legend__nodata"><span class="swatch"></span><span data-i18n="legend.nodata"></span></span>
+      </figcaption>
+      <canvas id="legend-canvas" width="240" height="10" aria-hidden="true"></canvas>
+      <div id="legend-ticks" class="legend__ticks"></div>
+    </figure>
     <div id="source-badge" class="badge" role="status" data-i18n="badge.loading"></div>
     <div class="controls">
       <label class="field"><span data-i18n="field.metric"></span>
@@ -87,37 +95,31 @@
         <button id="toggle-roots" class="icon-btn icon-btn--tag" type="button" aria-pressed="false" data-i18n-attr="aria-label:roots.btn;title:roots.btn">FR</button>
       </div>
 
-      <!-- Proporção e Escala Cartográfica Lateral -->
-      <aside id="scale-lateral" class="scale-lateral" aria-hidden="true">
-        <div class="scale-lateral__head">
-          <span class="scale-lateral__title" data-i18n="scale.title"></span>
-          <strong id="scale-zoom" class="scale-lateral__zoom">1.0×</strong>
-        </div>
-        <div id="scale-ratio" class="scale-lateral__ratio">1 : 4.5M</div>
-        <div class="scale-lateral__body">
-          <div class="scale-lateral__track">
-            <div id="scale-bar-fill" class="scale-lateral__fill"></div>
-          </div>
-          <div class="scale-lateral__ticks">
-            <span id="scale-top-km">0 km</span>
-            <span id="scale-mid-km">50 km</span>
-            <span id="scale-bot-km">100 km</span>
-          </div>
-        </div>
-        <div id="scale-span" class="scale-lateral__foot"></div>
-      </aside>
-
-      <figure class="legend">
-        <figcaption id="legend-title"></figcaption>
-        <canvas id="legend-canvas" width="240" height="10" aria-hidden="true"></canvas>
-        <div id="legend-ticks" class="legend__ticks"></div>
-        <div class="legend__nodata"><span class="swatch"></span><span data-i18n="legend.nodata"></span></div>
+      <!-- focos-raiz key (only while that layer is on) -->
+      <figure class="legend legend--roots">
         <div id="roots-legend" class="roots-legend" hidden>
           <span id="roots-title"></span>
           <div id="roots-keys" class="roots-legend__keys"></div>
           <small id="roots-hit" class="muted"></small>
         </div>
       </figure>
+      <!-- map scale and proportion, horizontal, under the map -->
+      <aside id="scale-lateral" class="scale-bar" aria-hidden="true">
+        <div class="scale-bar__meta">
+          <span class="scale-bar__title" data-i18n="scale.title"></span>
+          <strong id="scale-zoom" class="scale-bar__zoom">1.0×</strong>
+          <span id="scale-ratio" class="scale-bar__ratio">1 : 4.5M</span>
+        </div>
+        <div class="scale-bar__ruler">
+          <div class="scale-bar__track"><div id="scale-bar-fill" class="scale-bar__fill"></div></div>
+          <div id="scale-ticks" class="scale-bar__ticks">
+            <span id="scale-top-km">0</span>
+            <span id="scale-mid-km">50 km</span>
+            <span id="scale-bot-km">100 km</span>
+          </div>
+        </div>
+        <span id="scale-span" class="scale-bar__foot"></span>
+      </aside>
       <div id="proj-ribbon" class="proj-ribbon" role="status" hidden>
         <strong class="proj-ribbon__tag" data-i18n="ribbon.tag"></strong>
         <span id="proj-ribbon-text"></span>

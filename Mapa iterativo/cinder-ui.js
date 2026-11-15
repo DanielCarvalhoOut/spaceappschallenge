@@ -167,7 +167,7 @@
         : `1 : ${I.num(d)}`;
     ratioEl.textContent = ratioStr;
 
-    const trackPx = 108;
+    const trackPx = 160;
     const maxKmInTrack = trackPx * v.kmPerPx;
     const steps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000];
     let niceKm = steps[0];
@@ -175,7 +175,9 @@
       if (s <= maxKmInTrack) niceKm = s;
     }
     const barPx = Math.max(18, Math.min(trackPx, Math.round(niceKm * v.pxPerKm)));
-    fillEl.style.height = `${barPx}px`;
+    fillEl.style.width = `${barPx}px`;
+    const ticksEl = $('scale-ticks');
+    if (ticksEl) ticksEl.style.width = `${barPx}px`;
 
     topEl.textContent = '0';
     midEl.textContent = `${I.num(niceKm / 2, niceKm < 5 ? 1 : 0)} km`;
