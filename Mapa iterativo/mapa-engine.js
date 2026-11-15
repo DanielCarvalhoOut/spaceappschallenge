@@ -1739,6 +1739,22 @@
       off,
       destroy,
       colorFor: (v, scale) => colorFor(v, scale),
+      /** Circle selection at a typed coordinate (sphere mode): same path as a click on the map. */
+      sphereAt(lon, lat, rKm) {
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false;
+        st.selectionMode = 'sphere';
+        const [wx, wy] = project(lon, lat);
+        applySphereAt(wx, wy, Number.isFinite(rKm) ? rKm : st.sphereRadiusKm, true, true);
+        return true;
+      },
+      /** The current map view (base + overlay layers) on one canvas, at device resolution, for PNG export. */
+      snapshot() {
+        const c = document.createElement('canvas');
+        c.width = base.width; c.height = base.height;
+        const g = c.getContext('2d');
+        g.drawImage(base, 0, 0); g.drawImage(over, 0, 0);
+        return { canvas: c, dpr: st.dpr || 1 };
+      },
       featureIds: () => st.features.map((f) => f.id),
       selected: () => st.selected,
       screenPointOf(id) {

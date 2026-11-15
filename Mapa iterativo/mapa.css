@@ -652,3 +652,20 @@ select:focus-visible, input:focus-visible, button:focus-visible, .map canvas:foc
 .day-chip.is-prov { border-style: dashed; border-color: var(--accent-2); }
 .cal-cell.is-future { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--line) 3px 5px) !important; opacity: .8; }
 .cal-cell.is-provisional { outline: 1px dashed var(--accent-2); outline-offset: -2px; }
+
+/* ---------- Unusual months and downloads (Summary tab) ---------- */
+.alerts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.alerts > li.muted { grid-column: 1 / -1; font-size: 12px; }
+.alerts__item {
+  width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: baseline; text-align: left;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
+  font: inherit; cursor: pointer;
+}
+.alerts__item:hover, .alerts__item:focus-visible { border-color: var(--accent-2); }
+.alerts__when { font-weight: 600; font-size: 12.5px; }
+.alerts__z { font: 700 12px var(--mono); color: var(--accent-2); }
+.alerts__item small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+.downloads { display: flex; flex-wrap: wrap; gap: 6px; }
+.dl-status { margin: 6px 0 0; font-size: 11.5px; min-height: 1em; }
+.search__coord { font-weight: 600; }
+.search__coord.is-disabled { color: var(--muted); cursor: not-allowed; }

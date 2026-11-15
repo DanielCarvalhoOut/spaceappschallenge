@@ -275,6 +275,36 @@
         };
       },
       /** One month day by day: { days: [{ date, harmonized|null, sensor, provisional, cells }] } (null while loading: 503). */
+      /** Months with a high anomaly (z ≥ 1.5 and ≥ 10 cell-days), newest first; [] when none. */
+      async alerts(id) {
+        if (!IBGE_CODE.test(id)) throw new Error('Invalid IBGE code');
+        const j = await fetchJson(`${base}/api/municipalities/${id}/alerts`, 20000);
+        return (Array.isArray(j && j.alerts) ? j.alerts : []).slice(0, 12)
+          .filter((a) => a && intIn(a.year, 2000, 2100) && intIn(a.month, 1, 12))
+          .map((a) => ({ year: a.year, month: a.month, harmonized: num(a.harmonizedCount), z: num(a.anomalyZ) }));
+      },
+      /** Fire cells of the month as a CSV Blob (municipality or circle); null while the history is not loaded (503). */
+      async firesCsv(area, year, month) {
+        if (!intIn(year, 2001, 2100) || !intIn(month, 1, 12)) throw new Error('Invalid month');
+        const q = new URLSearchParams({ year: String(year), month: String(month) });
+        if (area && area.ibge) {
+          if (!IBGE_CODE.test(area.ibge)) throw new Error('Invalid IBGE code');
+          q.set('ibge', area.ibge);
+        } else {
+          if (!area || !numIn(area.lon, -54, -45) || !numIn(area.lat, -20, -12) || !numIn(area.radiusKm, 5, 300)) throw new Error('Invalid circle');
+          q.set('lon', String(area.lon)); q.set('lat', String(area.lat)); q.set('radiusKm', String(area.radiusKm));
+        }
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 60000);
+        try {
+          const res = await fetch(`${base}/api/area/fires.csv?${q}`, { signal: ctrl.signal, credentials: 'omit', headers: { Accept: 'text/csv' } });
+          if (res.status === 503) return null;
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return new Blob([await res.text()], { type: 'text/csv;charset=utf-8' });
+        } finally {
+          clearTimeout(timer);
+        }
+      },
       async daily(area, year, month) {
         if (!intIn(year, 2001, 2100) || !intIn(month, 1, 12)) throw new Error('Invalid month');
         const q = new URLSearchParams({ year: String(year), month: String(month) });
@@ -378,7 +408,7 @@
       kind: 'offline', dataKind: 'none', historyLoad: null, lastObservedDay: null, provisionalFrom: null,
       firstYear: CFG.firstYear, lastYear: CFG.lastYear, sources: [], validation: null,
       mapValues: fail, calendar: fail, pattern: fail, context: fail,
-      projection: fail, horizons: fail, daily: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
+      projection: fail, horizons: fail, daily: fail, alerts: fail, firesCsv: fail, localities: fail, cellDetections: fail, areaHistory: fail, cells: fail, recurrence: fail,
       csvUrl() { return null; },
     };
   }

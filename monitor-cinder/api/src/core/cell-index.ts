@@ -725,3 +725,44 @@ export function recurrenceFromIndex(
   out.sort((a, b) => (b[2]! - a[2]!) || (b[3]! - a[3]!));
   return { yearsObserved: yearsObservedOf(chain, q.from, q.to), cells: out.slice(0, q.limit) };
 }
+
+/* ---------------- fire cells of one month (CSV export) ---------------- */
+
+export interface FireCellRow {
+  lon: number;
+  lat: number;
+  ibge: string;
+  /** Harmonized cell-days of the cell in the month (S-NPP scale; 0 when only a sensor not in use that day saw it). */
+  cellDays: number;
+  /** Every detection day and sensor, ascending, e.g. 2024-09-03 SNPP. */
+  detections: Array<{ date: string; sensor: Sensor; provisional: boolean }>;
+}
+
+/**
+ * The 1 km cells of an area with at least one FIRMS detection (nominal/high confidence, static sources removed)
+ * in the month: centre, municipality, harmonized cell-days and the raw detection days per sensor.
+ * Sorted by cell-days, then by number of detections. At most `limit` rows.
+ */
+export function fireCellsOfMonth(index: CellIndex, keep: (c: IndexCell) => boolean, year: number, month: number, limit = 20000): FireCellRow[] {
+  const chain = buildChain(index);
+  const d0 = Date.UTC(year, month - 1, 1) / DAY, d1 = Date.UTC(year, month, 1) / DAY - 1;
+  const rows: FireCellRow[] = [];
+  for (const c of index.cells) {
+    if (!keep(c)) continue;
+    const detections: FireCellRow['detections'] = [];
+    SENSORS.forEach((sensor, i) => {
+      for (const d of c[3 + i] as number[]) {
+        if (d < d0 || d > d1) continue;
+        detections.push({ date: isoDay(d), sensor, provisional: chain.provisionalFrom !== null && d >= chain.provisionalFrom });
+      }
+    });
+    if (!detections.length) continue;
+    let cd = 0;
+    forEachContribution(c, chain, (d, w) => { if (d >= d0 && d <= d1) cd += w; });
+    detections.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.sensor.localeCompare(b.sensor)));
+    const [lon, lat] = fromPolyconic((c[0] + 0.5) * 1000, (c[1] + 0.5) * 1000);
+    rows.push({ lon: Math.round(lon * 1e5) / 1e5, lat: Math.round(lat * 1e5) / 1e5, ibge: c[2], cellDays: Math.round(cd * 100) / 100, detections });
+  }
+  rows.sort((a, b) => b.cellDays - a.cellDays || b.detections.length - a.detections.length);
+  return rows.slice(0, limit);
+}

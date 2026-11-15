@@ -364,6 +364,28 @@
 
   /* ---------- search combobox ---------- */
   const normalize = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const GOIAS_BOX = { west: -53.3, south: -19.55, east: -45.85, north: -12.35 };
+  /**
+   * "lat, lon" typed in the search: -16.68, -49.25 · -16.68 -49.25 · -16,68; -49,25 (decimal comma needs ";").
+   * Returns null when the text is not a coordinate pair.
+   */
+  function parseLatLon(text) {
+    const s = String(text).trim();
+    if (!/^[-+]?\d/.test(s) || s.length > 40) return null;
+    let parts;
+    if (s.includes(';')) parts = s.split(';');
+    else if (/,\s/.test(s) || /\s/.test(s)) parts = s.replace(/,\s+/g, ' ').trim().split(/\s+/);
+    else parts = s.split(',');
+    if (parts.length !== 2) return null;
+    const [lat, lon] = parts.map((p) => Number(p.trim().replace(',', '.')));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    const inside = lat >= GOIAS_BOX.south && lat <= GOIAS_BOX.north && lon >= GOIAS_BOX.west && lon <= GOIAS_BOX.east;
+    return { lat, lon, inside };
+  }
+  function goToCoordinate(c) {
+    setModeUI('sphere');
+    map.sphereAt(c.lon, c.lat, map.sphereRadius());
+  }
   function setupSearch() {
     const input = $('search'), list = $('search-list');
     const index = state.ids.map((id) => {
@@ -380,36 +402,56 @@
       input.setAttribute('aria-expanded', 'true');
       matches.forEach((it, i) => {
         const li = el('li');
+        if (it.coord) {
+          li.id = 's-opt-coord';
+          li.setAttribute('role', 'option');
+          li.setAttribute('aria-selected', i === active ? 'true' : 'false');
+          li.classList.add('search__coord');
+          if (!it.coord.inside) { li.setAttribute('aria-disabled', 'true'); li.classList.add('is-disabled'); }
+          li.append(el('span', '', it.name));
+          if (it.coord.inside) li.onmousedown = (e) => { e.preventDefault(); choose(it); };
+          list.append(li);
+          return;
+        }
         li.id = 's-opt-' + it.id;
         li.setAttribute('role', 'option');
         li.setAttribute('aria-selected', i === active ? 'true' : 'false');
         li.append(el('span', '', it.name), el('small', '', it.micro));
-        li.onmousedown = (e) => { e.preventDefault(); choose(it.id); };
+        li.onmousedown = (e) => { e.preventDefault(); choose(it); };
         list.append(li);
       });
     }
     function update() {
       const q = normalize(input.value.trim());
       if (!q) { matches = []; active = -1; render(); return; }
+      const c = parseLatLon(input.value);
+      if (c) {
+        const f = (v) => I.num(v, 5);
+        const name = c.inside
+          ? t('search.coord', { r: map.sphereRadius(), lat: f(c.lat), lon: f(c.lon) })
+          : t('search.outside', { lat: f(c.lat), lon: f(c.lon) });
+        matches = [{ coord: c, name }]; active = c.inside ? 0 : -1; render(); return;
+      }
       const starts = index.filter((x) => x.key.startsWith(q));
       const contains = index.filter((x) => !x.key.startsWith(q) && x.key.includes(q));
       matches = starts.concat(contains).slice(0, 8);
       active = matches.length ? 0 : -1;
       render();
     }
-    function choose(id) {
+    function choose(it) {
       input.value = ''; matches = []; active = -1; render(); input.blur();
+      if (it.coord) { if (it.coord.inside) goToCoordinate(it.coord); return; }
       setModeUI('municipality');
-      selectMunicipality(id, true);
+      selectMunicipality(it.id, true);
     }
     input.addEventListener('input', update);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' && matches.length) { active = (active + 1) % matches.length; render(); e.preventDefault(); }
       else if (e.key === 'ArrowUp' && matches.length) { active = (active - 1 + matches.length) % matches.length; render(); e.preventDefault(); }
-      else if (e.key === 'Enter' && active >= 0) { choose(matches[active].id); e.preventDefault(); }
+      else if (e.key === 'Enter' && active >= 0) { choose(matches[active]); e.preventDefault(); }
       else if (e.key === 'Escape') { input.value = ''; update(); input.blur(); }
     });
-    input.addEventListener('blur', () => setTimeout(() => { matches = []; active = -1; render(); }, 120));
+    input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement === input) return; matches = []; active = -1; render(); }, 120));
     document.addEventListener('keydown', (e) => {
       const tag = e.target && e.target.tagName;
       if (e.key === '/' && tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') { e.preventDefault(); input.focus(); }
@@ -539,7 +581,6 @@
     $('panel-empty').hidden = true;
     $('panel').hidden = false;
     $('panel-body').hidden = false;
-    $('csv').hidden = !!state.sphereSelection; // the CSV is per municipality
     if (!wasOpen) setTab('summary'); // a new selection starts at the summary
     syncLayout();
   }
@@ -648,6 +689,7 @@
   async function openPanel(id) {
     const seq = ++state.panelSeq;
     openModal();
+    dlStatus('');
     renderHeader(id);
     renderNeighborsList(id);
     if (!state.rows.has(id)) ['k-count', 'k-z'].forEach((k) => { $(k).textContent = '…'; });
@@ -662,6 +704,7 @@
       renderPanelBody(id);
       loadRange(id, seq);
       loadHorizons({ ibge: id }, seq);
+      loadAlerts(id, seq);
       loadContext(id, seq);
       const cur = currentRow();
       loadDetail({ kind: 'muni', id }, cur ? cur.harmonized : 0, seq);
@@ -726,6 +769,8 @@
   async function renderSpherePanel(sphere) {
     const seq = ++state.panelSeq;
     openModal();
+    dlStatus('');
+    loadAlerts(null, seq);
     const centerName = (sphere.centerId && state.names.get(sphere.centerId)) || CFG.ufName;
     const subBase = t('sphere.sub', { r: sphere.radiusKm, area: I.num(sphere.areaKm2), name: centerName });
     $('p-name').textContent = t('sphere.titleR', { r: sphere.radiusKm });
@@ -1550,6 +1595,158 @@
     }
   }
 
+  /* ---------- Unusual months (alerts) ---------- */
+  async function loadAlerts(id, seq) {
+    const box = $('alerts-box');
+    clear(box);
+    if (!id) { box.append(el('li', 'muted', t('alerts.sphere'))); return; }
+    box.append(el('li', 'muted', t('alerts.loading')));
+    try {
+      const list = await state.source.alerts(id);
+      if (seq !== state.panelSeq) return;
+      clear(box);
+      if (!list.length) { box.append(el('li', 'muted', t('alerts.none'))); return; }
+      for (const a of list) {
+        const li = el('li');
+        const b = el('button', 'alerts__item');
+        b.type = 'button';
+        b.append(
+          el('span', 'alerts__when', `${monthName(a.month)}/${a.year}`),
+          el('strong', 'alerts__z', fmtZ(a.z)),
+          el('small', '', t('alerts.cells', { n: fmtInt(a.harmonized) }))
+        );
+        b.title = t('alerts.go', { m: monthName(a.month), y: a.year });
+        b.addEventListener('click', () => { state.year = a.year; state.month = a.month; onPeriodChange(); });
+        li.append(b);
+        box.append(li);
+      }
+    } catch (_) {
+      if (seq !== state.panelSeq) return;
+      clear(box);
+      box.append(el('li', 'muted', t('alerts.err')));
+    }
+  }
+
+  /* ---------- Downloads: fire cells CSV, calendar PNG, map PNG ---------- */
+  function saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = el('a');
+    a.href = url; a.download = filename;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+  function dlStatus(key, vars) { $('dl-status').textContent = key ? t(key, vars) : ''; }
+  const pad2 = (m) => String(m).padStart(2, '0');
+  function areaTag() {
+    if (state.selected) return state.selected;
+    const s = state.sphereSelection;
+    return s ? `circle-${s.lat.toFixed(3)}_${s.lon.toFixed(3)}_${s.radiusKm}km` : 'goias';
+  }
+  async function downloadFiresCsv() {
+    const s = state.sphereSelection;
+    const area = state.selected ? { ibge: state.selected } : s ? { lon: s.lon, lat: s.lat, radiusKm: s.radiusKm } : null;
+    if (!area) return;
+    if (isFuture()) { dlStatus('dl.future'); return; }
+    dlStatus('dl.working');
+    try {
+      const blob = await state.source.firesCsv(area, state.year, state.month);
+      if (!blob) { dlStatus('dl.unavailable'); return; }
+      const name = `monitor-cinder-fires-${areaTag()}-${state.year}-${pad2(state.month)}.csv`;
+      // header + rows: a CSV with only the header line has no fire cells
+      const text = await blob.text();
+      if (text.replace(/^\ufeff/, '').split(/\r?\n/).filter(Boolean).length <= 1) { dlStatus('dl.none'); return; }
+      saveBlob(blob, name);
+      dlStatus('dl.done', { f: name });
+    } catch (_) {
+      dlStatus('dl.err');
+    }
+  }
+  function canvasToPng(c, filename) {
+    c.toBlob((b) => { if (b) { saveBlob(b, filename); dlStatus('dl.done', { f: filename }); } else dlStatus('dl.err'); }, 'image/png');
+  }
+  function cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+  /** Map view + title + legend + credits on one PNG. */
+  function downloadMapPng() {
+    const snap = map.snapshot();
+    const k = snap.dpr;
+    const W = snap.canvas.width, head = Math.round(44 * k), foot = Math.round(66 * k);
+    const c = document.createElement('canvas');
+    c.width = W; c.height = snap.canvas.height + head + foot;
+    const g = c.getContext('2d');
+    g.fillStyle = cssVar('--surface', '#141414'); g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(snap.canvas, 0, head);
+    const ink = cssVar('--text', '#f2f2f2'), muted = cssVar('--muted', '#a0a0a0');
+    g.fillStyle = ink; g.font = `600 ${Math.round(16 * k)}px system-ui, sans-serif`; g.textBaseline = 'middle';
+    const area = state.selected ? (state.names.get(state.selected) || state.selected) : state.sphereSelection ? t('sphere.title', { n: state.sphereSelection.ids.length }) : 'Goiás';
+    g.fillText(`Monitor Cinder · ${area} · ${$('legend-title').textContent}`, 14 * k, head / 2);
+    // legend ramp
+    const scale = scaleFor(state.values);
+    const lx = 14 * k, ly = head + snap.canvas.height + 10 * k, lw = Math.min(260 * k, W * 0.4), lh = 10 * k;
+    for (let x = 0; x < lw; x++) {
+      const u = x / (lw - 1);
+      const val = scale.type === 'sequential' ? Math.expm1(u * Math.log1p(scale.max)) : scale.min + u * (scale.max - scale.min);
+      g.fillStyle = map.colorFor(val, scale); g.fillRect(lx + x, ly, 1, lh);
+    }
+    const ticks = [...$('legend-ticks').children].map((n) => n.textContent);
+    g.fillStyle = muted; g.font = `${Math.round(11 * k)}px system-ui, sans-serif`; g.textBaseline = 'top';
+    ticks.forEach((tx, i) => {
+      const x = lx + (ticks.length > 1 ? (i / (ticks.length - 1)) * lw : 0);
+      g.textAlign = i === 0 ? 'left' : i === ticks.length - 1 ? 'right' : 'center';
+      g.fillText(tx, x, ly + lh + 4 * k);
+    });
+    g.textAlign = 'left';
+    g.fillText(t('png.credits'), lx, ly + lh + 22 * k);
+    canvasToPng(c, `monitor-cinder-map-${areaTag()}-${state.year}-${pad2(state.month)}.png`);
+  }
+  /** The whole monthly calendar (years × months) of the selected area, coloured like the History tab. */
+  function downloadCalendarPng() {
+    const rows = state.selected ? state.rows.get(state.selected) : state.sphereRows;
+    if (!rows || !rows.length) { dlStatus('dl.err'); return; }
+    const k = 2, cw = 34 * k, ch = 18 * k, left = 52 * k, top = 70 * k, bottom = 46 * k;
+    const years = [];
+    for (let y = state.source.lastYear; y >= state.source.firstYear; y--) years.push(y);
+    const c = document.createElement('canvas');
+    const sub = t(state.metric === 'anomaly' ? 'png.calSubZ' : 'png.calSubN');
+    const probe = c.getContext('2d');
+    probe.font = `${11 * k}px system-ui, sans-serif`;
+    c.width = Math.ceil(Math.max(left + 12 * cw + 16 * k, probe.measureText(sub).width + 24 * k));
+    c.height = top + years.length * ch + bottom;
+    const g = c.getContext('2d');
+    g.fillStyle = cssVar('--surface', '#141414'); g.fillRect(0, 0, c.width, c.height);
+    const ink = cssVar('--text', '#f2f2f2'), muted = cssVar('--muted', '#a0a0a0');
+    const area = state.selected ? (state.names.get(state.selected) || state.selected) : t('sphere.title', { n: state.sphereSelection.ids.length });
+    g.fillStyle = ink; g.textBaseline = 'middle';
+    g.font = `600 ${16 * k}px system-ui, sans-serif`;
+    g.fillText(`Monitor Cinder · ${area}`, 12 * k, 18 * k);
+    g.fillStyle = muted; g.font = `${11 * k}px system-ui, sans-serif`;
+    g.fillText(sub, 12 * k, 38 * k);
+    const seqScale = { type: 'sequential', min: 0, max: Math.max(1, ...rows.map((r) => (Number.isFinite(r.harmonized) ? r.harmonized : 0))) };
+    const byKey = new Map(rows.map((r) => [r.year * 100 + r.month, r]));
+    g.textAlign = 'center';
+    I.months().forEach((m, i) => g.fillText(m.slice(0, 3), left + i * cw + cw / 2, top - 10 * k));
+    years.forEach((y, j) => {
+      g.textAlign = 'right'; g.fillStyle = muted;
+      g.fillText(String(y), left - 8 * k, top + j * ch + ch / 2);
+      for (let m = 1; m <= 12; m++) {
+        const r = byKey.get(y * 100 + m);
+        let bg = null;
+        if (r && Number.isFinite(r.harmonized)) {
+          bg = r.harmonized <= 0 ? map.colorFor(0, seqScale)
+            : state.metric === 'anomaly' ? (r.anomalyZ !== null ? map.colorFor(r.anomalyZ, Z_SCALE) : null)
+            : map.colorFor(r.harmonized, seqScale);
+        }
+        g.fillStyle = bg || cssVar('--surface-2', '#222');
+        g.fillRect(left + (m - 1) * cw + 1, top + j * ch + 1, cw - 2, ch - 2);
+      }
+    });
+    g.textAlign = 'left'; g.fillStyle = muted;
+    g.fillText(t('png.credits'), 12 * k, c.height - bottom / 2);
+    canvasToPng(c, `monitor-cinder-calendar-${areaTag()}.png`);
+  }
+
   /* ---------- CSV export ---------- */
   function downloadCsv() {
     const id = state.selected;
@@ -1680,6 +1877,10 @@
     setupPanelResize();
     setupModal();
     $('csv').addEventListener('click', downloadCsv);
+    $('csv-fires').addEventListener('click', downloadFiresCsv);
+    $('png-calendar').addEventListener('click', downloadCalendarPng);
+    $('png-map').addEventListener('click', downloadMapPng);
+    $('map-png').addEventListener('click', downloadMapPng);
     $('calendar').addEventListener('click', (e) => {
       const b = e.target.closest('.cal-cell');
       if (!b) return;

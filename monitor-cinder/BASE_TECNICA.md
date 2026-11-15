@@ -165,6 +165,9 @@ A interface marca esse período como **provisório**.
 - **Tela:** mapa + **painel lateral** com abas Resumo · Projeção · Histórico · Área · Contexto. Um botão no rodapé abre o painel em tela cheia.
 - **Hover rico:** município, z, valor, satélite. Nas células de 1 km mostra também lat/lon e os povoados mais próximos.
 - **Modos:** Município ou **Círculo** (raio livre; conta só as células dentro do círculo).
+- **Busca:** por nome do município ou por coordenada (`-16.68, -49.25` abre um círculo ali; fora de Goiás é recusado).
+- **Meses incomuns:** na aba Resumo, os meses com anomalia ≥ +1,5σ e ≥ 10 células-dia; um clique leva ao mês.
+- **Baixar:** série mensal (CSV), focos do mês (CSV com célula, dias de detecção, satélite e povoado mais próximo), calendário (PNG) e mapa atual (PNG).
 - **Histórico:** calendário ano → 12 meses → dias, com o satélite de cada dia.
 - **Área:** lista as células com fogo do mês, com lat/lon, povoado mais próximo (km) e os dias exatos de detecção por satélite.
 - **Povoados do IBGE:** aparecem com o zoom. Só referência; não entram em nenhum cálculo.
@@ -200,11 +203,11 @@ npx serve "../../Mapa iterativo" -l 3000   # front
 
 ## 9. Testes automatizados
 
-Resultado atual: **21 testes passando + 10 pulados** (os 10 precisam de PostGIS ligado: `npm run test:db`).
+Resultado atual: **22 testes passando + 10 pulados** (os 10 precisam de PostGIS ligado: `npm run test:db`).
 
 | Arquivo | O que prova |
 |---|---|
-| `index.test.ts` | Cadeia de satélites: fatores recuperados com erro zero num caso sintético conhecido; a escala não "salta" na troca MODIS → S-NPP → NOAA-20; círculo e recorrência usam a mesma cadeia; o calendário diário soma o mês e nomeia o satélite; as células listam os dias reais de detecção; o mês em andamento é comparado com os mesmos dias dos anos anteriores |
+| `index.test.ts` | Cadeia de satélites: fatores recuperados com erro zero num caso sintético conhecido; a escala não "salta" na troca MODIS → S-NPP → NOAA-20; círculo e recorrência usam a mesma cadeia; o calendário diário soma o mês e nomeia o satélite; as células listam os dias reais de detecção; o mês em andamento é comparado com os mesmos dias dos anos anteriores; a exportação de focos lista cada dia e satélite e soma só o sensor em uso |
 | `projection-model.test.ts` | O CRPS se comporta como deve; o modelo recupera sazonalidade e memória de um processo conhecido; o hindcast ganha da climatologia com cobertura honesta; o `widen` mantém a mediana; a projeção parte do último dia observado e nunca mostra número sem faixa |
 | `inpe-stats.test.ts` | Soma os biomas do estado, ignora outros estados e meses nulos, rejeita payload inválido (zod) |
 | `ibge-localities.test.ts` | Lê o `.dbf` de dentro do zip do IBGE, uma linha por localidade, erro claro se faltar a UF |

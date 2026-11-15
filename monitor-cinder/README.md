@@ -12,6 +12,9 @@ series continues on NOAA-20 and NOAA-21, calibrated to the same scale.
 ## What it shows
 
 - **Map of Goiás** by IBGE municipality: anomaly vs. the historical pattern (z), cell-days or density, for any month since 2001.
+- **Search by name or by coordinate**: typing `-16.68, -49.25` opens a circle there.
+- **Unusual months** of a municipality (anomaly ≥ +1.5σ), one click away from the month.
+- **Downloads**: monthly series (CSV), the month's fire cells with detection days, satellite and nearest locality (CSV), the calendar (PNG) and the current map (PNG).
 - **Details in a side panel beside the map** (tabs Summary · Projection · History · Area · Context; a footer button opens the same view full screen): typical fire season, monthly calendar since 2001,
   MODIS × VIIRS × harmonized yearly chart, expected range for the month, fire cells inside the area, and context.
 - **Circle analysis**: draw a circle anywhere; every number counts only the 1 km cells inside it.
