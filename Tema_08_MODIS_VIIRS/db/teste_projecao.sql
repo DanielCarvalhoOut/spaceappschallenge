@@ -1,4 +1,4 @@
--- Teste de schema_projecao.sql em banco NOVO (schema.sql → schema_firehub.sql → schema_contexto.sql →
+-- Teste de schema_projecao.sql em banco NOVO (schema.sql → schema_cinder.sql → schema_contexto.sql →
 -- schema_operacional.sql → schema_projecao.sql → este arquivo). Dados SINTÉTICOS com resposta conhecida:
 --   * VIIRS vê ~3x mais células-dia que o MODIS (fator verdadeiro ≈ 3, varia pouco por mês);
 --   * temporada concentrada em ago–set; 50 locais fixos queimam em ~80% dos anos (focos-raiz);

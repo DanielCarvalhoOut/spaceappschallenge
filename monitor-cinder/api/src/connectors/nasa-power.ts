@@ -88,7 +88,7 @@ export class NasaPowerConnector implements SourceConnector<NasaPowerQuery, NasaP
     const res = await fetch(url, {
       signal,
       headers: {
-        'User-Agent': 'FireHub-MonitorCinder/1.0 (NASA Space Apps 2026 Goiania)',
+        'User-Agent': 'MonitorCinder/1.0 (NASA Space Apps 2026 Goiania)',
         Accept: 'application/json',
       },
     });

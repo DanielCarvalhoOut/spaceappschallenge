@@ -1,6 +1,6 @@
 # Tema 8 · Contrato da API do app
 
-API própria entre o front (`Mapa iterativo/`, JS puro) e o banco (`db/schema.sql`). Stack: **Node 22 + TypeScript + Fastify + pg + zod**, com jobs de ingestão no mesmo projeto (`firehub/api/src/jobs`). As rotas usadas pelo mapa estão em `IMPLEMENTACAO.md` §5 F3; as regras de validação abaixo continuam valendo.
+API própria entre o front (`Mapa iterativo/`, JS puro) e o banco (`db/schema.sql`). Stack: **Node 22 + TypeScript + Fastify + pg + zod**, com jobs de ingestão no mesmo projeto (`monitor-cinder/api/src/jobs`). As rotas usadas pelo mapa estão em `IMPLEMENTACAO.md` §5 F3; as regras de validação abaixo continuam valendo.
 
 ## Decisões de arquitetura
 

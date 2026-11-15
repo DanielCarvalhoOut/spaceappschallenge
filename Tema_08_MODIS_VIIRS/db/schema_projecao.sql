@@ -1,5 +1,5 @@
--- FireHub / Monitor Cinder · Normalização calculada, validação do erro e projeção empírica.
--- Aplicar depois de schema.sql, schema_firehub.sql, schema_contexto.sql e schema_operacional.sql. Idempotente.
+-- Monitor Cinder · Normalização calculada, validação do erro e projeção empírica.
+-- Aplicar depois de schema.sql, schema_cinder.sql, schema_contexto.sql e schema_operacional.sql. Idempotente.
 --
 -- Paradigma: projeção empírica a partir do histórico, sempre testada no passado (retroprojeção com origem móvel).
 --   1. Normalização: confiança (normalize_confidence) → grade comum de 1 km → fator VIIRS÷MODIS por mês,

@@ -90,7 +90,7 @@ export const MONTHLY_HARMONIZATION_FACTORS = [
   3.12, 3.05, 3.18, 3.36, 3.58, 3.72, 3.84, 3.92, 3.86, 3.62, 3.28, 3.14,
 ];
 
-class FireHubDataStore {
+class CinderDataStore {
   private municipalities = new Map<string, IbgeMunicipalityRecord>();
   private calendars = new Map<string, CalendarRow[]>();
   private liveHotspots: FirmsHotspotRecord[] = [];
@@ -119,7 +119,7 @@ class FireHubDataStore {
         deduplicatedClusters: this.liveClusters.length,
         mlRocAuc: this.mlModel?.metrics.rocAuc,
       },
-      'FireHub data store initialized'
+      'Monitor Cinder data store initialized'
     );
   }
 
@@ -1625,4 +1625,4 @@ class FireHubDataStore {
   }
 }
 
-export const store = new FireHubDataStore();
+export const store = new CinderDataStore();

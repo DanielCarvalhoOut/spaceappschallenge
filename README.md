@@ -1,6 +1,6 @@
 # Space Apps 2026 · Goiânia
 
-**Foco da equipe: tema 8, [Harmonization of MODIS and VIIRS Hot Spots](https://www.spaceappschallenge.org/2026/challenges/modis-and-viirs-hot-spots/)**, projeto **FireHub** (decisão final de 14/11/2026, 14h11).
+**Foco da equipe: tema 8, [Harmonization of MODIS and VIIRS Hot Spots](https://www.spaceappschallenge.org/2026/challenges/modis-and-viirs-hot-spots/)**, projeto **Monitor Cinder** (decisão final de 14/11/2026, 14h11).
 
 Prazo de submissão: **domingo, 15/11/2026, 23h59 no horário do evento local** ("Submit for Judging").
 
@@ -8,8 +8,8 @@ Prazo de submissão: **domingo, 15/11/2026, 23h59 no horário do evento local** 
 
 | Pasta | Conteúdo |
 | --- | --- |
-| `Tema_08_MODIS_VIIRS/` | **Foco (FireHub).** Dados do FIRMS, harmonização, banco testado (PostGIS) com padrão histórico, anomalia e alertas, contrato da API e catálogo |
-| `Mapa iterativo/` | **Front do FireHub, autoral** (JS puro + Canvas): mapa de Goiás por município do IBGE, painel com calendário e padrão histórico. Abre com dois cliques; sem API entra em modo DEMO |
+| `Tema_08_MODIS_VIIRS/` | **Foco (Monitor Cinder).** Dados do FIRMS, harmonização, banco testado (PostGIS) com padrão histórico, anomalia e alertas, contrato da API e catálogo |
+| `Mapa iterativo/` | **Front do Monitor Cinder, autoral** (JS puro + Canvas): mapa de Goiás por município do IBGE, painel com calendário e padrão histórico. Abre com dois cliques; sem API entra em modo DEMO |
 | `IMPLEMENTACAO.md` / `CLAUDE.md` | Guia de implementação (back em TypeScript, conectores NASA/IBGE/INPE/Embrapa) e regras para o Claude Code |
 | `00_Geral/` | Kit de decisão, regras de entrega e recursos dos desafios, vencedores globais de 2025 (PDFs) |
 

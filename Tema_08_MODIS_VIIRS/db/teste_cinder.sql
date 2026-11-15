@@ -1,4 +1,4 @@
--- Teste da extensão FireHub: rodar depois de schema.sql, schema_firehub.sql e teste_schema.sql.
+-- Teste da extensão Monitor Cinder: rodar depois de schema.sql, schema_cinder.sql e teste_schema.sql.
 -- ATENÇÃO: os números do calendário abaixo são SINTÉTICOS (formato sazonal inventado só para testar as funções).
 \set ON_ERROR_STOP 1
 INSERT INTO fire.calendar_monthly (region_id, method, year, month, harmonized_count)

@@ -179,7 +179,7 @@ async function fetchWithRetry(url: string, signal: AbortSignal, maxAttempts = 3)
       const res = await fetch(url, {
         signal,
         headers: {
-          'User-Agent': 'FireHub-MonitorCinder/1.0 (NASA Space Apps 2026 Goiania)',
+          'User-Agent': 'MonitorCinder/1.0 (NASA Space Apps 2026 Goiania)',
           Accept: 'text/csv,text/plain,*/*',
         },
       });

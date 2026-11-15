@@ -7,7 +7,7 @@
  */
 (function (global) {
   'use strict';
-  const CFG = global.FIREHUB_CONFIG;
+  const CFG = global.CINDER_CONFIG;
   const IBGE_CODE = /^\d{7}$/;
   const UF_CODE = /^\d{2}$/;
 
@@ -700,7 +700,7 @@
   async function createSource(getIds, getArea) {
     try {
       const meta = await fetchJson(`${CFG.apiBase}/api/meta`, CFG.apiProbeTimeoutMs);
-      if (meta && (meta.service === 'firehub' || meta.service === 'monitor-cinder')) return apiSource(meta, getIds, getArea);
+      if (meta && (meta.service === 'monitor-cinder')) return apiSource(meta, getIds, getArea);
       throw new Error('Unexpected /api/meta payload');
     } catch (e) {
       console.info('Monitor Cinder API not reachable within 20s, switching to DEMO data:', e.message);

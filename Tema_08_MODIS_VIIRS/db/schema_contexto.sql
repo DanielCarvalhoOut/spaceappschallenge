@@ -1,5 +1,5 @@
--- FireHub · extensão de CONTEXTO e VALIDAÇÃO EXTERNA (INPE, Embrapa, NASA POWER).
--- Aplicar depois de schema.sql e schema_firehub.sql. Idempotente.
+-- Monitor Cinder · extensão de CONTEXTO e VALIDAÇÃO EXTERNA (INPE, Embrapa, NASA POWER).
+-- Aplicar depois de schema.sql e schema_cinder.sql. Idempotente.
 -- Regra: nada aqui entra no cálculo da harmonização nem da anomalia; é contexto e conferência.
 \set ON_ERROR_STOP 1
 

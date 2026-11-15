@@ -1,6 +1,6 @@
 # Tema 8 · Harmonization of MODIS and VIIRS Hot Spots
 
-[Página oficial](https://www.spaceappschallenge.org/2026/challenges/modis-and-viirs-hot-spots/) · Nível: Avançado, Intermediário · **Foco da equipe: FireHub** (decisão final de 14/11, 14h11)
+[Página oficial](https://www.spaceappschallenge.org/2026/challenges/modis-and-viirs-hot-spots/) · Nível: Avançado, Intermediário · **Foco da equipe: Monitor Cinder** (decisão final de 14/11, 14h11)
 
 ## Arquivos desta pasta
 
@@ -11,8 +11,8 @@
 | `dados_apis_e_sensores.md` | Sensores da NASA utilizáveis, todas as APIs (FIRMS, POWER, GIBS, MCD64A1) e o fluxo de dados |
 | `db/schema.sql` | Banco PostgreSQL + PostGIS focado no tema: focos particionados por ano, grade de harmonização, fatores e calendário |
 | `db/teste_schema.sql` | Teste funcional do banco (rodado em PostgreSQL 16 + PostGIS em 14/11/2026) |
-| `db/schema_firehub.sql` | Extensão FireHub: padrão sazonal, época típica de fogo, anomalia, alertas para gestores, vegetação (MCD12Q1) |
-| `db/teste_firehub.sql` | Teste da extensão com calendário sintético (rodado em 14/11/2026) |
+| `db/schema_cinder.sql` | Extensão Monitor Cinder: padrão sazonal, época típica de fogo, anomalia, alertas para gestores, vegetação (MCD12Q1) |
+| `db/teste_cinder.sql` | Teste da extensão com calendário sintético (rodado em 14/11/2026) |
 | `db/schema_contexto.sql` | Série de referência do INPE (validação externa) e contexto anual: PRODES/DETER, Embrapa SATVeg, NASA POWER |
 | `db/teste_contexto.sql` | Teste do contexto, com casos negativos (fonte inválida, NaN, papel da API sem escrita) |
 | `contrato_api.md` | Endpoints da API do app, regras de validação e o worker de ingestão |

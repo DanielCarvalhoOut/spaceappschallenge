@@ -1,7 +1,7 @@
 {
-  "name": "firehub-api",
+  "name": "monitor-cinder-api",
   "version": "1.0.0",
-  "description": "FireHub / Monitor Cinder Backend — MODIS & VIIRS Harmonization, Root Fire Calendar & NASA POWER Predictability",
+  "description": "Monitor Cinder Backend — MODIS & VIIRS Harmonization, Root Fire Calendar & NASA POWER Predictability",
   "private": true,
   "type": "module",
   "scripts": {

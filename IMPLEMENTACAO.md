@@ -1,4 +1,4 @@
-# FireHub · Guia de implementação
+# Monitor Cinder · Guia de implementação
 
 Documento de contexto e execução para quem vai codar (pessoas e Claude Code). Leia inteiro antes de começar.
 
@@ -11,16 +11,16 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
 - **Desafio:** [Harmonization of MODIS and VIIRS Hot Spots](https://www.spaceappschallenge.org/2026/challenges/modis-and-viirs-hot-spots/) (tema 8). O desafio pede:
   1. harmonizar os focos de calor MODIS (desde 2000) e VIIRS (desde 2012) numa série única;
   2. um app web em que o usuário escolhe região e período, vê um **calendário de queimadas** do início dos anos 2000 até hoje e baixa análises e CSV.
-- **Projeto:** **FireHub**, uma plataforma de padrões históricos de fogo para Goiás. Ela mostra o que é "normal" em cada município ao longo de 25 anos e avisa os gestores quando o mês atual foge do padrão.
+- **Projeto:** **Monitor Cinder**, uma plataforma de padrões históricos de fogo para Goiás. Ela mostra o que é "normal" em cada município ao longo de 25 anos e avisa os gestores quando o mês atual foge do padrão.
 
 ### Posicionamento
 
-| Já existe | Não existe, e o FireHub entrega |
+| Já existe | Não existe, e o Monitor Cinder entrega |
 | --- | --- |
 | INPE/BDQueimadas: série histórica com **um** satélite de referência (MODIS do Aqua), em fim de vida | Série **harmonizada MODIS + VIIRS** de 2001 até hoje, com o erro da harmonização medido e **conferida contra a série do INPE** |
 | Painel do Fogo (Censipam): tempo real, frentes de fogo, risco e vento do dia. Ele mesmo recomenda buscar séries históricas em outro lugar | **Padrão histórico** por município (época típica de fogo, pico), **anomalia** do mês, **alerta** para gestores e **contexto** (desmatamento, vegetação, clima) |
 
-**Frase do pitch:** "O painel operacional diz onde está o fogo agora. O FireHub diz se este mês está fora do normal em 25 anos, para cada município de Goiás."
+**Frase do pitch:** "O painel operacional diz onde está o fogo agora. O Monitor Cinder diz se este mês está fora do normal em 25 anos, para cada município de Goiás."
 
 ### Escopo travado
 
@@ -42,7 +42,7 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
    - A pasta `Mapa iterativo/` foi **reescrita do zero** em 14/11. Os arquivos antigos de terceiros (`assets/`, `painel-original.html`) **precisam ser apagados** e nunca podem ir para o repositório.
    - Todo recurso de terceiros (bibliotecas npm, dados) vai em "References".
 2. **Idioma.** A página do projeto, o README do repositório e os slides da submissão vão em **inglês**; o vídeo pode ser em português **com legenda em inglês**. A interface é **bilíngue**: abre em português (apresentação local) e o botão `EN` muda tudo para inglês. Grave o vídeo e as capturas da submissão com a interface em inglês.
-3. **Segredos:** `FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY` e `EMBRAPA_CONSUMER_SECRET` ficam só em `firehub/api/.env` (já ignorado pelo git). O front nunca chama FIRMS nem Embrapa. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
+3. **Segredos:** `FIRMS_MAP_KEY`, `EMBRAPA_CONSUMER_KEY` e `EMBRAPA_CONSUMER_SECRET` ficam só em `monitor-cinder/api/.env` (já ignorado pelo git). O front nunca chama FIRMS nem Embrapa. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
 4. **Dado da NASA é o núcleo.** O FIRMS é obrigatório e é a única base da harmonização e da anomalia. INPE, Embrapa e POWER são contexto e conferência.
 5. **Uso de IA declarado** no README ("AI-assisted code") e na página do projeto.
 6. **Padrões técnicos:**
@@ -61,19 +61,19 @@ SpaceApps2026/
 ├─ 00_Geral/                     PDFs de apoio (regras de entrega, vencedores)
 ├─ Tema_08_MODIS_VIIRS/          pesquisa: dados, APIs, contrato, banco testado
 │  ├─ db/schema.sql              núcleo: sensores, lotes, focos particionados, grade 1 km, fatores, calendário
-│  ├─ db/schema_firehub.sql      padrão sazonal, época de fogo, anomalia, alertas, vegetação (MCD12Q1)
+│  ├─ db/schema_cinder.sql      padrão sazonal, época de fogo, anomalia, alertas, vegetação (MCD12Q1)
 │  ├─ db/schema_contexto.sql     série de referência do INPE, contexto anual (PRODES/DETER, SATVeg, POWER)
 │  └─ db/teste_*.sql             testes (rodar na ordem da seção 5, F0)
 ├─ Mapa iterativo/               FRONT PRONTO (JS puro + Canvas, autoral). Ver o README da pasta
-└─ firehub/                      ← código novo
+└─ monitor-cinder/                      ← código novo
    ├─ docker-compose.yml         PostGIS local
    └─ api/                       backend TypeScript (API + jobs de ingestão)
 ```
 
-### 3.1 Backend modular (`firehub/api/`)
+### 3.1 Backend modular (`monitor-cinder/api/`)
 
 ```
-firehub/api/
+monitor-cinder/api/
 ├─ package.json  tsconfig.json  .env.example  vitest.config.ts
 └─ src/
    ├─ server.ts                 Fastify: CORS restrito, rate limit, headers de segurança, handler de erro (problem+json)
@@ -114,7 +114,7 @@ export interface SourceConnector<TQuery, TRecord> {
 
 ## 4. Dados
 
-| Fonte | Endpoint (conferido em 14/11) | Papel no FireHub |
+| Fonte | Endpoint (conferido em 14/11) | Papel no Monitor Cinder |
 | --- | --- | --- |
 | **NASA FIRMS** CSV anual por país, sem login | `https://firms.modaps.eosdis.nasa.gov/data/country/{modis\|viirs-snpp}/{ano}/{pasta}_{ano}_Brazil.csv` | **Núcleo.** Histórico 2001–2025 (MODIS) e 2012–2025 (VIIRS) |
 | NASA FIRMS API de área (MAP_KEY) | `/api/area/csv/{MAP_KEY}/{SOURCE}/{oeste,sul,leste,norte}/{1-5}/{AAAA-MM-DD}` e `/api/missing_data/` | Ano corrente (opcional) e `days_missing` |
@@ -133,9 +133,9 @@ Colunas do FIRMS, diferenças MODIS × VIIRS e tamanhos: ver `Tema_08_MODIS_VIIR
 
 ### F0 · Ambiente (sáb, até 16h)
 
-- `firehub/docker-compose.yml` com `postgis/postgis:16-3.4`. Na subida, aplicar nesta ordem: `schema.sql`, `schema_firehub.sql`, `schema_contexto.sql`.
-- `firehub/api`: `npm init`, TypeScript strict, Fastify respondendo `/api/meta` com `{ service: "firehub", … }`.
-- **Pronto quando:** os testes `teste_schema.sql` → `teste_firehub.sql` → `teste_contexto.sql` rodam sem erro num banco vazio, e o front em `Mapa iterativo/index.html` troca a faixa "DEMO" por "Live API".
+- `monitor-cinder/docker-compose.yml` com `postgis/postgis:16-3.4`. Na subida, aplicar nesta ordem: `schema.sql`, `schema_cinder.sql`, `schema_contexto.sql`.
+- `monitor-cinder/api`: `npm init`, TypeScript strict, Fastify respondendo `/api/meta` com `{ service: "monitor-cinder", … }`.
+- **Pronto quando:** os testes `teste_schema.sql` → `teste_cinder.sql` → `teste_contexto.sql` rodam sem erro num banco vazio, e o front em `Mapa iterativo/index.html` troca a faixa "DEMO" por "Live API".
 
 ### F1 · Ingestão de Goiás (sáb, 16h–20h)
 
@@ -153,7 +153,7 @@ Colunas do FIRMS, diferenças MODIS × VIIRS e tamanhos: ver `Tema_08_MODIS_VIIR
 
 1. `REFRESH MATERIALIZED VIEW fire.hotspot_cell_day` (primeira vez sem `CONCURRENTLY`). Só confiança nominal ou alta.
 2. Fator por município e mês do ano: **soma das células-dia VIIRS ÷ soma das células-dia MODIS** no período de calibração → `fire.harmonization_factor` (`method='monthly_ratio'`).
-3. **Validação com dados separados:** calibrar 2012–2019, testar 2020–2025 (MODIS convertido × VIIRS real). Métricas: erro absoluto percentual médio por mês, Pearson e viés → `firehub/api/out/validation.json`. **É o número central do pitch.**
+3. **Validação com dados separados:** calibrar 2012–2019, testar 2020–2025 (MODIS convertido × VIIRS real). Métricas: erro absoluto percentual médio por mês, Pearson e viés → `monitor-cinder/api/out/validation.json`. **É o número central do pitch.**
 4. Recalibrar com 2012–2025 e preencher `fire.calendar_monthly` (2012+ = VIIRS; 2001–2011 = MODIS × fator; `modis_count`/`viirs_count` sempre que existirem). Depois `fire.refresh_baseline(region, 'monthly_ratio', 2002, 2024)` e `fire.evaluate_alerts`.
 5. `job:ingest-inpe-ref` (2012–2025 basta): contar focos do arquivo de referência por município e mês → `fire.inpe_reference_monthly`. Salvar `fire.inpe_vs_firms` de Goiás em `out/inpe_check.json`.
 6. **Pronto quando:** `validation.json` e `inpe_check.json` existem e o calendário de cada município tem 2001–2025 com anomalia.
@@ -173,12 +173,12 @@ Mantém a normalização de F2 (confiança → célula-dia de 1 km → fator men
 
 Rotas novas (zod, problem+json, 503 enquanto não houver histórico): `GET /api/validation`, `GET /api/projection?ibge=&year=&month=`, `GET /api/area/history?lon=&lat=&radiusKm=&source=`, `GET /api/layers/recurrence?west=&south=&east=&north=&from=&to=&month=&source=&res=`, `GET /api/layers/cells?ibge=` ou `?lon=&lat=&radiusKm=` + `&year=&month=&res=` (células de 1, 2 ou 5 km dentro do município ou do círculo; a soma é o valor harmonizado da área no mês, conferido em `teste_projecao.sql`). `/api/meta` informa `dataKind: firms_db | synthetic`.
 
-**Rodar (Windows, dados no D:\\):** o C: não tem espaço para o histórico. No Docker Desktop, *Settings → Resources → Advanced → Disk image location* → `D:\DockerData`, *Apply & restart*. Não montar `PGDATA` direto numa pasta NTFS, porque o Postgres recusa as permissões. Depois, em `firehub/`:
+**Rodar (Windows, dados no D:\\):** o C: não tem espaço para o histórico. No Docker Desktop, *Settings → Resources → Advanced → Disk image location* → `D:\DockerData`, *Apply & restart*. Não montar `PGDATA` direto numa pasta NTFS, porque o Postgres recusa as permissões. Depois, em `monitor-cinder/`:
 
 ```powershell
 docker compose up -d                      # aplica 01…05_schema_projecao.sql num volume novo
 # volume antigo (sem o 05)? aplicar à mão:
-# Get-Content ..\Tema_08_MODIS_VIIRS\db\schema_projecao.sql | docker exec -i firehub-postgis psql -U firehub -d firehub
+# Get-Content ..\Tema_08_MODIS_VIIRS\db\schema_projecao.sql | docker exec -i monitor-cinder-postgis psql -U cinder -d cinder
 cd api
 npm run job:db-load-regions               # IBGE → fire.region (UF 52 + 246 municípios)
 npm run job:ingest-firms-history -- --from=2001 --to=2025          # FIRMS SP; pula anos já carregados
@@ -232,12 +232,12 @@ Ver `Mapa iterativo/README.md`. Resumo das decisões:
 
 ## 7. Testes e verificação
 
-- **Banco:** `teste_schema.sql`, `teste_firehub.sql`, `teste_contexto.sql`, `teste_projecao.sql` (dados sintéticos com resposta conhecida) + um teste com amostra real de Goiás conferida contra o CSV original.
+- **Banco:** `teste_schema.sql`, `teste_cinder.sql`, `teste_contexto.sql`, `teste_projecao.sql` (dados sintéticos com resposta conhecida) + um teste com amostra real de Goiás conferida contra o CSV original.
 - **Conectores:** cada um com fixture local (sem rede): CSV do FIRMS, zip do INPE, GeoJSON do IBGE e do WFS, JSON do SATVeg e do POWER; inclui resposta malformada → erro tratado.
 - **Jobs:** idempotência (rodar duas vezes, mesma contagem) e recorte (nenhum foco fora do polígono de GO).
 - **API:** integração com Testcontainers (PostGIS); entradas inválidas → 400 problem+json; CSV com célula `=cmd` sai com `'`.
 - **Front:** já testado com Playwright (DEMO e API simulada, sem erros de JS nem violações de CSP). Repetir com a API real.
-- **Números do pitch:** todo número dito no vídeo sai de um arquivo em `firehub/api/out/`.
+- **Números do pitch:** todo número dito no vídeo sai de um arquivo em `monitor-cinder/api/out/`.
 
 ## 8. Pendências conhecidas
 
@@ -246,4 +246,4 @@ Ver `Mapa iterativo/README.md`. Resumo das decisões:
 - SATVeg: rota exata e cota atual precisam ser conferidas no portal AgroAPI depois do cadastro; sem token, o contexto mostra só PRODES/DETER e POWER.
 - PRODES/DETER: conferir os atributos das camadas (`DescribeFeatureType`) e se o WFS limita o número de feições por requisição (paginar com `startIndex`).
 - MCD12Q1 exige Earthdata e raster: só se sobrar tempo no domingo.
-- Nome "FireHub": conferir se já existe produto com esse nome antes de fixá-lo no pitch.
+- Nome "Monitor Cinder": conferir se já existe produto com esse nome antes de fixá-lo no pitch.

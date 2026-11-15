@@ -1,26 +1,26 @@
 services:
   postgis:
     image: postgis/postgis:16-3.4
-    container_name: firehub-postgis
+    container_name: monitor-cinder-postgis
     restart: unless-stopped
     environment:
-      POSTGRES_DB: firehub
-      POSTGRES_USER: firehub
-      POSTGRES_PASSWORD: firehub
+      POSTGRES_DB: cinder
+      POSTGRES_USER: cinder
+      POSTGRES_PASSWORD: cinder
     ports:
       - "5432:5432"
     volumes:
-      - firehub_pgdata:/var/lib/postgresql/data
+      - cinder_pgdata:/var/lib/postgresql/data
       - ../Tema_08_MODIS_VIIRS/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-      - ../Tema_08_MODIS_VIIRS/db/schema_firehub.sql:/docker-entrypoint-initdb.d/02_schema_firehub.sql:ro
+      - ../Tema_08_MODIS_VIIRS/db/schema_cinder.sql:/docker-entrypoint-initdb.d/02_schema_cinder.sql:ro
       - ../Tema_08_MODIS_VIIRS/db/schema_contexto.sql:/docker-entrypoint-initdb.d/03_schema_contexto.sql:ro
       - ../Tema_08_MODIS_VIIRS/db/schema_operacional.sql:/docker-entrypoint-initdb.d/04_schema_operacional.sql:ro
       - ../Tema_08_MODIS_VIIRS/db/schema_projecao.sql:/docker-entrypoint-initdb.d/05_schema_projecao.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U firehub -d firehub"]
+      test: ["CMD-SHELL", "pg_isready -U cinder -d cinder"]
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  firehub_pgdata:
+  cinder_pgdata:

@@ -2,7 +2,7 @@
  * End-to-end test of the real-data path: FIRMS CSV (official column layout) → parser → PostGIS → build-history
  * → computed validation → API routes. Runs only when TEST_DATABASE_URL points to a disposable database:
  *
- *   TEST_DATABASE_URL=postgresql://firehub:firehub@127.0.0.1:5432/fh_test npx vitest run src/tests/history.db.test.ts
+ *   TEST_DATABASE_URL=postgresql://cinder:cinder@127.0.0.1:5432/fh_test npx vitest run src/tests/history.db.test.ts
  *
  * Data is SYNTHETIC with a known answer: VIIRS sees ~3x more fire cells than MODIS, fire season Aug–Sep,
  * 50 fixed sites burn most years (focos-raiz) and one static heat source (type = 2) burns all year.
@@ -18,7 +18,7 @@ const DB = process.env.TEST_DATABASE_URL;
 const suite = DB ? describe : describe.skip;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.resolve(here, '../../../../Tema_08_MODIS_VIIRS/db');
-const SCHEMAS = ['schema.sql', 'schema_firehub.sql', 'schema_contexto.sql', 'schema_operacional.sql', 'schema_projecao.sql'];
+const SCHEMAS = ['schema.sql', 'schema_cinder.sql', 'schema_contexto.sql', 'schema_operacional.sql', 'schema_projecao.sql'];
 
 function rng(seed: number): () => number {
   let s = seed >>> 0;
@@ -78,8 +78,8 @@ suite('real-data path: FIRMS CSV → PostGIS → validation → API', () => {
 
   beforeAll(async () => {
     process.env.DATABASE_URL = DB!;
-    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'firehub-out-'));
-    process.env.FIREHUB_OUT_DIR = outDir;
+    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cinder-out-'));
+    process.env.CINDER_OUT_DIR = outDir;
 
     ({ getPool } = await import('../db/pool.js'));
     const pool = getPool();

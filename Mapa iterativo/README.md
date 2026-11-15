@@ -7,7 +7,7 @@ Mapa interativo de Goiás por município, escrito do zero pela equipe. Não reap
 Dê dois cliques em `index.html`. Não precisa de build nem de servidor:
 - os scripts são clássicos (sem módulos ES), por isso funcionam via `file://`;
 - a malha e os nomes dos municípios vêm em tempo de execução da API pública do IBGE (precisa de internet);
-- se o backend do FireHub (`http://localhost:8787`) não responder, a tela entra em **DEMO** com valores sintéticos. A faixa amarela no topo deixa isso explícito.
+- se o backend do Monitor Cinder (`http://localhost:8787`) não responder, a tela entra em **DEMO** com valores sintéticos. A faixa amarela no topo deixa isso explícito.
 
 ## Arquivos
 
@@ -15,11 +15,11 @@ Dê dois cliques em `index.html`. Não precisa de build nem de servidor:
 | --- | --- |
 | `index.html` | Estrutura da página e Content-Security-Policy (só scripts locais; conexões só com o IBGE e a API). |
 | `mapa.css` | Visual próprio, temas escuro e claro, só fontes do sistema. |
-| `config.js` | `window.FIREHUB_CONFIG`: endereço da API, URLs do IBGE, período. **Sem chaves.** |
+| `config.js` | `window.CINDER_CONFIG`: endereço da API, URLs do IBGE, período. **Sem chaves.** |
 | `i18n.js` | Textos em português (padrão) e inglês (botão `EN`/`PT`). Expõe `window.FireI18n`. |
 | `mapa-engine.js` | Motor do mapa: projeção policônica (parâmetros do EPSG:5880), `Path2D` por município, câmera (roda suave ancorada no cursor, arraste com inércia, pinça no celular, voo de zoom ótimo de van Wijk & Nuij), hit-test, rótulos com contraste WCAG, rampas de cor em OKLab. Expõe `window.FireMap`. |
-| `firehub-data.js` | Camada de dados: IBGE (malha e nomes), cliente da API do FireHub, fonte DEMO. Valida toda resposta. Expõe `window.FireData`. |
-| `firehub-ui.js` | Controlador da tela: filtros, legenda, tooltip, busca, painel com padrão histórico, calendário, comparação MODIS × VIIRS × harmonizado, contexto (INPE/Embrapa/POWER) e CSV. |
+| `cinder-data.js` | Camada de dados: IBGE (malha e nomes), cliente da API do Monitor Cinder, fonte DEMO. Valida toda resposta. Expõe `window.FireData`. |
+| `cinder-ui.js` | Controlador da tela: filtros, legenda, tooltip, busca, painel com padrão histórico, calendário, comparação MODIS × VIIRS × harmonizado, contexto (INPE/Embrapa/POWER) e CSV. |
 
 ## API do motor (`FireMap`)
 
@@ -41,7 +41,7 @@ Todas as rotas são `GET`, JSON e públicas (sem chave no front). Código de mun
 
 | Rota | Resposta |
 | --- | --- |
-| `/api/meta` | `{ service: "firehub", dataKind: "firms_db"\|"synthetic", period: { firstYear, lastYear }, sources: [{ id, name, url, role }], validation: { mapePct, wapePct, pearsonR, biasPct } \| null }` |
+| `/api/meta` | `{ service: "monitor-cinder", dataKind: "firms_db"\|"synthetic", period: { firstYear, lastYear }, sources: [{ id, name, url, role }], validation: { mapePct, wapePct, pearsonR, biasPct } \| null }` |
 | `/api/geo/municipalities?uf=52` | GeoJSON do IBGE em cache (opcional; se falhar, o front busca direto no IBGE) |
 | `/api/map?year=2024&month=9&metric=anomaly\|count\|density` | `{ values: { "5208707": 2.1, ... } }` (`null` = sem dado) |
 | `/api/municipalities/{ibge}/calendar` | `{ rows: [{ year, month, modis, viirs, harmonized, anomalyZ, daysMissing }] }` |

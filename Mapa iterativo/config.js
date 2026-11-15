@@ -3,7 +3,7 @@
  * If you change apiBase, also add the same origin to connect-src in index.html (Content-Security-Policy).
  * Never put keys here: FIRMS MAP_KEY and Embrapa tokens live only in the backend .env.
  */
-window.FIREHUB_CONFIG = Object.freeze({
+window.CINDER_CONFIG = Object.freeze({
   apiBase: 'http://localhost:8787',
   uf: '52',
   ufName: 'Goiás',

@@ -8,9 +8,9 @@
       "port": 5500
     },
     {
-      "name": "firehub-api",
+      "name": "monitor-cinder-api",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "firehub/api", "run", "start"],
+      "runtimeArgs": ["--prefix", "monitor-cinder/api", "run", "start"],
       "port": 8787
     }
   ]

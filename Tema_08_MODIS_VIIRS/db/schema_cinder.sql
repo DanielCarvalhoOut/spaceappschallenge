@@ -1,4 +1,4 @@
--- FireHub · extensão do banco do tema 8 (rodar DEPOIS de schema.sql)
+-- Monitor Cinder · extensão do banco do tema 8 (rodar DEPOIS de schema.sql)
 -- PostgreSQL 15+ com PostGIS.
 --
 -- O que acrescenta:

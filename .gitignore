@@ -1,10 +1,10 @@
 .env
 .env.*
 !.env.example
-!firehub/api/.env
+!monitor-cinder/api/.env
 data/raw/
-firehub/data/
-firehub/api/data/
+monitor-cinder/data/
+monitor-cinder/api/data/
 dist/
 *.tsbuildinfo
 __pycache__/

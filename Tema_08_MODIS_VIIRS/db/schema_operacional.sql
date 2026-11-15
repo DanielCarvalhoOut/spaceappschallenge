@@ -1,10 +1,10 @@
--- FireHub / Monitor Cinder · Extensão Operacional (A, B, C)
+-- Monitor Cinder · Extensão Operacional (A, B, C)
 -- A. Harmonização MODIS (1 km) + VIIRS (375 m) + LANDSAT (30 m) via Clustering Espacial (DBSCAN / Grade H3-Polyconic)
 --    & Escala de Recursos Operacionais via FRP (Fire Radiative Power, MW).
 -- B. Calendário de Focos Raízes & Histórico (2000–Presente): recorrência sazonal e separação entre
 --    padrões antrópicos recorrentes (focos raízes) e anomalias climáticas.
 -- C. Clima Diário NASA POWER (T2M_MAX, RH2M, PRECTOTCORR, WS10M, WD10M) & Previsibilidade de Ignição e Propagação.
--- Aplicar depois de schema.sql, schema_firehub.sql e schema_contexto.sql. Idempotente.
+-- Aplicar depois de schema.sql, schema_cinder.sql e schema_contexto.sql. Idempotente.
 \set ON_ERROR_STOP 1
 
 -- 1. Ampliar catálogo de sensores para incluir LANDSAT_NRT (OLI 30m) além de MODIS e VIIRS

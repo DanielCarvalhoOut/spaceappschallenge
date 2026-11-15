@@ -1,4 +1,4 @@
--- Teste da extensão de contexto: rodar depois de teste_firehub.sql. Valores SINTÉTICOS.
+-- Teste da extensão de contexto: rodar depois de teste_cinder.sql. Valores SINTÉTICOS.
 \set ON_ERROR_STOP 1
 UPDATE fire.calendar_monthly SET modis_count = round(harmonized_count / 3.5) WHERE region_id = 1;
 INSERT INTO fire.inpe_reference_monthly (region_id, year, month, hotspots, source_file)

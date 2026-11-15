@@ -25,7 +25,7 @@ const ConfigSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   HOST: z.string().default('0.0.0.0'),
   CORS_ORIGIN: z.string().default('*'),
-  DATABASE_URL: z.string().default('postgresql://firehub:firehub@localhost:5432/firehub'),
+  DATABASE_URL: z.string().default('postgresql://cinder:cinder@localhost:5432/cinder'),
   FIRMS_MAP_KEY: z
     .string()
     .regex(/^[0-9a-f]{32}$/i, 'FIRMS_MAP_KEY must be a 32-char hex string')
@@ -50,8 +50,8 @@ function parseConfig(): AppConfig {
       : [-53.25, -19.5, -45.9, -12.39];
 
   const dataDir = path.resolve(__dirname, '../data');
-  // FIREHUB_OUT_DIR lets tests write elsewhere; the pitch numbers always come from the default out/ folder.
-  const outDir = process.env.FIREHUB_OUT_DIR ? path.resolve(process.env.FIREHUB_OUT_DIR) : path.resolve(__dirname, '../out');
+  // CINDER_OUT_DIR lets tests write elsewhere; the pitch numbers always come from the default out/ folder.
+  const outDir = process.env.CINDER_OUT_DIR ? path.resolve(process.env.CINDER_OUT_DIR) : path.resolve(__dirname, '../out');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(outDir, { recursive: true });
 

@@ -57,7 +57,7 @@ if (isMain(import.meta.url)) {
   buildApp()
     .then(async (app) => {
       await app.listen({ port: config.PORT, host: config.HOST });
-      logger.info({ port: config.PORT, host: config.HOST }, 'FireHub / Monitor Cinder API listening');
+      logger.info({ port: config.PORT, host: config.HOST }, 'Monitor Cinder API listening');
     })
     .catch((err) => {
       logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Failed to start server');

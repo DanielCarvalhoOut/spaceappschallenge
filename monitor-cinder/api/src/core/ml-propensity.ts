@@ -413,7 +413,7 @@ export function trainPropensityModel(
     accuracy,
   };
 
-  // Persist trained model artifact in firehub/api/out/ml_propensity_model.json when requested
+  // Persist trained model artifact in monitor-cinder/api/out/ml_propensity_model.json when requested
   if (options.saveArtifact) {
     try {
       const outFile = path.join(config.outDir, 'ml_propensity_model.json');

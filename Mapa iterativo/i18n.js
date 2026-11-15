@@ -465,7 +465,7 @@
   const LOCALE = { pt: 'pt-BR', en: 'en-US' };
 
   let lang = 'pt';
-  try { if (global.localStorage.getItem('firehub.lang') === 'en') lang = 'en'; } catch (_) { /* storage blocked */ }
+  try { if (global.localStorage.getItem('cinder.lang') === 'en') lang = 'en'; } catch (_) { /* storage blocked */ }
 
   function t(key, params) {
     let s = (DICT[lang] && DICT[lang][key]) ?? DICT.pt[key] ?? key;
@@ -490,7 +490,7 @@
   }
   function setLang(next) {
     lang = next === 'en' ? 'en' : 'pt';
-    try { global.localStorage.setItem('firehub.lang', lang); } catch (_) { /* ignore */ }
+    try { global.localStorage.setItem('cinder.lang', lang); } catch (_) { /* ignore */ }
     apply();
   }
 

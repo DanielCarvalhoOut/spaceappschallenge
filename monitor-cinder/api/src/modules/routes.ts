@@ -28,8 +28,8 @@ const STATIC_ASSETS: Record<string, { file: string; type: string }> = {
   '/config.js': { file: 'config.js', type: 'application/javascript; charset=utf-8' },
   '/i18n.js': { file: 'i18n.js', type: 'application/javascript; charset=utf-8' },
   '/mapa-engine.js': { file: 'mapa-engine.js', type: 'application/javascript; charset=utf-8' },
-  '/firehub-data.js': { file: 'firehub-data.js', type: 'application/javascript; charset=utf-8' },
-  '/firehub-ui.js': { file: 'firehub-ui.js', type: 'application/javascript; charset=utf-8' },
+  '/cinder-data.js': { file: 'cinder-data.js', type: 'application/javascript; charset=utf-8' },
+  '/cinder-ui.js': { file: 'cinder-ui.js', type: 'application/javascript; charset=utf-8' },
 };
 
 function sendProblem(
@@ -86,7 +86,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const projectionCheck = history.readProjectionValidation();
     const mlModel = store.getMlModel();
     return {
-      service: 'firehub',
+      service: 'monitor-cinder',
       // 'firms_db' = real NASA FIRMS history in PostGIS or live satellite snapshot;
       // 'firms_index' = real FIRMS calendars/cells from the local cell index (no PostGIS)
       dataKind: fromDb ? 'firms_db' : calKind === 'firms_index' ? 'firms_index' : hasLiveSat ? 'firms_db' : 'synthetic',
@@ -344,7 +344,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       .header('Content-Type', 'text/csv; charset=utf-8')
       .header(
         'Content-Disposition',
-        `attachment; filename="firehub-goias-${muni.ibgeCode}.csv"`
+        `attachment; filename="monitor-cinder-goias-${muni.ibgeCode}.csv"`
       );
     return '\ufeff' + lines.join('\r\n');
   });

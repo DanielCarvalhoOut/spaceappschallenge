@@ -7,7 +7,7 @@
 (function (global) {
   'use strict';
 
-  const CFG = global.FIREHUB_CONFIG;
+  const CFG = global.CINDER_CONFIG;
   const I = global.FireI18n;
   const t = I.t;
   const $ = (id) => document.getElementById(id);
@@ -1437,7 +1437,7 @@
   }
   function setupTheme() {
     let theme = 'dark';
-    try { theme = localStorage.getItem('firehub.theme') === 'light' ? 'light' : 'dark'; } catch (_) { /* storage blocked */ }
+    try { theme = localStorage.getItem('cinder.theme') === 'light' ? 'light' : 'dark'; } catch (_) { /* storage blocked */ }
     const apply = (th) => {
       document.documentElement.dataset.theme = th;
       $('theme').textContent = th === 'dark' ? '☾' : '☀';
@@ -1450,7 +1450,7 @@
     apply(theme);
     $('theme').addEventListener('click', () => {
       theme = theme === 'dark' ? 'light' : 'dark';
-      try { localStorage.setItem('firehub.theme', theme); } catch (_) { /* ignore */ }
+      try { localStorage.setItem('cinder.theme', theme); } catch (_) { /* ignore */ }
       apply(theme);
     });
   }
