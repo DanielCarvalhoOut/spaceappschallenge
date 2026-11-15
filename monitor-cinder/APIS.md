@@ -80,6 +80,28 @@ Os resultados ficam em `out/external_validation.json` e `out/inpe_goias_referenc
 
 ---
 
+### 1.6 NOAA CPC: Índice Oceânico do Niño (ONI)
+
+| Endpoint | Para que serve | Onde | Quando |
+|---|---|---|---|
+| `https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt` | Série mensal do ONI (anomalia de temperatura do Pacífico, El Niño / La Niña), lida com validação de cada linha | `connectors/oni.ts` | `npm run job:forecast` (guarda em cache em `data/`; sem rede, usa o cache, e sem cache o ONI entra como 0 e o arquivo de validação diz isso) |
+
+**Função na aplicação:** variável da previsão mensal (ONI com 3 meses de defasagem) e contexto "fase do ENSO" no assistente. **Associação, nunca causa.**
+
+### 1.7 Modelos de linguagem (opcionais, só no assistente)
+
+| Provedor | Endpoint | Chave no `.env` | Para que serve |
+|---|---|---|---|
+| **Google Gemini** (padrão) | `https://generativelanguage.googleapis.com/v1beta/models` | `GEMINI_API_KEY` | O modelo menor classifica a pergunta; o maior só redige respostas de El Niño e intervenções |
+| **OpenAI** | `https://api.openai.com/v1/chat/completions` | `OPENAI_API_KEY` | Reserva, se configurada |
+| **Anthropic (Claude)** | `https://api.anthropic.com/v1/messages` | `ANTHROPIC_API_KEY` | Reserva, se configurada |
+
+- A ordem vem de `LLM_PROVIDERS` (padrão `gemini,openai,anthropic`); se o primeiro falhar, o seguinte responde.
+- **Sem nenhuma chave, o assistente funciona sem LLM** (palavras-chave e modelos de texto).
+- O que sai do servidor: só a pergunta e os agregados das ferramentas daquela resposta (cerca de 2 KB). A chave vai no cabeçalho e é apagada dos logs.
+- **Todo número que o modelo escreve é conferido por código** contra os dados; a resposta sobre queima controlada é sempre texto fixo, nunca do modelo.
+- **Nenhum número do mapa, da harmonização, da anomalia ou da previsão passa por LLM.**
+
 ## 2. A nossa API (Monitor Cinder, Fastify, porta 8787)
 
 Todas as rotas validam a entrada com zod e respondem erro em problem+json. As rotas que o front usa:
@@ -104,6 +126,9 @@ Todas as rotas validam a entrada com zod e respondem erro em problem+json. As ro
 | `GET /api/cell/detections?lon&lat&res&year&month` | Dias exatos de detecção numa célula e o satélite de cada um | Aba **Área** (ao clicar numa célula), hover da célula |
 | `GET /api/localities[?ibge]` | Localidades do IBGE: nome, tipo, lat/lon | Povoados no zoom, "povoado mais próximo" |
 | `GET /api/municipalities/:ibge/context?year` | Itens de contexto (NASA POWER, NDVI e uso do solo do ORNL DAAC) | Aba **Contexto** |
+| `GET /api/forecast?ibge&year&month` | Previsão mensal de focos do município: valor, faixa P10–P90, probabilidade de passar do P90 histórico (com n e fonte), período de treino e métrica do teste 2020–2025. Responde 503 se o arquivo de validação não for da série servida | Assistente; conferência |
+| `GET /api/forecast/validation` | O arquivo `out/forecast_validation.json`: MAE contra climatologia e persistência, Brier, cobertura | Conferência e júri |
+| `POST /api/assistant` `{ question, ibge?, lang? }` | Resposta do assistente com `verified` (conferida por código), `mode` (sem LLM / com LLM), `cached` e avisos. 12 pedidos por minuto | Botão **Assistente** no topo (`cinder-chat.js`) |
 | `GET /api/validation` | Números de validação calculados (não digitados) | Não é chamada pelo front; serve para conferência e para o júri |
 
 ## 3. Limpeza feita em 15/11
@@ -113,3 +138,4 @@ Todas as rotas validam a entrada com zod e respondem erro em problem+json. As ro
 - **Rodapé:** agora cita "Validação externa: INPE (Programa Queimadas)" e "Vegetação e uso do solo: NASA ORNL DAAC (MODIS MOD13Q1, MCD12Q1)".
 - **CSP do front:** sem `power.larc.nasa.gov`, porque quem chama a NASA POWER é a API.
 - **Chave:** a chave do FIRMS saiu do `.env.example` e do valor padrão do `config.ts`.
+- **Entraram com o PR #6 (agente e previsão):** NOAA CPC ONI, os três provedores de LLM opcionais e as rotas `/api/forecast`, `/api/forecast/validation` e `/api/assistant`.

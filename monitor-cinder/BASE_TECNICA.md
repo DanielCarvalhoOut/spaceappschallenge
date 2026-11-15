@@ -32,8 +32,11 @@ Documento interno da equipe (PT). Cada número aqui vem de um arquivo em `monito
 | **IBGE** — Base de Localidades do Censo 2022 | 1.400 pontos em GO (sede, vila, povoado, lugarejo, aglomerados rurais, quilombola, indígena…) | Só referência no mapa (zoom) e "povoado mais próximo" |
 | **INPE** — Programa Queimadas | Estatística mensal por estado (satélite de referência AQUA) | **Validação externa** e contexto; nunca entra no cálculo |
 | **NASA POWER** e **NASA ORNL DAAC** (MODIS MOD13Q1, MCD12Q1) | Clima da seca, NDVI e fração agrícola | Contexto na aba Contexto; nunca é apresentado como causa |
+| **NOAA GOES-19** (ABI L2 Fire/Hot Spot, dados abertos) | Varredura a cada 10 min, só a janela de Goiás | **Aviso de fogo agora**, opcional; nunca entra na série |
+| **NOAA CPC ONI** | Índice mensal de El Niño / La Niña | Variável da previsão mensal e contexto do assistente; associação, nunca causa |
+| **Gemini / OpenAI / Anthropic** (opcionais) | Só no assistente: classificar a pergunta e redigir algumas respostas | Nunca gera número: tudo é conferido por código |
 
-**Regra de linguagem:** dizemos "padrão histórico", "anomalia", "temporada típica", "contexto" e "projeção com faixa de incerteza validada". Nunca dizemos "previsão", "risco" ou "causa".
+**Regra de linguagem:** dizemos "padrão histórico", "anomalia", "temporada típica", "contexto" e "projeção com faixa de incerteza validada". "Previsão" só para a previsão mensal por município (decisão da equipe em 15/11), sempre com faixa P10–P90, período de treino e métrica fora da amostra. Nunca dizemos "causa".
 
 ---
 
@@ -203,7 +206,7 @@ npx serve "../../Mapa iterativo" -l 3000   # front
 
 ## 9. Testes automatizados
 
-Resultado atual: **22 testes passando + 10 pulados** (os 10 precisam de PostGIS ligado: `npm run test:db`).
+Resultado atual: **80 testes passando + 10 pulados** (os 10 precisam de PostGIS ligado: `npm run test:db`).
 
 | Arquivo | O que prova |
 |---|---|
@@ -213,6 +216,9 @@ Resultado atual: **22 testes passando + 10 pulados** (os 10 precisam de PostGIS 
 | `ibge-localities.test.ts` | Lê o `.dbf` de dentro do zip do IBGE, uma linha por localidade, erro claro se faltar a UF |
 | `cors.test.ts` | Aceita o front local em qualquer porta de localhost; em produção, só a origem configurada |
 | `pipeline.test.ts` | URL do FIRMS com a chave mascarada no log, leitura e confiança dos CSV MODIS/VIIRS, leitura da NASA POWER e proteção contra injeção de fórmula no CSV |
+| `goes-watch.test.ts`, `watch-routes.test.ts`, `watch-e2e.test.ts` | Aviso de fogo agora: conversão da grade do GOES-19 para lat/lon, leitura de um arquivo no formato real, persistência em 2 de 3 varreduras, confirmação VIIRS, rotas; ponta a ponta com limites reais do IBGE para município, estado inteiro e círculo (fogo no DF e alarme de uma varredura não avisam) |
+| `forecast.test.ts` | Previsão mensal: divisão temporal sem embaralhar, comparação com climatologia e persistência, faixa P10–P90, leitura do ONI |
+| `assistant.test.ts`, `assistant.agent.test.ts` | Assistente: roteamento, conferência determinística (todo número existe nas ferramentas, previsão com faixa/treino/métrica, nada de causa), resposta fixa sobre queima controlada, "sem dados" fora de Goiás, cache e aviso de dado com mais de 24 h |
 | `history.db.test.ts` (PostGIS) | Ingestão idempotente, normalização, erro de harmonização medido (não digitado), calendário VIIRS desde 2012, círculo conta só o que está dentro, células de um município somam o valor mensal |
 
 **Além dos testes unitários:**
@@ -223,7 +229,7 @@ Resultado atual: **22 testes passando + 10 pulados** (os 10 precisam de PostGIS 
 
 ## 10. Segurança (resumo)
 
-- **Chaves:** a chave do FIRMS fica só no `.env` da API. O front nunca chama o FIRMS e não vê chave nenhuma.
+- **Chaves:** as chaves (FIRMS e, opcionalmente, Gemini/OpenAI/Anthropic) ficam só no `.env` da API. O front nunca chama o FIRMS nem o LLM e não vê chave nenhuma. O logger apaga as chaves antes de gravar.
 - **Entradas:** todas validadas com zod; consultas parametrizadas; erros em problem+json sem stack trace.
 - **Rede e navegador:** rate limit (mais restrito no CSV); CORS só para a origem do front; CSP sem `unsafe-inline`.
 - **Dados externos na tela:** sempre por `textContent`; nunca `innerHTML`.
