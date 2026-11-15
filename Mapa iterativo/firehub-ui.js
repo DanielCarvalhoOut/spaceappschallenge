@@ -1207,13 +1207,18 @@
 
     const head = el('div', 'intel-head');
     const tier = ins.riskTier || 'moderate';
+    const scoreWrap = el('strong', 'intel-mono', `${I.num(ins.agroInsuranceScore || 0, 1)} / 100`);
+    const isLive = telemetryMode !== 'fallback_mock';
+    const dot = el('span', `sat-dot ${isLive ? 'sat-dot--live' : 'sat-dot--snapshot'}`);
+    dot.title = isLive ? t('intel.source.live') : t('intel.source.fallback');
+    scoreWrap.append(dot);
     head.append(
       el(
         'span',
         `intel-badge intel-badge--${tier}`,
         t('agro.ratingBadge', { rating: ins.underwritingRating || 'BBB', tier: t(`pred.risk.${tier}`) })
       ),
-      el('strong', 'intel-mono', `${I.num(ins.agroInsuranceScore || 0, 1)} / 100`)
+      scoreWrap
     );
     box.append(head);
 
@@ -1320,11 +1325,6 @@
           for: I.num(m12.forestRlAppPct || 0, 1),
           iface: I.num(m12.interfaceRiskIndex || 0, 1),
         })
-      ),
-      el(
-        'small',
-        'intel-foot',
-        telemetryMode === 'fallback_mock' ? t('intel.source.fallback') : t('intel.source.live')
       )
     );
   }
