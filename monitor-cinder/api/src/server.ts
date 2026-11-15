@@ -56,14 +56,27 @@ export function startHistoryLoadIfMissing(): void {
   })();
 }
 
+/**
+ * CORS: the configured origin(s), comma-separated. When the configured front is on this machine (localhost),
+ * any localhost port is accepted too, so the front keeps working when its port was already taken by another program.
+ * Any other site is refused.
+ */
+export function corsAllows(configured: string): (origin: string) => boolean {
+  const allowed = configured.split(',').map((o) => o.trim()).filter(Boolean);
+  const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d{2,5}$/;
+  const localDev = allowed.some((o) => LOCAL.test(o));
+  return (origin) => allowed.includes('*') || allowed.includes(origin) || (localDev && LOCAL.test(origin));
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
     trustProxy: true,
   });
 
+  const allow = corsAllows(config.CORS_ORIGIN);
   await app.register(cors, {
-    origin: config.CORS_ORIGIN === '*' ? true : config.CORS_ORIGIN,
+    origin: config.CORS_ORIGIN === '*' ? true : (origin, cb) => { cb(null, !origin || allow(origin)); },
     methods: ['GET', 'OPTIONS'],
   });
 
