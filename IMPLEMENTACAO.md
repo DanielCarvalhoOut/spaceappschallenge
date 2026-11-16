@@ -45,7 +45,7 @@ Documento de contexto e execução para quem vai codar (pessoas e Claude Code). 
    - A pasta `Mapa iterativo/` foi **reescrita do zero** em 14/11. Os arquivos antigos de terceiros (`assets/`, `painel-original.html`) **precisam ser apagados** e nunca podem ir para o repositório.
    - Todo recurso de terceiros (bibliotecas npm, dados) vai em "References".
 2. **Idioma.** A página do projeto, o README do repositório e os slides da submissão vão em **inglês**; o vídeo pode ser em português **com legenda em inglês**. A interface é **bilíngue**: abre em português (apresentação local) e o botão `EN` muda tudo para inglês. Grave o vídeo e as capturas da submissão com a interface em inglês.
-3. **Segredos:** `FIRMS_MAP_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY` e `ANTHROPIC_API_KEY` ficam só em `monitor-cinder/api/.env` (rastreado temporariamente para os testes da equipe; sai do git e a MAP_KEY é trocada depois da entrega). Nenhuma chave como valor padrão no código. O front nunca chama FIRMS. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
+3. **Segredos:** `FIRMS_MAP_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY` e `ANTHROPIC_API_KEY` ficam só em `monitor-cinder/api/.env` (não versionado; a MAP_KEY antiga, que ficou no histórico do git, foi substituída). Nenhuma chave como valor padrão no código. O front nunca chama FIRMS. Nenhuma URL com chave é gravada em banco ou log (o `CHECK` de `fire.ingest_batch` barra a MAP_KEY).
 4. **Dado da NASA é o núcleo.** O FIRMS é obrigatório e é a única base da harmonização e da anomalia. INPE é conferência; NASA POWER, ORNL DAAC e ONI são contexto.
 5. **Uso de IA declarado** no README ("AI-assisted code") e na página do projeto.
 6. **Padrões técnicos:**
